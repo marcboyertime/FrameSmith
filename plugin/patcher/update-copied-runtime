@@ -567,7 +567,9 @@ compare_onboarding_framework_identity "$update_dir/stock-before" "$update_dir/co
 compare_onboarding_framework_identity "$update_dir/copied-before" "$update_dir/copied-after" "copied-after"
 verify_onboarding_framework_load_path "$copied_executable" "$update_dir/copied-after" "copied-after"
 verify_load_commands "after"
-if ! /usr/bin/cmp -s "$update_dir/copied-before/main-executable.uuids.txt" "$update_dir/copied-after/main-executable.uuids.txt"; then
+copied_after_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$update_dir/copied-after/main-executable.uuids.txt")"
+copied_after_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$update_dir/copied-after/main-executable.uuids.txt")"
+if [[ "$copied_after_arm64_uuid" != "$copied_arm64_uuid" || "$copied_after_x86_64_uuid" != "$copied_x86_64_uuid" ]]; then
     fail "copied executable slice UUID changed during the runtime-only update"
 fi
 verify_compatibility_policy "$embedded_compatibility_policy" "embedded-after-signing"

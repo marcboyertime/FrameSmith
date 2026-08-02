@@ -612,6 +612,16 @@ done
 if "$rg_bin" -F -q -- '/usr/bin/mv' "$runtime_updater"; then
     fail "runtime updater references the nonexistent macOS /usr/bin/mv path"
 fi
+for uuid_value_comparison_fragment in \
+    'copied_after_arm64_uuid="$(/usr/bin/awk' \
+    'copied_after_x86_64_uuid="$(/usr/bin/awk' \
+    '"$copied_after_arm64_uuid" != "$copied_arm64_uuid"' \
+    '"$copied_after_x86_64_uuid" != "$copied_x86_64_uuid"'; do
+    require_fragment "$uuid_value_comparison_fragment" "$runtime_updater" "path-independent staged executable UUID verification"
+done
+if "$rg_bin" -F -q -- 'cmp -s "$update_dir/copied-before/main-executable.uuids.txt" "$update_dir/copied-after/main-executable.uuids.txt"' "$runtime_updater"; then
+    fail "runtime updater compares path-bearing staged UUID reports byte-for-byte"
+fi
 require_fragment 'if ! /usr/bin/cmp -s "$update_dir/copied-before/Info.plist.sha256" "$update_dir/copied-after/Info.plist.sha256"; then' "$runtime_updater" "unconditional copied-app metadata preservation gate"
 if "$rg_bin" -F -q -- 'if [[ "$migration_required" == "false" ]] && ! /usr/bin/cmp -s "$update_dir/copied-before/Info.plist.sha256"' "$runtime_updater"; then
     fail "copied-app Info.plist preservation must not be exempted during entitlement migration"
