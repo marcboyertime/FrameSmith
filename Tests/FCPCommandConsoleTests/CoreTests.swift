@@ -351,18 +351,48 @@ final class CoreTests: XCTestCase {
         XCTAssertThrowsError(try PlanValidator(registry: registry).validate(invalid))
     }
 
-    func testAnchorCompensationCenterAndOffCenter() {
+    func testTargetedCompensationCenterAndOffCenter() throws {
         let center = Point2D(x: 0.5, y: 0.5)
-        let unchanged = SpatialTransformMath.compensate(source: center, scale: 2, rotationDegrees: 45)
-        XCTAssertEqual(unchanged.translation.x, 0, accuracy: 1e-12)
-        XCTAssertEqual(unchanged.translation.y, 0, accuracy: 1e-12)
+        let centerResult = try SpatialTransformMath.targetedCompensation(
+            source: center,
+            scale: 2,
+            rotationDegrees: 45,
+            centeringProgress: 1
+        )
+        XCTAssertEqual(centerResult.translation.x, 0, accuracy: 1e-12)
+        XCTAssertEqual(centerResult.translation.y, 0, accuracy: 1e-12)
+
         let point = Point2D(x: 0.8, y: 0.5)
-        let compensated = SpatialTransformMath.compensate(source: point, scale: 2, rotationDegrees: 0)
-        let applied = SpatialTransformMath.apply(point: point, scale: 2, rotationDegrees: 0, translation: compensated.translation)
-        XCTAssertEqual(applied.x, point.x, accuracy: 1e-12)
-        XCTAssertEqual(applied.y, point.y, accuracy: 1e-12)
-        XCTAssertLessThan(compensated.translation.x, 0)
-        XCTAssertEqual(compensated.compensatedAnchor.x, 0.65, accuracy: 1e-12)
+        let start = try SpatialTransformMath.targetedCompensation(
+            source: point,
+            scale: 1,
+            rotationDegrees: 0,
+            centeringProgress: 0
+        )
+        let startApplied = SpatialTransformMath.apply(
+            point: point,
+            scale: 1,
+            rotationDegrees: 0,
+            translation: start.translation
+        )
+        XCTAssertEqual(startApplied.x, point.x, accuracy: 1e-12)
+        XCTAssertEqual(startApplied.y, point.y, accuracy: 1e-12)
+
+        let end = try SpatialTransformMath.targetedCompensation(
+            source: point,
+            scale: 2,
+            rotationDegrees: 0,
+            centeringProgress: 1
+        )
+        let endApplied = SpatialTransformMath.apply(
+            point: point,
+            scale: 2,
+            rotationDegrees: 0,
+            translation: end.translation
+        )
+        XCTAssertEqual(endApplied.x, center.x, accuracy: 1e-12)
+        XCTAssertEqual(endApplied.y, center.y, accuracy: 1e-12)
+        XCTAssertGreaterThan(end.translation.x.magnitude, 0)
     }
 
     func testDissolveSelectionRequirements() throws {
