@@ -12,8 +12,11 @@ destination_root="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole"
 copied_app="$destination_root/Final Cut Pro - FCPCommandConsole.app"
 copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
 framework_name="FCPCommandConsoleRuntime.framework"
+built_framework="$plugin_dir/build/$framework_name"
+built_compatibility_policy="$built_framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 embedded_framework="$copied_app/Contents/Frameworks/$framework_name"
 embedded_runtime="$embedded_framework/Versions/A/FCPCommandConsoleRuntime"
+embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 entitlement_verifier="$plugin_dir/build/fcpcc-entitlement-verify"
 allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
 preferences_file="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
@@ -74,6 +77,32 @@ require_not_running() {
     print -r -- "no Final Cut Pro process observed" > "$audit_file"
 }
 
+verify_compatibility_policy() {
+    local policy_path="$1"
+    local label="$2"
+    if ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
+        fail "$label compatibility policy is invalid"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" ]]; then
+        fail "$label compatibility policy host bundle identifier is not exact"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" ]]; then
+        fail "$label compatibility policy host version/build is not exact"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
+        fail "$label compatibility policy does not use the current application domain"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:0' "$policy_path")" != "CloudContentFirstLaunchCompleted" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:1' "$policy_path")" != "FFCloudContentDisabled" ]]; then
+        fail "$label compatibility policy approved key order is not exact"
+    fi
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:2' "$policy_path" >/dev/null 2>&1; then
+        fail "$label compatibility policy permits more than two preference keys"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" ]]; then
+        fail "$label compatibility policy does not require the reviewed true values and synchronization"
+    fi
+}
+
 verify_entitlement_allowlist() {
     local stock_entitlements="$1"
     local expected_entitlements="$2"
@@ -125,10 +154,10 @@ verify_entitlement_allowlist() {
 if [[ ! -d "$source_app" || ! -f "$source_executable" ]]; then
     fail "required source app is missing"
 fi
-if [[ ! -d "$copied_app" || ! -f "$copied_executable" || ! -f "$embedded_runtime" ]]; then
+if [[ ! -d "$copied_app" || ! -f "$copied_executable" || ! -f "$embedded_runtime" || ! -f "$embedded_compatibility_policy" ]]; then
     fail "approved copied artifact or embedded runtime is missing"
 fi
-if [[ ! -f "$allowlist" || ! -x "$entitlement_verifier" ]]; then
+if [[ ! -d "$built_framework" || ! -f "$built_compatibility_policy" || ! -f "$allowlist" || ! -x "$entitlement_verifier" ]]; then
     fail "run plugin/scripts/build-minimal-runtime successfully before verification"
 fi
 source_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_app/Contents/Info.plist")"
@@ -224,6 +253,29 @@ verify_entitlement_allowlist \
 if /usr/bin/grep -E '(_socket|_bind|_listen|_accept)' "$verify_dir/runtime-undefined-symbols.txt" >/dev/null; then
     fail "runtime imports a listener primitive"
 fi
+for required_runtime_symbol in _CFPreferencesSetAppValue _CFPreferencesAppSynchronize; do
+    if ! /usr/bin/grep -F -q "$required_runtime_symbol" "$verify_dir/runtime-undefined-symbols.txt"; then
+        fail "runtime does not import required isolated preference initializer symbol: $required_runtime_symbol"
+    fi
+done
+verify_compatibility_policy "$built_compatibility_policy" "built"
+verify_compatibility_policy "$embedded_compatibility_policy" "embedded"
+if ! /usr/bin/cmp -s "$built_compatibility_policy" "$embedded_compatibility_policy"; then
+    fail "embedded compatibility policy does not exactly match the freshly built runtime policy"
+fi
+/usr/bin/strings "$embedded_runtime" > "$verify_dir/runtime-strings.txt"
+for required_runtime_string in com.local.fcpcommandconsole.FinalCut 12.3 450152 CloudContentFirstLaunchCompleted FFCloudContentDisabled; do
+    if ! /usr/bin/grep -F -x -q "$required_runtime_string" "$verify_dir/runtime-strings.txt"; then
+        fail "runtime is missing required exact-host or approved preference string: $required_runtime_string"
+    fi
+done
+if /usr/bin/grep -F -q 'com.apple.FinalCut' "$verify_dir/runtime-strings.txt"; then
+    fail "runtime contains the production Final Cut preference domain"
+fi
+if /usr/bin/grep -E '(^|/)defaults($| )' "$verify_dir/runtime-strings.txt" >/dev/null; then
+    fail "runtime contains a defaults executable invocation surface"
+fi
+print -r -- "isolated_compatibility_policy=pass host=com.local.fcpcommandconsole.FinalCut version=12.3 build=450152 writes=2 domain=current_application synchronized=true" > "$verify_dir/runtime-compatibility-audit.txt"
 
 /usr/sbin/lsof -nP -iTCP -sTCP:LISTEN > "$verify_dir/listener-audit.txt" 2>&1 || true
 require_not_running "$verify_dir/process-after-verify.txt"

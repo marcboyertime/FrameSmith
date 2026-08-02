@@ -41,6 +41,7 @@ entitlement_verifier="$build_dir/fcpcc-entitlement-verify"
 /bin/cp "$runtime_dir/Resources/FCPCommandConsoleRuntime-Info.plist" "$framework_dir/Versions/A/Resources/Info.plist"
 /bin/cp "$repo_dir/config/fcpcommandconsole-library-manifest.json" "$framework_dir/Versions/A/Resources/FCPCommandConsoleLibraryManifest.json"
 /bin/cp "$runtime_dir/Resources/LATER_INTEGRATION_INTERFACE.json" "$framework_dir/Versions/A/Resources/LATER_INTEGRATION_INTERFACE.json"
+/bin/cp "$runtime_dir/Resources/FCPCCIsolatedCloudContentCompatibility.plist" "$framework_dir/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 /bin/ln -sfn A "$framework_dir/Versions/Current"
 /bin/ln -sfn Versions/Current/FCPCommandConsoleRuntime "$framework_dir/FCPCommandConsoleRuntime"
 /bin/ln -sfn Versions/Current/Resources "$framework_dir/Resources"
@@ -72,6 +73,7 @@ entitlement_verifier="$build_dir/fcpcc-entitlement-verify"
   -o "$entitlement_verifier"
 
 /usr/bin/plutil -lint "$framework_dir/Versions/A/Resources/Info.plist" >/dev/null
+/usr/bin/plutil -lint "$framework_dir/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist" >/dev/null
 /usr/bin/lipo "$runtime_binary" -verify_arch arm64
 /usr/bin/lipo "$runtime_binary" -verify_arch x86_64
 /usr/bin/lipo "$injector_binary" -verify_arch arm64

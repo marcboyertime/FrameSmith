@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>SchemaVersion</key>
+    <integer>1</integer>
+    <key>ExpectedHostBundleIdentifier</key>
+    <string>com.local.fcpcommandconsole.FinalCut</string>
+    <key>ExpectedHostVersion</key>
+    <string>12.3</string>
+    <key>ExpectedHostBuild</key>
+    <string>450152</string>
+    <key>PreferenceDomain</key>
+    <string>kCFPreferencesCurrentApplication</string>
+    <key>ApprovedPreferenceKeys</key>
+    <array>
+        <string>CloudContentFirstLaunchCompleted</string>
+        <string>FFCloudContentDisabled</string>
+    </array>
+    <key>ApprovedPreferenceValues</key>
+    <dict>
+        <key>CloudContentFirstLaunchCompleted</key>
+        <true/>
+        <key>FFCloudContentDisabled</key>
+        <true/>
+    </dict>
+    <key>SynchronizeDeterministically</key>
+    <true/>
+    <key>SourceSnapshotCommit</key>
+    <string>f4f6618121309a69b66272b441f34cf8ad57f306</string>
+    <key>SourceAttribution</key>
+    <string>Manually transcribed bounded skip flags from the locked SpliceKit reference documentation; no upstream runtime code is used.</string>
+</dict>
+</plist>

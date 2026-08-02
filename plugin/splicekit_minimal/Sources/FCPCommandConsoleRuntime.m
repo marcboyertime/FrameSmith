@@ -13,6 +13,8 @@ static NSString * const FCPCCExpectedHostBundleIdentifier = @"com.local.fcpcomma
 static NSString * const FCPCCExpectedHostVersion = @"12.3";
 static NSString * const FCPCCExpectedHostBuild = @"450152";
 static NSString * const FCPCCExpectedRuntimeFrameworkName = @"FCPCommandConsoleRuntime.framework";
+static NSString * const FCPCCCloudContentFirstLaunchCompletedKey = @"CloudContentFirstLaunchCompleted";
+static NSString * const FCPCCFFCloudContentDisabledKey = @"FFCloudContentDisabled";
 
 // Offline-inspected candidates. These values are intentionally fixed and have
 // no execution path in this build.
@@ -250,6 +252,74 @@ typedef NS_ENUM(NSInteger, FCPCCGateDisposition) {
 
 @end
 
+typedef NS_ENUM(NSInteger, FCPCCCloudContentCompatibilityDisposition) {
+    FCPCCCloudContentCompatibilityDispositionSynchronized = 0,
+    FCPCCCloudContentCompatibilityDispositionHostUnverified = 1,
+    FCPCCCloudContentCompatibilityDispositionSynchronizationFailed = 2,
+};
+
+@interface FCPCCCloudContentCompatibilityStatus : NSObject
+@property (nonatomic, readonly) FCPCCCloudContentCompatibilityDisposition disposition;
+@property (nonatomic, copy, readonly) NSString *summary;
+@property (nonatomic, readonly, getter=isSynchronized) BOOL synchronized;
+- (instancetype)initWithDisposition:(FCPCCCloudContentCompatibilityDisposition)disposition summary:(NSString *)summary;
+@end
+
+@implementation FCPCCCloudContentCompatibilityStatus
+
+- (instancetype)initWithDisposition:(FCPCCCloudContentCompatibilityDisposition)disposition summary:(NSString *)summary {
+    self = [super init];
+    if (self != nil) {
+        _disposition = disposition;
+        _summary = [summary copy];
+        _synchronized = disposition == FCPCCCloudContentCompatibilityDispositionSynchronized;
+    }
+    return self;
+}
+
+@end
+
+// These fixed, manually transcribed flags are the only compatibility writes in
+// this runtime. They are applied only after the exact copied-host and runtime
+// containment gate succeeds. kCFPreferencesCurrentApplication resolves to the
+// running isolated app domain; no production Final Cut preference domain is named.
+static FCPCCCloudContentCompatibilityStatus *FCPCCInitializeIsolatedCloudContentCompatibility(void) {
+    static FCPCCCloudContentCompatibilityStatus *status;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
+        if (!containment.isVerified) {
+            status = [[FCPCCCloudContentCompatibilityStatus alloc] initWithDisposition:FCPCCCloudContentCompatibilityDispositionHostUnverified
+                                                                                summary:@"isolated_cloud_content_host_unverified"];
+            return;
+        }
+
+        CFPreferencesSetAppValue((__bridge CFStringRef)FCPCCCloudContentFirstLaunchCompletedKey,
+                                 kCFBooleanTrue,
+                                 kCFPreferencesCurrentApplication);
+        CFPreferencesSetAppValue((__bridge CFStringRef)FCPCCFFCloudContentDisabledKey,
+                                 kCFBooleanTrue,
+                                 kCFPreferencesCurrentApplication);
+        Boolean synchronized = CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication);
+        Boolean firstLaunchValueIsValid = false;
+        Boolean firstLaunchCompleted = CFPreferencesGetAppBooleanValue((__bridge CFStringRef)FCPCCCloudContentFirstLaunchCompletedKey,
+                                                                        kCFPreferencesCurrentApplication,
+                                                                        &firstLaunchValueIsValid);
+        Boolean disabledValueIsValid = false;
+        Boolean cloudContentDisabled = CFPreferencesGetAppBooleanValue((__bridge CFStringRef)FCPCCFFCloudContentDisabledKey,
+                                                                         kCFPreferencesCurrentApplication,
+                                                                         &disabledValueIsValid);
+        if (synchronized && firstLaunchValueIsValid && firstLaunchCompleted && disabledValueIsValid && cloudContentDisabled) {
+            status = [[FCPCCCloudContentCompatibilityStatus alloc] initWithDisposition:FCPCCCloudContentCompatibilityDispositionSynchronized
+                                                                                summary:@"isolated_cloud_content_flags_synchronized"];
+            return;
+        }
+        status = [[FCPCCCloudContentCompatibilityStatus alloc] initWithDisposition:FCPCCCloudContentCompatibilityDispositionSynchronizationFailed
+                                                                            summary:@"isolated_cloud_content_flag_synchronization_failed"];
+    });
+    return status;
+}
+
 @interface FCPCCCapabilityStatus : NSObject
 @property (nonatomic, copy, readonly) NSString *selectionSummary;
 @property (nonatomic, copy, readonly) NSString *capabilitySummary;
@@ -310,6 +380,7 @@ typedef NS_ENUM(NSInteger, FCPCCGateDisposition) {
 
 @interface FCPCCPanelController : NSWindowController
 @property (nonatomic, strong) NSTextField *containmentField;
+@property (nonatomic, strong) NSTextField *compatibilityField;
 @property (nonatomic, strong) NSTextField *libraryField;
 @property (nonatomic, strong) NSTextField *capabilityField;
 @property (nonatomic, strong) NSTextField *historyField;
@@ -351,28 +422,31 @@ typedef NS_ENUM(NSInteger, FCPCCGateDisposition) {
     [content addSubview:[self label:@"FCP Command Console — isolated runtime shell" frame:NSMakeRect(20, 500, width - 40, 24) weight:NSFontWeightSemibold]];
 
     FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
+    FCPCCCloudContentCompatibilityStatus *compatibility = FCPCCInitializeIsolatedCloudContentCompatibility();
     FCPCCGateStatus *library = [[[FCPCCLibraryInvariantGate alloc] init] evaluate];
     FCPCCCapabilityStatus *capabilities = FCPCCCapabilityStatus.unverifiedPlaceholder;
     self.containmentField = [self label:[@"Copied app/runtime: " stringByAppendingString:containment.summary] frame:NSMakeRect(20, 462, width - 40, 30) weight:NSFontWeightRegular];
-    self.libraryField = [self label:[@"Library invariant: " stringByAppendingString:library.summary] frame:NSMakeRect(20, 426, width - 40, 30) weight:NSFontWeightRegular];
-    self.capabilityField = [self label:[capabilities.selectionSummary stringByAppendingFormat:@"\n%@", capabilities.capabilitySummary] frame:NSMakeRect(20, 382, width - 40, 38) weight:NSFontWeightRegular];
+    self.compatibilityField = [self label:[@"Isolated cloud compatibility: " stringByAppendingString:compatibility.summary] frame:NSMakeRect(20, 426, width - 40, 30) weight:NSFontWeightRegular];
+    self.libraryField = [self label:[@"Library invariant: " stringByAppendingString:library.summary] frame:NSMakeRect(20, 390, width - 40, 30) weight:NSFontWeightRegular];
+    self.capabilityField = [self label:[capabilities.selectionSummary stringByAppendingFormat:@"\n%@", capabilities.capabilitySummary] frame:NSMakeRect(20, 346, width - 40, 38) weight:NSFontWeightRegular];
     [content addSubview:self.containmentField];
+    [content addSubview:self.compatibilityField];
     [content addSubview:self.libraryField];
     [content addSubview:self.capabilityField];
 
-    [content addSubview:[self label:@"Command" frame:NSMakeRect(20, 344, 100, 18) weight:NSFontWeightMedium]];
-    NSTextField *commandField = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 315, width - 40, 24)];
+    [content addSubview:[self label:@"Command" frame:NSMakeRect(20, 308, 100, 18) weight:NSFontWeightMedium]];
+    NSTextField *commandField = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 279, width - 40, 24)];
     commandField.placeholderString = @"Describe a future command; no execution is available in this build.";
     [content addSubview:commandField];
 
-    [content addSubview:[self label:@"Plan / editability" frame:NSMakeRect(20, 286, 160, 18) weight:NSFontWeightMedium]];
-    NSTextField *planField = [self label:@"No edit plan is available. The live capability and exactly-one-library gates remain unverified." frame:NSMakeRect(20, 252, width - 40, 30) weight:NSFontWeightRegular];
+    [content addSubview:[self label:@"Plan / editability" frame:NSMakeRect(20, 250, 160, 18) weight:NSFontWeightMedium]];
+    NSTextField *planField = [self label:@"No edit plan is available. The live capability and exactly-one-library gates remain unverified." frame:NSMakeRect(20, 216, width - 40, 30) weight:NSFontWeightRegular];
     [content addSubview:planField];
 
-    [content addSubview:[self label:@"Target point: unavailable" frame:NSMakeRect(20, 220, width - 40, 18) weight:NSFontWeightMedium]];
-    [content addSubview:[self label:@"Preview: unavailable until a separately reviewed live spike." frame:NSMakeRect(20, 194, width - 40, 18) weight:NSFontWeightRegular]];
+    [content addSubview:[self label:@"Target point: unavailable" frame:NSMakeRect(20, 184, width - 40, 18) weight:NSFontWeightMedium]];
+    [content addSubview:[self label:@"Preview: unavailable until a separately reviewed live spike." frame:NSMakeRect(20, 158, width - 40, 18) weight:NSFontWeightRegular]];
 
-    self.historyField = [self label:@"History / error: unsupported_unverified_fcp_12_3" frame:NSMakeRect(20, 142, width - 40, 38) weight:NSFontWeightRegular];
+    self.historyField = [self label:@"History / error: unsupported_unverified_fcp_12_3" frame:NSMakeRect(20, 106, width - 40, 38) weight:NSFontWeightRegular];
     [content addSubview:self.historyField];
 
     self.applyButton = [[NSButton alloc] initWithFrame:NSMakeRect(width - 270, 28, 80, 30)];
@@ -474,6 +548,7 @@ typedef NS_ENUM(NSInteger, FCPCCGateDisposition) {
 
 __attribute__((constructor))
 static void FCPCCInstallRuntime(void) {
+    (void)FCPCCInitializeIsolatedCloudContentCompatibility();
     dispatch_async(dispatch_get_main_queue(), ^{
         [[FCPCCRuntime sharedRuntime] installMenuWhenReady];
     });

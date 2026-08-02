@@ -8,8 +8,11 @@ plugin_dir="$(/usr/bin/dirname "$script_dir")"
 repo_dir="$(/usr/bin/dirname "$plugin_dir")"
 runtime_source="$plugin_dir/splicekit_minimal/Sources"
 runtime_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
+runtime_policy_source="$plugin_dir/splicekit_minimal/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
+runtime_policy_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 injector="$plugin_dir/build/fcpcc-insert-dylib"
 entitlement_verifier="$plugin_dir/build/fcpcc-entitlement-verify"
+runtime_updater="$plugin_dir/patcher/update-copied-runtime"
 allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
 source_app="/Applications/Final Cut Pro.app"
 source_executable="$source_app/Contents/MacOS/Final Cut Pro"
@@ -31,7 +34,7 @@ require_absent() {
     fi
 }
 
-if [[ ! -x "$injector" || ! -x "$entitlement_verifier" || ! -f "$runtime_build" ]]; then
+if [[ ! -x "$injector" || ! -x "$entitlement_verifier" || ! -f "$runtime_build" || ! -f "$runtime_policy_source" || ! -f "$runtime_policy_build" ]]; then
     fail "run plugin/scripts/build-minimal-runtime successfully before tests"
 fi
 if [[ -z "$rg_bin" ]]; then
@@ -114,14 +117,60 @@ for manifest_field in canonical_path expected_device expected_inode persistent_u
     fi
 done
 
-for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp" "$plugin_dir/patcher/repair-library-validation-entitlement"; do
-    for forbidden_patcher_term in 'curl' 'git ' 'DYLD_' 'defaults' 'kill' 'osascript' 'xattr' 'rm -'; do
+runtime_implementation="$runtime_source/FCPCommandConsoleRuntime.m"
+if "$rg_bin" -n -i -F 'com.apple.FinalCut' "$runtime_source" >/dev/null; then
+    fail "runtime contains the production Final Cut preference domain"
+fi
+if "$rg_bin" -n -i -F 'defaults' "$runtime_source" >/dev/null; then
+    fail "runtime invokes or names defaults"
+fi
+preference_write_count="$("$rg_bin" -F -c 'CFPreferencesSetAppValue' "$runtime_implementation")"
+if [[ "$preference_write_count" != "2" ]]; then
+    fail "runtime does not have exactly two isolated preference writes"
+fi
+preference_write_lines="$("$rg_bin" -n -F 'CFPreferencesSetAppValue' "$runtime_implementation")"
+if ! print -r -- "$preference_write_lines" | "$rg_bin" -F -q 'FCPCCCloudContentFirstLaunchCompletedKey' || ! print -r -- "$preference_write_lines" | "$rg_bin" -F -q 'FCPCCFFCloudContentDisabledKey'; then
+    fail "runtime preference writes are not restricted to the two approved fixed keys"
+fi
+host_gate_line="$("$rg_bin" -n -F 'FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];' "$runtime_implementation" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+host_guard_line="$("$rg_bin" -n -F 'if (!containment.isVerified)' "$runtime_implementation" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+first_preference_write_line="$(print -r -- "$preference_write_lines" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+synchronize_line="$("$rg_bin" -n -F 'CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication)' "$runtime_implementation" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+if [[ -z "$host_gate_line" || -z "$host_guard_line" || -z "$first_preference_write_line" || -z "$synchronize_line" || "$host_gate_line" -ge "$host_guard_line" || "$host_guard_line" -ge "$first_preference_write_line" || "$first_preference_write_line" -ge "$synchronize_line" ]]; then
+    fail "exact-host containment gate does not precede isolated preference writes and synchronization"
+fi
+constructor_tail="$(/usr/bin/sed -n '/static void FCPCCInstallRuntime(void)/,$p' "$runtime_implementation")"
+if print -r -- "$constructor_tail" | "$rg_bin" -F -q 'showPanel:' || print -r -- "$constructor_tail" | "$rg_bin" -F -q 'showWindow:' || print -r -- "$constructor_tail" | "$rg_bin" -F -q 'makeKeyAndOrderFront:'; then
+    fail "runtime constructor auto-shows the panel"
+fi
+/usr/bin/plutil -lint "$runtime_policy_source" >/dev/null
+/usr/bin/plutil -lint "$runtime_policy_build" >/dev/null
+for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
+        fail "compatibility policy host or isolated preference domain is not exact"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:0' "$policy_path")" != "CloudContentFirstLaunchCompleted" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:1' "$policy_path")" != "FFCloudContentDisabled" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" ]]; then
+        fail "compatibility policy does not contain exactly the two reviewed true values"
+    fi
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:2' "$policy_path" >/dev/null 2>&1; then
+        fail "compatibility policy permits more than two preference keys"
+    fi
+done
+if ! /usr/bin/cmp -s "$runtime_policy_source" "$runtime_policy_build"; then
+    fail "built compatibility policy differs from the project-owned source policy"
+fi
+
+for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp" "$plugin_dir/patcher/repair-library-validation-entitlement" "$runtime_updater"; do
+    for forbidden_patcher_term in 'curl' 'git ' 'DYLD_' 'kill' 'osascript' 'xattr' 'rm -'; do
         if "$rg_bin" -n -i -F "$forbidden_patcher_term" "$patcher_script" >/dev/null; then
             fail "patcher safety audit matched: $forbidden_patcher_term"
         fi
     done
+    if "$rg_bin" -F -q '/usr/bin/defaults' "$patcher_script" || "$rg_bin" -F -q '/bin/defaults' "$patcher_script"; then
+        fail "patcher safety audit matched a defaults executable invocation"
+    fi
 done
-for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp" "$plugin_dir/patcher/repair-library-validation-entitlement"; do
+for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp" "$plugin_dir/patcher/repair-library-validation-entitlement" "$runtime_updater"; do
     if ! "$rg_bin" -F -q 'required_added_entitlement="com.apple.security.cs.disable-library-validation"' "$patcher_script"; then
         fail "patcher does not require the reviewed library-validation entitlement"
     fi
@@ -146,6 +195,34 @@ fi
 if "$rg_bin" -F -- '--deep --sign' "$plugin_dir/patcher/repair-library-validation-entitlement" >/dev/null; then
     fail "repair script may deep-re-sign nested code"
 fi
+if [[ ! -x "$runtime_updater" ]]; then
+    fail "exact-target runtime updater is missing or not executable"
+fi
+for required_updater_fragment in \
+    'require_not_running' \
+    'verify_compatibility_policy' \
+    '/usr/bin/ditto "$built_framework" "$embedded_framework"' \
+    'codesign --force --sign "$signing_identity" --options runtime --timestamp=none "$embedded_framework"' \
+    'codesign --force --sign "$signing_identity" --options runtime --timestamp=none --entitlements "$top_level_entitlements" "$copied_app"' \
+    'stock_preferences=unchanged'; do
+    if ! "$rg_bin" -F -q "$required_updater_fragment" "$runtime_updater"; then
+        fail "runtime updater is missing required bounded operation: $required_updater_fragment"
+    fi
+done
+if "$rg_bin" -F -- '--deep --sign' "$runtime_updater" >/dev/null; then
+    fail "runtime updater may deep-sign nested code"
+fi
+if [[ "$("$rg_bin" -F -c 'codesign --force --sign' "$runtime_updater")" != "2" || "$("$rg_bin" -F -c '/usr/bin/ditto "$built_framework" "$embedded_framework"' "$runtime_updater")" != "1" ]]; then
+    fail "runtime updater does not limit direct signing and copying to the project-owned framework plus copied top-level app"
+fi
+if "$rg_bin" -n -i -F 'fcpbundle' "$runtime_updater" >/dev/null; then
+    fail "runtime updater references a Final Cut library"
+fi
+for forbidden_launcher in '/usr/bin/open' '/bin/open' 'open -a' 'exec ' 'launchctl'; do
+    if "$rg_bin" -F -q "$forbidden_launcher" "$runtime_updater"; then
+        fail "runtime updater may launch Final Cut"
+    fi
+done
 source_hash="$(/usr/bin/shasum -a 256 "$plugin_dir/tools/fcpcc-insert-dylib/src/main.c" | /usr/bin/awk '{print $1}')"
 if ! "$rg_bin" -F -q "$source_hash" "$plugin_dir/tools/fcpcc-insert-dylib/UPSTREAM.json"; then
     fail "injector source hash does not match provenance metadata"
