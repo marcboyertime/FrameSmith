@@ -5,7 +5,7 @@ public enum SchemaVersion: String, Codable, CaseIterable, Sendable {
 }
 
 /// The only effect identifiers that are part of the Phase 1 contract.
-public enum EffectID: String, Codable, CaseIterable, Sendable {
+public enum EffectID: String, Codable, CaseIterable, Sendable, Hashable {
     case targetedRotateZoom = "native.targeted_rotate_zoom"
     case oldTelevision = "look.old_television"
     case naturalDissolve = "transition.natural_dissolve"
