@@ -40,23 +40,43 @@ public struct MediaUploadApprovalRecord: Codable, Equatable, Sendable {
     }
 }
 
+public struct ProviderApprovalRecord: Codable, Equatable, Sendable {
+    public var timestamp: Date
+    public var provider: String
+    public var scope: String
+
+    public init(timestamp: Date = Date(), provider: String, scope: String = "provider-first-use") {
+        self.timestamp = timestamp; self.provider = provider; self.scope = scope
+    }
+}
+
 public struct CostPolicy: Sendable {
     public let monthlyCeilingUSD: Double
     public let usageURL: URL
     public let mediaUploadApprovalURL: URL
+    public let providerApprovalURL: URL
     private var approvedProviders: Set<String>
     private var approvedMediaUploadOperations: Set<UUID>
 
-    public init(monthlyCeilingUSD: Double = 20, usageURL: URL = PathPolicy.defaultOutputRoot.appendingPathComponent("usage/cost.jsonl"), approvedProviders: Set<String> = [], approvedMediaUploadOperations: Set<UUID> = [], mediaUploadApprovalURL: URL? = nil) {
+    public init(monthlyCeilingUSD: Double = 20, usageURL: URL = PathPolicy.defaultOutputRoot.appendingPathComponent("usage/cost.jsonl"), approvedProviders: Set<String> = [], approvedMediaUploadOperations: Set<UUID> = [], mediaUploadApprovalURL: URL? = nil, providerApprovalURL: URL? = nil) {
         self.monthlyCeilingUSD = monthlyCeilingUSD
         self.usageURL = usageURL
         self.mediaUploadApprovalURL = mediaUploadApprovalURL ?? usageURL.deletingLastPathComponent().appendingPathComponent("media-upload-approvals.jsonl")
+        self.providerApprovalURL = providerApprovalURL ?? usageURL.deletingLastPathComponent().appendingPathComponent("provider-approvals.jsonl")
         self.approvedProviders = approvedProviders
         self.approvedMediaUploadOperations = approvedMediaUploadOperations
     }
 
     public mutating func approveFirstProvider(_ provider: String) {
         approvedProviders.insert(provider)
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; encoder.outputFormatting = [.sortedKeys]
+        if let line = try? encoder.encode(ProviderApprovalRecord(provider: provider)) {
+            try? FileManager.default.createDirectory(at: providerApprovalURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: providerApprovalURL.path) { FileManager.default.createFile(atPath: providerApprovalURL.path, contents: nil) }
+            if let handle = try? FileHandle(forWritingTo: providerApprovalURL) {
+                _ = try? handle.seekToEnd(); _ = try? handle.write(contentsOf: line); _ = try? handle.write(contentsOf: Data([0x0a])); _ = try? handle.close()
+            }
+        }
     }
 
     /// Media approval is deliberately a separate, operation-scoped state. A
@@ -68,7 +88,7 @@ public struct CostPolicy: Sendable {
             try? FileManager.default.createDirectory(at: mediaUploadApprovalURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             if !FileManager.default.fileExists(atPath: mediaUploadApprovalURL.path) { FileManager.default.createFile(atPath: mediaUploadApprovalURL.path, contents: nil) }
             if let handle = try? FileHandle(forWritingTo: mediaUploadApprovalURL) {
-                try? handle.seekToEnd(); try? handle.write(contentsOf: line); try? handle.write(contentsOf: Data([0x0a])); try? handle.close()
+                _ = try? handle.seekToEnd(); _ = try? handle.write(contentsOf: line); _ = try? handle.write(contentsOf: Data([0x0a])); _ = try? handle.close()
             }
         }
     }

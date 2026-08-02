@@ -83,6 +83,7 @@ final class CoreTests: XCTestCase {
         let usage = temp.appendingPathComponent("usage.jsonl"); var costs = CostPolicy(monthlyCeilingUSD: 20, usageURL: usage)
         XCTAssertNoThrow(try costs.enforce(CostEstimate(), operationID: UUID()))
         costs.approveFirstProvider("provider"); XCTAssertNoThrow(try costs.enforce(CostEstimate(paid: true, usd: 2, provider: "provider")))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: costs.providerApprovalURL.path))
         let uploadOperation = UUID()
         let uploadEstimate = CostEstimate(paid: false, usd: 0, provider: "local", requiresMediaUpload: true)
         XCTAssertThrowsError(try costs.enforce(uploadEstimate, operationID: uploadOperation))
