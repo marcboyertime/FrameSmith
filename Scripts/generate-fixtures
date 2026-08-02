@@ -1,0 +1,183 @@
+#!/bin/zsh
+set -euo pipefail
+export PYTHONDONTWRITEBYTECODE=1
+
+if [[ "$#" -ne 0 ]]; then
+  print -u2 -r -- "usage: scripts/generate-fixtures (no arguments)"
+  exit 2
+fi
+
+readonly RUNTIME_ROOT="/Users/marcboyer/Movies/FCPCommandConsole"
+readonly FIXTURE_ROOT="$RUNTIME_ROOT/fixtures"
+readonly SCRIPT_DIR="${0:A:h}"
+readonly AUDIT_SCRIPT="$SCRIPT_DIR/audit-fixtures.py"
+readonly FFMPEG="/opt/homebrew/bin/ffmpeg"
+readonly FFPROBE="/opt/homebrew/bin/ffprobe"
+readonly SHASUM="/usr/bin/shasum"
+readonly PYTHON="/usr/bin/python3"
+readonly REALPATH="/bin/realpath"
+
+fail() {
+  print -u2 -r -- "fixture generator: $1"
+  exit 1
+}
+
+[[ -x "$FFMPEG" ]] || fail "missing executable: $FFMPEG"
+[[ -x "$FFPROBE" ]] || fail "missing executable: $FFPROBE"
+[[ -x "$SHASUM" ]] || fail "missing executable: $SHASUM"
+[[ -x "$PYTHON" ]] || fail "missing executable: $PYTHON"
+[[ -x "$REALPATH" ]] || fail "missing executable: $REALPATH"
+
+# Only this exact runtime subtree may be created. Existing symlinks are a
+# fail-closed condition so an output cannot escape the configured parent.
+[[ -e "$RUNTIME_ROOT" && ! -L "$RUNTIME_ROOT" ]] || fail "runtime root is missing or symlinked: $RUNTIME_ROOT"
+if [[ ! -e "$FIXTURE_ROOT" ]]; then
+  /bin/mkdir "$FIXTURE_ROOT"
+fi
+[[ -d "$FIXTURE_ROOT" && ! -L "$FIXTURE_ROOT" ]] || fail "fixture root is not a real directory: $FIXTURE_ROOT"
+canonical_root="$("$REALPATH" "$FIXTURE_ROOT" 2>/dev/null || true)"
+[[ "$canonical_root" == "$FIXTURE_ROOT" ]] || fail "fixture root canonicalization mismatch: $canonical_root"
+
+for name in clip-a.mov clip-b.mov living-still.png manifest.json; do
+  [[ ! -L "$FIXTURE_ROOT/$name" ]] || fail "generated output is symlinked: $FIXTURE_ROOT/$name"
+done
+
+manifest="$FIXTURE_ROOT/manifest.json"
+if [[ -f "$manifest" ]]; then
+  if "$PYTHON" "$AUDIT_SCRIPT" "$FIXTURE_ROOT" >/dev/null 2>&1; then
+    print -r -- "fixtures unchanged: $FIXTURE_ROOT"
+    "$PYTHON" "$AUDIT_SCRIPT" "$FIXTURE_ROOT"
+    exit 0
+  fi
+fi
+
+stamp="$(/bin/date -u +%Y%m%dT%H%M%SZ)"
+staging="$FIXTURE_ROOT/.staging-$stamp-$$-$RANDOM"
+while [[ -e "$staging" ]]; do
+  staging="$FIXTURE_ROOT/.staging-$stamp-$$-$RANDOM"
+done
+/bin/mkdir "$staging"
+cleanup() {
+  if [[ -d "$staging" ]]; then
+    /bin/rm -rf "$staging"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+clip_a="$staging/clip-a.mov"
+clip_b="$staging/clip-b.mov"
+still="$staging/living-still.png"
+
+# Fixed lavfi sources, fixed dimensions/rates, and fixed PCM audio make these
+# synthetic inputs reproducible without reading user media or the network.
+"$FFMPEG" -hide_banner -loglevel error -nostdin \
+  -f lavfi -i 'testsrc2=size=1920x1080:rate=30:duration=8' \
+  -f lavfi -i 'sine=frequency=440:sample_rate=48000:duration=8' \
+  -map 0:v:0 -map 1:a:0 -t 8 -c:v prores_ks -profile:v 1 -pix_fmt yuv422p10le \
+  -c:a pcm_s16le -ar 48000 -ac 2 -metadata comment='FCPCommandConsole synthetic clip A' "$clip_a"
+
+"$FFMPEG" -hide_banner -loglevel error -nostdin \
+  -f lavfi -i 'smptebars=size=1920x1080:rate=30:duration=8' \
+  -f lavfi -i 'sine=frequency=880:sample_rate=48000:duration=8' \
+  -map 0:v:0 -map 1:a:0 -t 8 -c:v prores_ks -profile:v 1 -pix_fmt yuv422p10le \
+  -c:a pcm_s16le -ar 48000 -ac 2 -metadata comment='FCPCommandConsole synthetic clip B' "$clip_b"
+
+"$FFMPEG" -hide_banner -loglevel error -nostdin \
+  -f lavfi -i 'color=c=0x17212b:size=1920x1080:rate=1:duration=1,drawbox=x=160:y=120:w=500:h=360:color=0xff4d4d@0.95:t=14,drawbox=x=1260:y=650:w=440:h=300:color=0x32d2ff@0.95:t=14,drawbox=x=900:y=400:w=120:h=120:color=0xffcc00@1.0:t=10' \
+  -frames:v 1 -c:v png "$still"
+
+"$PYTHON" - "$staging" "$FIXTURE_ROOT" "$FFPROBE" "$SHASUM" <<'PY'
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+staging = Path(sys.argv[1]).resolve()
+root = Path(sys.argv[2]).resolve()
+ffprobe = sys.argv[3]
+shasum = sys.argv[4]
+
+def digest(path: Path) -> str:
+    with path.open("rb") as handle:
+        value = hashlib.sha256()
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            value.update(chunk)
+        return value.hexdigest()
+
+def probe(path: Path) -> dict:
+    args = [ffprobe, "-hide_banner", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)]
+    result = subprocess.run(args, check=True, capture_output=True, text=True, timeout=30)
+    return json.loads(result.stdout)
+
+def media_entry(path: Path, is_still: bool = False) -> dict:
+    details = probe(path)
+    streams = details.get("streams", [])
+    video = next(stream for stream in streams if stream.get("codec_type") == "video")
+    entry = {
+        "path": str(root / path.name),
+        "sha256": digest(path),
+        "bytes": path.stat().st_size,
+    }
+    if is_still:
+        entry["media"] = {
+            "width": int(video["width"]),
+            "height": int(video["height"]),
+            "codec": video.get("codec_name"),
+            "pixel_format": video.get("pix_fmt"),
+        }
+        return entry
+    audio = next(stream for stream in streams if stream.get("codec_type") == "audio")
+    entry["media"] = {
+        "video": {
+            "duration_seconds": float(video.get("duration", details.get("format", {}).get("duration", 0))),
+            "frame_rate": video.get("r_frame_rate"),
+            "frames": int(video.get("nb_frames", 0)),
+            "width": int(video["width"]),
+            "height": int(video["height"]),
+            "codec": video.get("codec_name"),
+            "pixel_format": video.get("pix_fmt"),
+        },
+        "audio": {
+            "duration_seconds": float(audio.get("duration", details.get("format", {}).get("duration", 0))),
+            "codec": audio.get("codec_name"),
+            "sample_rate": int(audio.get("sample_rate", 0)),
+            "channels": int(audio.get("channels", 0)),
+        },
+    }
+    return entry
+
+manifest = {
+    "schema_version": "1.0",
+    "canonical_root": str(root),
+    "synthetic_no_personal_media": True,
+    "generator": {
+        "identity": "FCPCommandConsole synthetic fixture generator",
+        "version": "1.0",
+        "source": "local FFmpeg lavfi",
+        "ffmpeg_path": "/opt/homebrew/bin/ffmpeg",
+        "ffprobe_path": "/opt/homebrew/bin/ffprobe",
+        "shasum_path": "/usr/bin/shasum",
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    },
+    "outputs": {
+        "clip-a.mov": media_entry(staging / "clip-a.mov"),
+        "clip-b.mov": media_entry(staging / "clip-b.mov"),
+        "living-still.png": media_entry(staging / "living-still.png", is_still=True),
+        "manifest.json": {"path": str(root / "manifest.json")},
+    },
+}
+(staging / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+PY
+
+# Rename only the four generated names. `mv` is atomic on this same filesystem;
+# unrelated files in the runtime fixture directory are never removed.
+for name in clip-a.mov clip-b.mov living-still.png manifest.json; do
+  /bin/mv -f "$staging/$name" "$FIXTURE_ROOT/$name"
+done
+/bin/rm -rf "$staging"
+trap - EXIT INT TERM
+print -r -- "fixtures generated: $FIXTURE_ROOT"
+"$PYTHON" "$AUDIT_SCRIPT" "$FIXTURE_ROOT"

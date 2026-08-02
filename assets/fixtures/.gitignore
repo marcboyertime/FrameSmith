@@ -1,0 +1,4 @@
+# Synthetic media is generated only under ~/Movies/FCPCommandConsole/fixtures.
+*
+!.gitignore
+!README.md

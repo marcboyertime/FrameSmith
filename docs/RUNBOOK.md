@@ -9,6 +9,11 @@
    future executor.
 5. Run `make overlay-smoke` for isolated static/scanline assets. Outputs are
    content-addressed and never overwrite existing files.
+6. Run `scripts/generate-fixtures` to create deterministic synthetic inputs at
+   `~/Movies/FCPCommandConsole/fixtures/`: two 8-second ProRes/PCM clips and a
+   marked 1920x1080 still. The command emits `manifest.json`, is idempotent on
+   matching hashes, and preserves unexpected files. Audit with
+   `python3 scripts/audit-fixtures.py`.
 
 `start-service` only builds the future panel target; there is no daemon in Phase
 1. `stop-service` is a safe no-op. `uninstall-or-disable` refuses to act until a

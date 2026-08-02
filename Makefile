@@ -1,4 +1,4 @@
-.PHONY: build test doctor overlay-smoke clean-runtime
+.PHONY: build test doctor overlay-smoke fixtures clean-runtime
 
 build:
 	swift build
@@ -12,6 +12,9 @@ doctor:
 
 overlay-smoke:
 	scripts/overlay-smoke.sh
+
+fixtures:
+	scripts/generate-fixtures
 
 clean-runtime:
 	@echo "Runtime cleanup is intentionally manual and scoped; no broad delete is performed."
