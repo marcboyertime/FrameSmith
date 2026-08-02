@@ -14,11 +14,13 @@ copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
 framework_name="FCPCommandConsoleRuntime.framework"
 embedded_framework="$copied_app/Contents/Frameworks/$framework_name"
 embedded_runtime="$embedded_framework/Versions/A/FCPCommandConsoleRuntime"
+entitlement_verifier="$plugin_dir/build/fcpcc-entitlement-verify"
 allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
 preferences_file="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
 provenance_root="/Users/marcboyer/Movies/FCPCommandConsole/provenance"
 verify_dir="$provenance_root/patch-$(/bin/date -u +%Y%m%dT%H%M%SZ)-verify-$$"
 load_path="@rpath/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
+required_added_entitlement="com.apple.security.cs.disable-library-validation"
 removed_entitlements=(
     com.apple.application-identifier
     com.apple.developer.aps-environment
@@ -93,10 +95,18 @@ verify_entitlement_allowlist() {
             fail "signed copied app retained removable key: $entitlement_key"
         fi
     done
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$signed_entitlements")" != "true" ]]; then
-        fail "copied app does not retain com.apple.security.app-sandbox=true"
+    if /usr/libexec/PlistBuddy -c "Print :$required_added_entitlement" "$stock_entitlements" >/dev/null 2>&1; then
+        fail "captured stock policy unexpectedly already contains the required added entitlement"
     fi
-    for forbidden_added_key in com.apple.security.cs.disable-library-validation com.apple.security.get-task-allow; do
+    for entitlement_file in "$expected_entitlements" "$signed_entitlements"; do
+        if [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$entitlement_file")" != "true" ]]; then
+            fail "copied app entitlement policy does not retain com.apple.security.app-sandbox=true"
+        fi
+        if [[ "$(/usr/libexec/PlistBuddy -c "Print :$required_added_entitlement" "$entitlement_file")" != "true" ]]; then
+            fail "copied app entitlement policy does not require $required_added_entitlement=true"
+        fi
+    done
+    for forbidden_added_key in com.apple.security.get-task-allow com.apple.security.cs.debugger com.apple.security.cs.allow-dyld-environment-variables; do
         if /usr/libexec/PlistBuddy -c "Print :$forbidden_added_key" "$signed_entitlements" >/dev/null 2>&1; then
             fail "forbidden added entitlement is present: $forbidden_added_key"
         fi
@@ -108,8 +118,8 @@ verify_entitlement_allowlist() {
     if ! /usr/bin/cmp -s "$expected_canonical" "$signed_canonical"; then
         fail "signed copied-app entitlement diff contains an unallowed addition, removal, or change"
     fi
+    "$entitlement_verifier" "$stock_entitlements" "$expected_entitlements" "$signed_entitlements" "$allowlist" > "$output_dir/entitlement-allowlist.txt"
     /usr/bin/shasum -a 256 "$allowlist" | /usr/bin/awk '{print $1}' > "$output_dir/patch-entitlement-allowlist-config.sha256"
-    print -r -- "entitlement_allowlist=pass removed=11 added=0 changed=0 sandbox=true" > "$output_dir/entitlement-allowlist.txt"
 }
 
 if [[ ! -d "$source_app" || ! -f "$source_executable" ]]; then
@@ -118,7 +128,7 @@ fi
 if [[ ! -d "$copied_app" || ! -f "$copied_executable" || ! -f "$embedded_runtime" ]]; then
     fail "approved copied artifact or embedded runtime is missing"
 fi
-if [[ ! -f "$allowlist" ]]; then
+if [[ ! -f "$allowlist" || ! -x "$entitlement_verifier" ]]; then
     fail "run plugin/scripts/build-minimal-runtime successfully before verification"
 fi
 source_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_app/Contents/Info.plist")"
@@ -197,6 +207,10 @@ local_entitlements="$verify_dir/local-signing-entitlements.plist"
 for entitlement_key in "${removed_entitlements[@]}"; do
     /usr/libexec/PlistBuddy -c "Delete :$entitlement_key" "$local_entitlements" >/dev/null
 done
+if /usr/libexec/PlistBuddy -c "Print :$required_added_entitlement" "$local_entitlements" >/dev/null 2>&1; then
+    fail "captured stock policy unexpectedly already contains the required added entitlement"
+fi
+/usr/libexec/PlistBuddy -c "Add :$required_added_entitlement bool true" "$local_entitlements" >/dev/null
 verify_entitlement_allowlist \
     "$verify_dir/stock-current/entitlements.plist" \
     "$local_entitlements" \

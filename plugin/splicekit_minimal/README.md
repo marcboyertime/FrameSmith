@@ -10,6 +10,16 @@ Every mutation entry point returns `unsupported_unverified_fcp_12_3` until a
 separately reviewed live spike verifies the exact host and exactly-one-library
 invariant.
 
+The copied-app signing policy removes only the documented Apple-bound
+entitlements and adds exactly
+`com.apple.security.cs.disable-library-validation=true`. A controlled launch
+attempt stopped in `dyld` before any library access because locally signing the
+top-level copy caused a Team ID mismatch with Apple-signed nested frameworks.
+This narrow entitlement is therefore required to preserve those nested
+frameworks; sandboxing remains required, while task-port/get-task-allow,
+debugger, and DYLD-environment entitlements remain forbidden. That observation
+does not establish runtime behavior or authorize a Final Cut library mutation.
+
 The static candidate strings in the source were manually transcribed from the
 locked `reference/elliotttate/SpliceKit` snapshot at
 `f4f6618121309a69b66272b441f34cf8ad57f306`. No SpliceKit source code, server,

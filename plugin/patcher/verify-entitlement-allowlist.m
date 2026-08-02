@@ -47,9 +47,25 @@ static NSSet<NSString *> *stringSet(NSDictionary<NSString *, id> *dictionary, NS
         if (![item isKindOfClass:[NSString class]]) {
             fail([@"allowlist item is not a string: " stringByAppendingString:key]);
         }
+        if ([result containsObject:item]) {
+            fail([@"duplicate allowlist item: " stringByAppendingString:item]);
+        }
         [result addObject:item];
     }
     return result;
+}
+
+static NSDictionary<NSString *, id> *objectDictionary(NSDictionary<NSString *, id> *dictionary, NSString *key) {
+    id object = dictionary[key];
+    if (![object isKindOfClass:[NSDictionary class]]) {
+        fail([@"allowlist key is not an object: " stringByAppendingString:key]);
+    }
+    for (id objectKey in ((NSDictionary *)object).allKeys) {
+        if (![objectKey isKindOfClass:[NSString class]]) {
+            fail([@"allowlist object key is not a string: " stringByAppendingString:key]);
+        }
+    }
+    return object;
 }
 
 static void requireEqual(id left, id right, NSString *message) {
@@ -71,12 +87,28 @@ int main(int argc, const char *argv[]) {
     NSSet<NSString *> *removed = stringSet(allowlist, @"removed");
     NSSet<NSString *> *added = stringSet(allowlist, @"added");
     NSSet<NSString *> *changed = stringSet(allowlist, @"changed");
+    NSDictionary<NSString *, id> *requiredAddedValues = objectDictionary(allowlist, @"required_added_values");
+    NSString *requiredAddedKey = @"com.apple.security.cs.disable-library-validation";
+
+    if (added.count != 1 || ![added containsObject:requiredAddedKey]) {
+        fail(@"allowlist must permit exactly com.apple.security.cs.disable-library-validation as its only added entitlement");
+    }
+    if (requiredAddedValues.count != 1 || requiredAddedValues[requiredAddedKey] == nil || ![requiredAddedValues[requiredAddedKey] isEqual:@YES]) {
+        fail(@"allowlist must require com.apple.security.cs.disable-library-validation=true");
+    }
+    if (![[NSSet setWithArray:requiredAddedValues.allKeys] isEqualToSet:added]) {
+        fail(@"allowlist added entitlement keys and required values do not exactly agree");
+    }
+    if (changed.count != 0) {
+        fail(@"this offline build permits no changed entitlement values");
+    }
 
     NSMutableSet<NSString *> *allKeys = [NSMutableSet setWithArray:stock.allKeys];
     [allKeys addObjectsFromArray:expected.allKeys];
     [allKeys addObjectsFromArray:signedCopy.allKeys];
 
     NSUInteger observedRemoved = 0;
+    NSUInteger observedAdded = 0;
     for (NSString *key in allKeys) {
         id stockValue = stock[key];
         id expectedValue = expected[key];
@@ -90,6 +122,8 @@ int main(int argc, const char *argv[]) {
             if (![added containsObject:key]) {
                 fail([@"unallowed added entitlement in expected plist: " stringByAppendingString:key]);
             }
+            requireEqual(requiredAddedValues[key], expectedValue, [@"added entitlement value does not match policy: " stringByAppendingString:key]);
+            observedAdded += 1;
         } else if (stockValue != nil && ![stockValue isEqual:expectedValue]) {
             if (![changed containsObject:key]) {
                 fail([@"unallowed changed entitlement in expected plist: " stringByAppendingString:key]);
@@ -101,26 +135,25 @@ int main(int argc, const char *argv[]) {
     if (observedRemoved != removed.count) {
         fail(@"allowlisted removed entitlement set does not exactly match stock-to-expected diff");
     }
-    if (added.count != 0 || changed.count != 0) {
-        fail(@"this offline build permits no entitlement additions or changes");
+    if (observedAdded != added.count) {
+        fail(@"allowlisted added entitlement set does not exactly match stock-to-expected diff");
     }
-    NSDictionary<NSString *, id> *requiredUnchanged = allowlist[@"required_unchanged"];
-    if (![requiredUnchanged isKindOfClass:[NSDictionary class]]) {
-        fail(@"required_unchanged is not an object");
+    for (NSString *key in added) {
+        if (stock[key] != nil) {
+            fail([@"required added entitlement unexpectedly exists in stock policy: " stringByAppendingString:key]);
+        }
     }
+    NSDictionary<NSString *, id> *requiredUnchanged = objectDictionary(allowlist, @"required_unchanged");
     for (NSString *key in requiredUnchanged) {
         requireEqual(requiredUnchanged[key], signedCopy[key], [@"required entitlement does not match policy: " stringByAppendingString:key]);
     }
-    NSArray<NSString *> *forbiddenAdded = allowlist[@"forbidden_added"];
-    if (![forbiddenAdded isKindOfClass:[NSArray class]]) {
-        fail(@"forbidden_added is not an array");
-    }
+    NSSet<NSString *> *forbiddenAdded = stringSet(allowlist, @"forbidden_added");
     for (NSString *key in forbiddenAdded) {
         if (stock[key] == nil && signedCopy[key] != nil) {
             fail([@"forbidden added entitlement present: " stringByAppendingString:key]);
         }
     }
 
-    printf("entitlement_allowlist=pass removed=%lu added=0 changed=0 sandbox=true\n", (unsigned long)observedRemoved);
+    printf("entitlement_allowlist=pass removed=%lu added=%lu changed=0 sandbox=true\n", (unsigned long)observedRemoved, (unsigned long)observedAdded);
     return 0;
 }

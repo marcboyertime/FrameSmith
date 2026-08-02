@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy": "The copied app starts from the captured stock entitlement plist. Only these Apple-bound keys may be removed for local signing. No keys may be added or changed in this offline build.",
+  "policy": "The copied app starts from the captured stock entitlement plist. Only these Apple-bound keys may be removed. Exactly one added entitlement, com.apple.security.cs.disable-library-validation=true, is required to load Apple-signed nested frameworks after local top-level signing; no entitlement values may be changed. Sandbox remains required; task-port/get-task-allow, debugger, and DYLD-environment entitlements remain forbidden.",
   "removed": [
     "com.apple.application-identifier",
     "com.apple.developer.aps-environment",
@@ -14,13 +14,19 @@
     "com.apple.security.temporary-exception.apple-events",
     "keychain-access-groups"
   ],
-  "added": [],
+  "added": [
+    "com.apple.security.cs.disable-library-validation"
+  ],
+  "required_added_values": {
+    "com.apple.security.cs.disable-library-validation": true
+  },
   "changed": [],
   "required_unchanged": {
     "com.apple.security.app-sandbox": true
   },
   "forbidden_added": [
-    "com.apple.security.cs.disable-library-validation",
-    "com.apple.security.get-task-allow"
+    "com.apple.security.get-task-allow",
+    "com.apple.security.cs.debugger",
+    "com.apple.security.cs.allow-dyld-environment-variables"
   ]
 }

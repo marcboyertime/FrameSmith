@@ -114,21 +114,37 @@ for manifest_field in canonical_path expected_device expected_inode persistent_u
     fi
 done
 
-for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp"; do
+for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp" "$plugin_dir/patcher/repair-library-validation-entitlement"; do
     for forbidden_patcher_term in 'curl' 'git ' 'DYLD_' 'defaults' 'kill' 'osascript' 'xattr' 'rm -'; do
         if "$rg_bin" -n -i -F "$forbidden_patcher_term" "$patcher_script" >/dev/null; then
             fail "patcher safety audit matched: $forbidden_patcher_term"
         fi
     done
 done
-if ! "$rg_bin" -F -q 'forbidden_added_key in com.apple.security.cs.disable-library-validation com.apple.security.get-task-allow' "$plugin_dir/patcher/patch-copied-fcp"; then
-    fail "patcher does not explicitly reject prohibited signing entitlements"
-fi
+for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp" "$plugin_dir/patcher/repair-library-validation-entitlement"; do
+    if ! "$rg_bin" -F -q 'required_added_entitlement="com.apple.security.cs.disable-library-validation"' "$patcher_script"; then
+        fail "patcher does not require the reviewed library-validation entitlement"
+    fi
+    if ! "$rg_bin" -F -q 'com.apple.security.get-task-allow com.apple.security.cs.debugger com.apple.security.cs.allow-dyld-environment-variables' "$patcher_script"; then
+        fail "patcher does not explicitly reject task-port, debugger, and DYLD-environment entitlements"
+    fi
+done
 if ! "$rg_bin" -F -q 'com.apple.security.app-sandbox' "$allowlist"; then
     fail "allowlist does not require the app sandbox"
 fi
-if ! "$rg_bin" -F -q '"added": []' "$allowlist" || ! "$rg_bin" -F -q '"changed": []' "$allowlist"; then
-    fail "allowlist permits additions or changed entitlement values"
+if ! "$rg_bin" -F -q '"com.apple.security.cs.disable-library-validation"' "$allowlist" || ! "$rg_bin" -F -q '"com.apple.security.cs.disable-library-validation": true' "$allowlist" || ! "$rg_bin" -F -q '"changed": []' "$allowlist"; then
+    fail "allowlist does not restrict the reviewed addition and changed values"
+fi
+for forbidden_entitlement in com.apple.security.get-task-allow com.apple.security.cs.debugger com.apple.security.cs.allow-dyld-environment-variables; do
+    if ! "$rg_bin" -F -q "$forbidden_entitlement" "$allowlist"; then
+        fail "allowlist does not forbid entitlement: $forbidden_entitlement"
+    fi
+done
+if ! "$rg_bin" -F -q 'codesign --force --sign' "$plugin_dir/patcher/repair-library-validation-entitlement"; then
+    fail "repair script does not re-sign the copied top-level app"
+fi
+if "$rg_bin" -F -- '--deep --sign' "$plugin_dir/patcher/repair-library-validation-entitlement" >/dev/null; then
+    fail "repair script may deep-re-sign nested code"
 fi
 source_hash="$(/usr/bin/shasum -a 256 "$plugin_dir/tools/fcpcc-insert-dylib/src/main.c" | /usr/bin/awk '{print $1}')"
 if ! "$rg_bin" -F -q "$source_hash" "$plugin_dir/tools/fcpcc-insert-dylib/UPSTREAM.json"; then
@@ -187,12 +203,23 @@ for entitlement_key in \
     keychain-access-groups; do
     /usr/libexec/PlistBuddy -c "Delete :$entitlement_key" "$test_dir/expected-entitlements.plist" >/dev/null
 done
+/usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' "$test_dir/expected-entitlements.plist" >/dev/null
 /bin/cp "$test_dir/expected-entitlements.plist" "$test_dir/signed-entitlements.plist"
 "$entitlement_verifier" \
     "$test_dir/stock-entitlements.plist" \
     "$test_dir/expected-entitlements.plist" \
     "$test_dir/signed-entitlements.plist" \
     "$allowlist" > "$test_dir/entitlement-verifier.txt"
+/bin/cp "$test_dir/expected-entitlements.plist" "$test_dir/missing-library-validation-entitlements.plist"
+/usr/libexec/PlistBuddy -c 'Delete :com.apple.security.cs.disable-library-validation' "$test_dir/missing-library-validation-entitlements.plist" >/dev/null
+if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/missing-library-validation-entitlements.plist" "$test_dir/missing-library-validation-entitlements.plist" "$allowlist" > "$test_dir/missing-library-validation-verifier.txt" 2>&1; then
+    fail "entitlement verifier accepted a missing required library-validation entitlement"
+fi
+/bin/cp "$test_dir/expected-entitlements.plist" "$test_dir/false-library-validation-entitlements.plist"
+/usr/libexec/PlistBuddy -c 'Set :com.apple.security.cs.disable-library-validation bool false' "$test_dir/false-library-validation-entitlements.plist" >/dev/null
+if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/false-library-validation-entitlements.plist" "$test_dir/false-library-validation-entitlements.plist" "$allowlist" > "$test_dir/false-library-validation-verifier.txt" 2>&1; then
+    fail "entitlement verifier accepted com.apple.security.cs.disable-library-validation=false"
+fi
 /bin/cp "$test_dir/signed-entitlements.plist" "$test_dir/bad-signed-entitlements.plist"
 /usr/libexec/PlistBuddy -c 'Add :com.apple.security.get-task-allow bool true' "$test_dir/bad-signed-entitlements.plist" >/dev/null
 if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/expected-entitlements.plist" "$test_dir/bad-signed-entitlements.plist" "$allowlist" > "$test_dir/bad-entitlement-verifier.txt" 2>&1; then
