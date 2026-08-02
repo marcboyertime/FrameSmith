@@ -46,10 +46,32 @@ removed_entitlements=(
     com.apple.developer.icloud-services
     com.apple.developer.team-identifier
     com.apple.security.application-groups
+    com.apple.security.assets.movies.read-write
+    com.apple.security.assets.music.read-only
+    com.apple.security.assets.pictures.read-only
     com.apple.security.automation.apple-events
+    com.apple.security.device.usb
+    com.apple.security.files.bookmarks.app-scope
+    com.apple.security.files.bookmarks.document-scope
+    com.apple.security.files.user-selected.read-write
+    com.apple.security.network.client
+    com.apple.security.network.server
+    com.apple.security.personal-information.photos-library
     com.apple.security.scripting-targets
     com.apple.security.temporary-exception.apple-events
+    com.apple.security.temporary-exception.audio-unit-host
+    com.apple.security.temporary-exception.files.absolute-path.read-write
+    com.apple.security.temporary-exception.mach-lookup.global-name
+    com.apple.security.temporary-exception.sbpl
+    com.apple.security.temporary-exception.shared-preference.read-write
     keychain-access-groups
+)
+canonical_entitlements=(
+    com.apple.security.app-sandbox
+    com.apple.security.cs.disable-library-validation
+    com.apple.security.device.audio-input
+    com.apple.security.device.camera
+    com.apple.security.device.microphone
 )
 
 fail() {
@@ -216,12 +238,17 @@ verify_entitlement_allowlist() {
         fail "captured stock policy unexpectedly already contains the required added entitlement"
     fi
     for entitlement_file in "$expected_entitlements" "$signed_entitlements"; do
-        if [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$entitlement_file")" != "true" ]]; then
-            fail "copied app entitlement policy does not retain com.apple.security.app-sandbox=true"
+        if [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$entitlement_file")" != "false" ]]; then
+            fail "copied app entitlement policy must set com.apple.security.app-sandbox=false"
         fi
         if [[ "$(/usr/libexec/PlistBuddy -c "Print :$required_added_entitlement" "$entitlement_file")" != "true" ]]; then
             fail "copied app entitlement policy does not require $required_added_entitlement=true"
         fi
+        for preserved_entitlement in com.apple.security.device.audio-input com.apple.security.device.camera com.apple.security.device.microphone; do
+            if [[ "$(/usr/libexec/PlistBuddy -c "Print :$preserved_entitlement" "$entitlement_file")" != "true" ]]; then
+                fail "copied app entitlement policy does not retain $preserved_entitlement=true"
+            fi
+        done
     done
     for forbidden_added_key in com.apple.security.get-task-allow com.apple.security.cs.debugger com.apple.security.cs.allow-dyld-environment-variables; do
         if /usr/libexec/PlistBuddy -c "Print :$forbidden_added_key" "$signed_entitlements" >/dev/null 2>&1; then
@@ -237,6 +264,17 @@ verify_entitlement_allowlist() {
     fi
     "$entitlement_verifier" "$stock_entitlements" "$expected_entitlements" "$signed_entitlements" "$allowlist" > "$output_dir/entitlement-allowlist.txt"
     /usr/bin/shasum -a 256 "$allowlist" | /usr/bin/awk '{print $1}' > "$output_dir/patch-entitlement-allowlist-config.sha256"
+}
+
+create_canonical_entitlements() {
+    local output_path="$1"
+    /usr/bin/plutil -create xml1 "$output_path"
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.app-sandbox bool false' "$output_path" >/dev/null
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' "$output_path" >/dev/null
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.device.audio-input bool true' "$output_path" >/dev/null
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.device.camera bool true' "$output_path" >/dev/null
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.device.microphone bool true' "$output_path" >/dev/null
+    /usr/bin/plutil -lint "$output_path" >/dev/null
 }
 
 if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboarding_framework" ]]; then
@@ -359,14 +397,7 @@ if ! /usr/bin/cmp -s "$verify_dir/stock-libraries-x86_64-without-header.txt" "$v
 fi
 
 local_entitlements="$verify_dir/local-signing-entitlements.plist"
-/bin/cp "$verify_dir/stock-current/entitlements.plist" "$local_entitlements"
-for entitlement_key in "${removed_entitlements[@]}"; do
-    /usr/libexec/PlistBuddy -c "Delete :$entitlement_key" "$local_entitlements" >/dev/null
-done
-if /usr/libexec/PlistBuddy -c "Print :$required_added_entitlement" "$local_entitlements" >/dev/null 2>&1; then
-    fail "captured stock policy unexpectedly already contains the required added entitlement"
-fi
-/usr/libexec/PlistBuddy -c "Add :$required_added_entitlement bool true" "$local_entitlements" >/dev/null
+create_canonical_entitlements "$local_entitlements"
 verify_entitlement_allowlist \
     "$verify_dir/stock-current/entitlements.plist" \
     "$local_entitlements" \

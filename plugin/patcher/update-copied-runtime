@@ -10,11 +10,12 @@ repo_dir="$(/usr/bin/dirname "$plugin_dir")"
 source_app="/Applications/Final Cut Pro.app"
 source_executable="$source_app/Contents/MacOS/Final Cut Pro"
 destination_root="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole"
-copied_app="$destination_root/Final Cut Pro - FCPCommandConsole.app"
+live_copied_app="$destination_root/Final Cut Pro - FCPCommandConsole.app"
+copied_app="$live_copied_app"
 copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
 expected_host_bundle_identifier="com.apple.FinalCut"
 legacy_host_bundle_identifier="com.local.fcpcommandconsole.FinalCut"
-expected_copied_host_bundle_path="$copied_app"
+expected_copied_host_bundle_path="$live_copied_app"
 expected_host_version="12.3"
 expected_host_build="450152"
 expected_stock_pre_injection_host_executable_sha256="6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390"
@@ -36,25 +37,15 @@ embedded_runtime="$embedded_framework/Versions/A/FCPCommandConsoleRuntime"
 embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
 legacy_embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 entitlement_verifier="$plugin_dir/build/fcpcc-entitlement-verify"
+atomic_swap_helper="$plugin_dir/build/fcpcc-atomic-swap"
 allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
-preferences_file="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
+container_preferences_file="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
+noncontainer_preferences_file="/Users/marcboyer/Library/Preferences/com.apple.FinalCut.plist"
 provenance_root="/Users/marcboyer/Movies/FCPCommandConsole/provenance"
 update_dir="$provenance_root/patch-$(/bin/date -u +%Y%m%dT%H%M%SZ)-update-runtime-$$"
+stage_app="$destination_root/.FCPCommandConsole-stage-$$.app"
+previous_app="$update_dir/previous-complete-copy.app"
 load_path="@rpath/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
-required_added_entitlement="com.apple.security.cs.disable-library-validation"
-removed_entitlements=(
-    com.apple.application-identifier
-    com.apple.developer.aps-environment
-    com.apple.developer.icloud-container-environment
-    com.apple.developer.icloud-container-identifiers
-    com.apple.developer.icloud-services
-    com.apple.developer.team-identifier
-    com.apple.security.application-groups
-    com.apple.security.automation.apple-events
-    com.apple.security.scripting-targets
-    com.apple.security.temporary-exception.apple-events
-    keychain-access-groups
-)
 
 fail() {
     print -u2 -r -- "update-copied-runtime: $1"
@@ -62,6 +53,7 @@ fail() {
 }
 
 mutation_started="false"
+swap_complete="false"
 rollback_complete="false"
 rollback_dir=""
 
@@ -71,31 +63,24 @@ rollback_on_exit() {
         return
     fi
     set +e
-    print -r -- "rollback=started exit_status=$exit_status" >> "$rollback_dir/rollback.txt"
-    if [[ -f "$rollback_dir/Info.plist" ]]; then
-        /bin/cp "$rollback_dir/Info.plist" "$copied_app/Contents/Info.plist"
+    /bin/mkdir -p "$rollback_dir"
+    print -r -- "rollback=started exit_status=$exit_status swap_complete=$swap_complete" >> "$rollback_dir/rollback.txt"
+    local retained_previous=""
+    if [[ -d "$previous_app" && ! -L "$previous_app" ]]; then
+        retained_previous="$previous_app"
+    elif [[ -d "$stage_app" && ! -L "$stage_app" ]]; then
+        retained_previous="$stage_app"
     fi
-    if [[ -e "$embedded_framework" ]]; then
-        /bin/mv "$embedded_framework" "$rollback_dir/current-embedded-framework"
-    fi
-    if [[ -d "$rollback_dir/embedded-framework" ]]; then
-        /usr/bin/ditto "$rollback_dir/embedded-framework" "$embedded_framework"
-    fi
-    local code_signature_path="$copied_app/Contents/_CodeSignature"
-    if [[ -e "$code_signature_path" ]]; then
-        /bin/mv "$code_signature_path" "$rollback_dir/current-code-signature"
-    fi
-    if [[ -f "$rollback_dir/code-signature-absent" ]]; then
-        :
-    elif [[ -d "$rollback_dir/code-signature" ]]; then
-        /usr/bin/ditto "$rollback_dir/code-signature" "$code_signature_path"
-    fi
-    /usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$rollback_dir/codesign-verify-rollback.txt" 2>&1
-    local verify_status="$?"
-    if [[ "$verify_status" -eq 0 ]]; then
-        print -r -- "rollback=restored_previous_copy_signature" >> "$rollback_dir/rollback.txt"
-    else
-        print -r -- "rollback=failed_previous_copy_signature_verification status=$verify_status" >> "$rollback_dir/rollback.txt"
+    if [[ "$swap_complete" == "true" && -n "$retained_previous" && -d "$live_copied_app" && ! -L "$live_copied_app" ]]; then
+        if "$atomic_swap_helper" "$live_copied_app" "$retained_previous" >> "$rollback_dir/rollback.txt" 2>&1; then
+            print -r -- "rollback=restored_previous_complete_copy" >> "$rollback_dir/rollback.txt"
+            /usr/bin/codesign --verify --deep --strict --verbose=4 "$live_copied_app" > "$rollback_dir/codesign-verify-rollback.txt" 2>&1
+        else
+            print -r -- "rollback=failed_atomic_complete_copy_restore" >> "$rollback_dir/rollback.txt"
+        fi
+    elif [[ -d "$stage_app" && ! -L "$stage_app" ]]; then
+        /bin/mv "$stage_app" "$rollback_dir/failed-staged-copy.app"
+        print -r -- "rollback=live_copy_never_swapped failed_stage_retained" >> "$rollback_dir/rollback.txt"
     fi
     rollback_complete="true"
     set -e
@@ -105,13 +90,75 @@ trap rollback_on_exit EXIT
 
 capture_preferences() {
     local output_dir="$1"
-    if [[ -f "$preferences_file" ]]; then
-        /usr/bin/plutil -convert xml1 -o "$output_dir/stock-preferences.xml" "$preferences_file"
-        /usr/bin/shasum -a 256 "$output_dir/stock-preferences.xml" | /usr/bin/awk '{print $1}' > "$output_dir/stock-preferences.sha256"
-    else
-        print -r -- "absent" > "$output_dir/stock-preferences.xml"
-        /usr/bin/shasum -a 256 "$output_dir/stock-preferences.xml" | /usr/bin/awk '{print $1}' > "$output_dir/stock-preferences.sha256"
+    local label preference_path
+    for label preference_path in container "$container_preferences_file" noncontainer "$noncontainer_preferences_file"; do
+        if [[ -f "$preference_path" && ! -L "$preference_path" ]]; then
+            /usr/bin/plutil -convert xml1 -o "$output_dir/$label-preferences.xml" "$preference_path"
+        elif [[ ! -e "$preference_path" ]]; then
+            print -r -- "absent" > "$output_dir/$label-preferences.xml"
+        else
+            fail "$label Final Cut preference path is not an ordinary file"
+        fi
+        /usr/bin/shasum -a 256 "$output_dir/$label-preferences.xml" | /usr/bin/awk '{print $1}' > "$output_dir/$label-preferences.sha256"
+    done
+    /bin/cp "$output_dir/container-preferences.xml" "$output_dir/stock-preferences.xml"
+    /bin/cp "$output_dir/container-preferences.sha256" "$output_dir/stock-preferences.sha256"
+}
+
+capture_bundle_manifest() {
+    local app_path="$1"
+    local output_file="$2"
+    if [[ ! -d "$app_path" || -L "$app_path" ]]; then
+        fail "bundle manifest target is not a real directory: $app_path"
     fi
+    : > "$output_file"
+    local entry relative mode size digest target
+    while IFS= read -r entry; do
+        relative="${entry#$app_path}"
+        [[ -n "$relative" ]] || relative="."
+        mode="$(/usr/bin/stat -f '%Sp' "$entry")"
+        if [[ -L "$entry" ]]; then
+            target="$(/usr/bin/readlink "$entry")"
+            print -r -- "L\t$mode\t$relative\t$target" >> "$output_file"
+        elif [[ -f "$entry" ]]; then
+            size="$(/usr/bin/stat -f '%z' "$entry")"
+            digest="$(/usr/bin/shasum -a 256 "$entry" | /usr/bin/awk '{print $1}')"
+            print -r -- "F\t$mode\t$size\t$digest\t$relative" >> "$output_file"
+        elif [[ -d "$entry" ]]; then
+            print -r -- "D\t$mode\t$relative" >> "$output_file"
+        else
+            fail "bundle contains an unsupported filesystem entry: $relative"
+        fi
+    done < <(/usr/bin/find -s "$app_path" -print)
+}
+
+require_distinct_files() {
+    local first="$1"
+    local second="$2"
+    local label="$3"
+    if [[ ! -f "$first" || -L "$first" || ! -f "$second" || -L "$second" ]]; then
+        fail "$label inputs are not distinct ordinary files"
+    fi
+    if [[ "$(/usr/bin/stat -f '%d:%i' "$first")" == "$(/usr/bin/stat -f '%d:%i' "$second")" ]]; then
+        fail "$label stock and copied paths resolve to the same device/inode"
+    fi
+}
+
+require_canonical_directory() {
+    local directory_path="$1"
+    if [[ ! -d "$directory_path" || -L "$directory_path" || "$(/bin/realpath "$directory_path")" != "$directory_path" ]]; then
+        fail "required directory is missing, symlinked, or noncanonical: $directory_path"
+    fi
+}
+
+bind_copied_paths() {
+    copied_app="$1"
+    copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
+    copied_onboarding_framework="$copied_app/$onboarding_framework_relative_executable_path"
+    embedded_framework="$copied_app/Contents/Frameworks/$framework_name"
+    embedded_runtime="$embedded_framework/Versions/A/FCPCommandConsoleRuntime"
+    embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
+    legacy_embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 }
 
 capture_receipt() {
@@ -289,12 +336,23 @@ verify_legacy_compatibility_policy() {
 if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboarding_framework" ]]; then
     fail "required stock app is missing"
 fi
+require_canonical_directory "/Applications"
+require_canonical_directory "$source_app"
+require_canonical_directory "/Users/marcboyer/Applications"
+require_canonical_directory "/Users/marcboyer/Applications/SpliceKit"
+require_canonical_directory "$destination_root"
+require_canonical_directory "$live_copied_app"
 if [[ ! -d "$copied_app" || -L "$copied_app" || ! -f "$copied_executable" || ! -f "$copied_onboarding_framework" || ! -d "$embedded_framework" || ! -f "$embedded_runtime" ]]; then
     fail "approved copied-app path or current embedded runtime baseline is missing"
 fi
-if [[ ! -d "$built_framework" || ! -f "$built_runtime" || ! -f "$built_compatibility_policy" || ! -f "$allowlist" || ! -x "$entitlement_verifier" ]]; then
+if [[ ! -d "$built_framework" || ! -f "$built_runtime" || ! -f "$built_compatibility_policy" || ! -f "$allowlist" || ! -x "$entitlement_verifier" || ! -x "$atomic_swap_helper" ]]; then
     fail "run plugin/scripts/build-minimal-runtime successfully before update"
 fi
+if [[ -e "$stage_app" ]]; then
+    fail "unique same-volume staging path already exists"
+fi
+require_distinct_files "$source_executable" "$copied_executable" "main executable"
+require_distinct_files "$source_app/$mas_receipt_relative_path" "$copied_app/$mas_receipt_relative_path" "MAS receipt"
 
 source_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_app/Contents/Info.plist")"
 source_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$source_app/Contents/Info.plist")"
@@ -307,16 +365,13 @@ copied_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$co
 copied_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$copied_app/Contents/Info.plist")"
 copied_display_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$copied_app/Contents/Info.plist")"
 copied_executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$copied_app/Contents/Info.plist")"
-if [[ "$copied_identifier" != "$expected_host_bundle_identifier" && "$copied_identifier" != "$legacy_host_bundle_identifier" ]]; then
-    fail "copied app bundle identifier is neither the receipt-compatible Apple ID nor the one-time legacy migration ID"
+if [[ "$copied_identifier" != "$expected_host_bundle_identifier" ]]; then
+    fail "copied app bundle identifier is not the receipt-compatible Apple ID"
 fi
 if [[ "$copied_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_display_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_executable_name" != "Final Cut Pro" ]]; then
     fail "copied app metadata does not match the approved isolated identity"
 fi
-migration_required="false"
-if [[ "$copied_identifier" == "$legacy_host_bundle_identifier" ]]; then
-    migration_required="true"
-fi
+migration_required="entitlement_state_pending"
 
 /bin/mkdir -p "$provenance_root"
 if [[ -e "$update_dir" ]]; then
@@ -335,6 +390,7 @@ print -r -- "executable_name=$copied_executable_name" >> "$update_dir/copied-ide
 require_not_running "$update_dir/process-before-update.txt"
 capture_bundle "$source_app" "$source_executable" "$update_dir/stock-before"
 capture_preferences "$update_dir/stock-before"
+capture_bundle_manifest "$source_app" "$update_dir/stock-before/whole-bundle.manifest"
 capture_receipt "$source_app" "$update_dir/stock-before"
 verify_receipt "$source_app" "stock-before"
 capture_bundle "$copied_app" "$copied_executable" "$update_dir/copied-before"
@@ -365,6 +421,27 @@ print -r -- "stock_x86_64_uuid=$source_x86_64_uuid" >> "$update_dir/exact-host-i
 print -r -- "copied_arm64_uuid=$copied_arm64_uuid" >> "$update_dir/exact-host-identity.txt"
 print -r -- "copied_x86_64_uuid=$copied_x86_64_uuid" >> "$update_dir/exact-host-identity.txt"
 print -r -- "stock_receipt_sha256=$(cat "$update_dir/stock-before/receipt.sha256")" >> "$update_dir/exact-host-identity.txt"
+
+# Resolve the current entitlement state before consulting historical receipt
+# provenance. Missing legacy receipt evidence may be rebound only after the
+# exact retired sandboxed-copy policy has passed its separately named gate.
+expected_entitlements="$update_dir/expected-current-entitlements.plist"
+/usr/bin/plutil -create xml1 "$expected_entitlements"
+for entitlement_key in com.apple.security.cs.disable-library-validation com.apple.security.device.audio-input com.apple.security.device.camera com.apple.security.device.microphone; do
+    /usr/libexec/PlistBuddy -c "Add :$entitlement_key bool true" "$expected_entitlements" >/dev/null
+done
+/usr/libexec/PlistBuddy -c "Add :com.apple.security.app-sandbox bool false" "$expected_entitlements" >/dev/null
+if "$entitlement_verifier" "$update_dir/stock-before/entitlements.plist" "$expected_entitlements" "$update_dir/copied-before/entitlements.plist" "$allowlist" > "$update_dir/entitlement-allowlist-before.txt" 2>&1; then
+    migration_required="false"
+    print -r -- "entitlement_state=already_canonical" > "$update_dir/migration-gate.txt"
+elif "$entitlement_verifier" --verify-legacy-migration-input "$update_dir/stock-before/entitlements.plist" "$update_dir/copied-before/entitlements.plist" "$allowlist" > "$update_dir/entitlement-legacy-migration-input.txt" 2>&1; then
+    migration_required="true"
+    print -r -- "entitlement_state=exact_retired_sandboxed_copy" > "$update_dir/migration-gate.txt"
+else
+    fail "copied app is neither the exact canonical policy nor the exact one-time sandboxed migration input"
+fi
+print -r -- "migration_required=$migration_required" >> "$update_dir/migration-gate.txt"
+print -r -- "resolved_migration_required=$migration_required" >> "$update_dir/copied-identity.txt"
 
 initial_patch_dir=""
 initial_patch_receipt_provenance="false"
@@ -401,38 +478,16 @@ verify_load_commands "before"
 if [[ "$copied_app" != "$expected_copied_host_bundle_path" ]]; then
     fail "copied app path is not the exact approved isolated path"
 fi
-if [[ "$migration_required" == "true" ]]; then
-    if [[ ! -f "$legacy_embedded_compatibility_policy" || -e "$embedded_compatibility_policy" ]]; then
-        fail "legacy copied runtime must contain only the retired compatibility policy before migration"
-    fi
-    verify_legacy_compatibility_policy "$legacy_embedded_compatibility_policy"
-    print -r -- "legacy_policy=verified_for_one_time_migration" > "$update_dir/migration-gate.txt"
-    if [[ "$initial_patch_receipt_provenance" == "false" ]]; then
-        print -r -- "legacy_receipt_provenance=rebound_to_current_stock_copy_proof" >> "$update_dir/migration-gate.txt"
-    fi
-else
-    if [[ ! -f "$embedded_compatibility_policy" || -e "$legacy_embedded_compatibility_policy" ]]; then
-        fail "current copied runtime must contain only the schema6 compatibility policy"
-    fi
-    verify_compatibility_policy "$embedded_compatibility_policy" "current"
-    print -r -- "legacy_policy=not_applicable" > "$update_dir/migration-gate.txt"
-fi
 
 for forbidden_added_key in com.apple.security.get-task-allow com.apple.security.cs.debugger com.apple.security.cs.allow-dyld-environment-variables; do
     if /usr/libexec/PlistBuddy -c "Print :$forbidden_added_key" "$update_dir/copied-before/entitlements.plist" >/dev/null 2>&1; then
         fail "current copied app contains forbidden entitlement: $forbidden_added_key"
     fi
 done
-expected_entitlements="$update_dir/expected-current-entitlements.plist"
-/bin/cp "$update_dir/stock-before/entitlements.plist" "$expected_entitlements"
-for entitlement_key in "${removed_entitlements[@]}"; do
-    /usr/libexec/PlistBuddy -c "Delete :$entitlement_key" "$expected_entitlements" >/dev/null
-done
-if /usr/libexec/PlistBuddy -c "Print :$required_added_entitlement" "$expected_entitlements" >/dev/null 2>&1; then
-    fail "captured stock policy unexpectedly already contains the required added entitlement"
+if [[ ! -f "$embedded_compatibility_policy" || -e "$legacy_embedded_compatibility_policy" ]]; then
+    fail "copied runtime must contain only the reviewed schema6 compatibility policy"
 fi
-/usr/libexec/PlistBuddy -c "Add :$required_added_entitlement bool true" "$expected_entitlements" >/dev/null
-"$entitlement_verifier" "$update_dir/stock-before/entitlements.plist" "$expected_entitlements" "$update_dir/copied-before/entitlements.plist" "$allowlist" > "$update_dir/entitlement-allowlist-before.txt"
+verify_compatibility_policy "$embedded_compatibility_policy" "current"
 verify_compatibility_policy "$built_compatibility_policy" "built"
 /usr/bin/shasum -a 256 "$built_runtime" | /usr/bin/awk '{print $1}' > "$update_dir/built-runtime.sha256"
 /usr/bin/shasum -a 256 "$built_compatibility_policy" | /usr/bin/awk '{print $1}' > "$update_dir/built-compatibility-policy.sha256"
@@ -447,28 +502,20 @@ if [[ -z "$initial_identity" || "$signing_identity" != "$initial_identity" ]]; t
     fail "the available Apple Development identity does not match the initial copied-app signing evidence"
 fi
 
-rollback_dir="$update_dir/rollback-backup"
+rollback_dir="$update_dir/rollback"
 /bin/mkdir "$rollback_dir"
-/bin/cp "$copied_app/Contents/Info.plist" "$rollback_dir/Info.plist"
-/usr/bin/ditto "$embedded_framework" "$rollback_dir/embedded-framework"
-if [[ -d "$copied_app/Contents/_CodeSignature" ]]; then
-    /usr/bin/ditto "$copied_app/Contents/_CodeSignature" "$rollback_dir/code-signature"
-else
-    print -r -- "absent" > "$rollback_dir/code-signature-absent"
-fi
-print -r -- "rollback_backup=Info.plist,embedded-framework,top-level-CodeSignature" > "$rollback_dir/backup.txt"
+print -r -- "rollback_backup=complete_previous_app" > "$rollback_dir/backup.txt"
 print -r -- "rollback_pending=true" >> "$rollback_dir/backup.txt"
 
-if [[ "$migration_required" == "true" ]]; then
-    mutation_started="true"
-    /usr/bin/shasum -a 256 "$copied_app/Contents/Info.plist" | /usr/bin/awk '{print $1}' > "$update_dir/Info.plist.legacy-before.sha256"
-    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $expected_host_bundle_identifier" "$copied_app/Contents/Info.plist"
-    /usr/bin/plutil -lint "$copied_app/Contents/Info.plist" >/dev/null
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copied_app/Contents/Info.plist")" != "$expected_host_bundle_identifier" ]]; then
-        fail "legacy copied app bundle identifier migration did not produce the receipt-compatible Apple ID"
-    fi
-    print -r -- "bundle_identifier_migration=$legacy_host_bundle_identifier->$expected_host_bundle_identifier" >> "$update_dir/migration-gate.txt"
+require_not_running "$update_dir/process-before-staging.txt"
+mutation_started="true"
+/usr/bin/ditto "$live_copied_app" "$stage_app"
+capture_bundle_manifest "$live_copied_app" "$update_dir/copied-before/whole-bundle.manifest"
+capture_bundle_manifest "$stage_app" "$update_dir/staged-before.manifest"
+if ! /usr/bin/cmp -s "$update_dir/copied-before/whole-bundle.manifest" "$update_dir/staged-before.manifest"; then
+    fail "complete staged copy differs from the current copied app before mutation"
 fi
+bind_copied_paths "$stage_app"
 
 print -r -- "signing_mode=apple_development" > "$update_dir/signing.txt"
 print -r -- "identity_fingerprint=$signing_identity" >> "$update_dir/signing.txt"
@@ -477,12 +524,13 @@ print -r -- "app_signature_operation=top_level_copied_app_only" >> "$update_dir/
 print -r -- "deep_signing=false" >> "$update_dir/signing.txt"
 
 require_not_running "$update_dir/process-before-runtime-copy.txt"
-mutation_started="true"
-if [[ -e "$legacy_embedded_compatibility_policy" ]]; then
-    /bin/mv "$legacy_embedded_compatibility_policy" "$rollback_dir/retired-policy-before-copy"
-    print -r -- "retired_policy_moved=true" >> "$rollback_dir/backup.txt"
-fi
+/usr/bin/mv "$embedded_framework" "$rollback_dir/staged-retired-runtime-framework"
 /usr/bin/ditto "$built_framework" "$embedded_framework"
+capture_bundle_manifest "$built_framework" "$update_dir/built-runtime-framework.manifest"
+capture_bundle_manifest "$embedded_framework" "$update_dir/staged-runtime-framework-before-signing.manifest"
+if ! /usr/bin/cmp -s "$update_dir/built-runtime-framework.manifest" "$update_dir/staged-runtime-framework-before-signing.manifest"; then
+    fail "fresh staged project runtime framework differs from the complete built framework manifest"
+fi
 if ! /usr/bin/cmp -s "$built_runtime" "$embedded_runtime" || ! /usr/bin/cmp -s "$built_compatibility_policy" "$embedded_compatibility_policy"; then
     fail "fresh built framework was not copied exactly into the approved copied app"
 fi
@@ -495,7 +543,7 @@ if ! /usr/bin/codesign --force --sign "$signing_identity" --options runtime --ti
     fail "project-owned embedded runtime signing failed"
 fi
 top_level_entitlements="$update_dir/top-level-current-entitlements.plist"
-/bin/cp "$update_dir/copied-before/entitlements.plist" "$top_level_entitlements"
+/bin/cp "$expected_entitlements" "$top_level_entitlements"
 if ! /usr/bin/codesign --force --sign "$signing_identity" --options runtime --timestamp=none --entitlements "$top_level_entitlements" "$copied_app" > "$update_dir/sign-app.stdout" 2> "$update_dir/sign-app.stderr"; then
     fail "copied top-level app signing failed"
 fi
@@ -518,15 +566,11 @@ verify_compatibility_policy "$embedded_compatibility_policy" "embedded-after-sig
 if ! /usr/bin/cmp -s "$built_compatibility_policy" "$embedded_compatibility_policy"; then
     fail "embedded compatibility policy changed during signing"
 fi
-if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copied_app/Contents/Info.plist")" != "$expected_host_bundle_identifier" || "$copied_app" != "$expected_copied_host_bundle_path" ]]; then
-    fail "copied app did not retain the exact receipt-compatible Apple ID and approved path"
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copied_app/Contents/Info.plist")" != "$expected_host_bundle_identifier" ]]; then
+    fail "staged copied app did not retain the receipt-compatible Apple ID"
 fi
-if [[ "$migration_required" == "false" ]] && ! /usr/bin/cmp -s "$update_dir/copied-before/Info.plist.sha256" "$update_dir/copied-after/Info.plist.sha256"; then
-    fail "non-migration copied app Info.plist changed during runtime-only update"
-fi
-if [[ "$migration_required" == "true" ]]; then
-    print -r -- "Info.plist.legacy_before_sha256=$(cat "$update_dir/Info.plist.legacy-before.sha256")" >> "$update_dir/migration-gate.txt"
-    print -r -- "Info.plist.after_sha256=$(cat "$update_dir/copied-after/Info.plist.sha256")" >> "$update_dir/migration-gate.txt"
+if ! /usr/bin/cmp -s "$update_dir/copied-before/Info.plist.sha256" "$update_dir/copied-after/Info.plist.sha256"; then
+    fail "copied app Info.plist changed during the entitlement-only runtime update"
 fi
 if ! /usr/bin/cmp -s "$update_dir/stock-before/receipt" "$update_dir/copied-after/receipt" || ! /usr/bin/cmp -s "$update_dir/stock-before/receipt.sha256" "$update_dir/copied-after/receipt.sha256"; then
     fail "copied MAS receipt changed during runtime update"
@@ -534,28 +578,58 @@ fi
 "$entitlement_verifier" "$update_dir/stock-before/entitlements.plist" "$expected_entitlements" "$update_dir/copied-after/entitlements.plist" "$allowlist" > "$update_dir/entitlement-allowlist-after.txt"
 /usr/bin/shasum -a 256 "$embedded_runtime" | /usr/bin/awk '{print $1}' > "$update_dir/embedded-runtime-after-signing.sha256"
 /usr/bin/shasum -a 256 "$embedded_compatibility_policy" | /usr/bin/awk '{print $1}' > "$update_dir/embedded-compatibility-policy-after-signing.sha256"
+capture_bundle_manifest "$stage_app" "$update_dir/staged-verified.manifest"
+
+# The live path remains byte-for-byte untouched until the entire staged app has
+# passed identity, receipt, runtime, entitlement, and signature verification.
+require_not_running "$update_dir/process-before-atomic-swap.txt"
+"$atomic_swap_helper" "$live_copied_app" "$stage_app" > "$update_dir/atomic-swap.txt"
+swap_complete="true"
+/bin/mv "$stage_app" "$previous_app"
+if [[ ! -d "$previous_app" || -L "$previous_app" ]]; then
+    fail "the full previous copied app was not retained in provenance"
+fi
+bind_copied_paths "$live_copied_app"
+require_not_running "$update_dir/process-after-atomic-swap.txt"
+/usr/bin/codesign --verify --deep --strict --verbose=4 "$live_copied_app" > "$update_dir/codesign-verify-installed.txt" 2>&1
+/usr/bin/codesign --verify --strict --verbose=4 "$embedded_framework" > "$update_dir/runtime-codesign-verify-installed.txt" 2>&1
+capture_bundle_manifest "$live_copied_app" "$update_dir/copied-installed.manifest"
+if ! /usr/bin/cmp -s "$update_dir/staged-verified.manifest" "$update_dir/copied-installed.manifest"; then
+    fail "atomically installed app differs from the fully verified staged app"
+fi
+capture_bundle "$live_copied_app" "$copied_executable" "$update_dir/copied-installed"
+capture_receipt "$live_copied_app" "$update_dir/copied-installed"
+verify_receipt "$live_copied_app" "copied-installed"
+"$entitlement_verifier" "$update_dir/stock-before/entitlements.plist" "$expected_entitlements" "$update_dir/copied-installed/entitlements.plist" "$allowlist" > "$update_dir/entitlement-allowlist-installed.txt"
+verify_load_commands "installed"
+verify_compatibility_policy "$embedded_compatibility_policy" "embedded-installed"
 
 capture_bundle "$source_app" "$source_executable" "$update_dir/stock-after"
 capture_preferences "$update_dir/stock-after"
+capture_bundle_manifest "$source_app" "$update_dir/stock-after/whole-bundle.manifest"
 capture_receipt "$source_app" "$update_dir/stock-after"
 verify_receipt "$source_app" "stock-after"
 capture_onboarding_framework "$source_onboarding_framework" "$update_dir/stock-after"
 verify_onboarding_framework_identity "$update_dir/stock-after" "stock-after"
 compare_onboarding_framework_identity "$update_dir/stock-before" "$update_dir/stock-after" "stock-after"
 require_not_running "$update_dir/process-after-update.txt"
-if ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.sha256" "$update_dir/stock-after/main-executable.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.uuids.txt" "$update_dir/stock-after/main-executable.uuids.txt" || ! /usr/bin/cmp -s "$update_dir/stock-before/Info.plist.sha256" "$update_dir/stock-after/Info.plist.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/stock-preferences.sha256" "$update_dir/stock-after/stock-preferences.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/receipt.sha256" "$update_dir/stock-after/receipt.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/receipt" "$update_dir/stock-after/receipt"; then
+if ! /usr/bin/cmp -s "$update_dir/stock-before/whole-bundle.manifest" "$update_dir/stock-after/whole-bundle.manifest" || ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.sha256" "$update_dir/stock-after/main-executable.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.uuids.txt" "$update_dir/stock-after/main-executable.uuids.txt" || ! /usr/bin/cmp -s "$update_dir/stock-before/Info.plist.sha256" "$update_dir/stock-after/Info.plist.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/container-preferences.sha256" "$update_dir/stock-after/container-preferences.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/noncontainer-preferences.sha256" "$update_dir/stock-after/noncontainer-preferences.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/receipt.sha256" "$update_dir/stock-after/receipt.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/receipt" "$update_dir/stock-after/receipt"; then
     fail "stock app or production preference fingerprint changed"
 fi
 print -r -- "stock_app=unchanged" > "$update_dir/stock-integrity.txt"
-print -r -- "stock_preferences=unchanged" >> "$update_dir/stock-integrity.txt"
+print -r -- "stock_whole_bundle_manifest=unchanged" >> "$update_dir/stock-integrity.txt"
+print -r -- "stock_container_preferences=unchanged" >> "$update_dir/stock-integrity.txt"
+print -r -- "stock_noncontainer_preferences=unchanged" >> "$update_dir/stock-integrity.txt"
 print -r -- "stock_info_plist=unchanged" >> "$update_dir/stock-integrity.txt"
 print -r -- "stock_mas_receipt=unchanged" >> "$update_dir/stock-integrity.txt"
-print -r -- "rollback=not_needed_verified" >> "$rollback_dir/rollback.txt"
+print -r -- "previous_complete_copy=$previous_app" >> "$rollback_dir/backup.txt"
+print -r -- "rollback=not_needed_previous_complete_copy_retained" >> "$rollback_dir/rollback.txt"
 print -r -- "rollback_pending=false" >> "$rollback_dir/backup.txt"
 rollback_complete="true"
 mutation_started="false"
 trap - EXIT
 
 print -r -- "status=updated"
-print -r -- "copied_app=$copied_app"
+print -r -- "copied_app=$live_copied_app"
+print -r -- "previous_complete_copy=$previous_app"
 print -r -- "provenance=$update_dir"

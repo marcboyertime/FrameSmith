@@ -1,6 +1,13 @@
 {
-  "schema_version": 1,
-  "policy": "The copied app starts from the captured stock entitlement plist. Only these Apple-bound keys may be removed. Exactly one added entitlement, com.apple.security.cs.disable-library-validation=true, is required to load Apple-signed nested frameworks after local top-level signing; no entitlement values may be changed. Sandbox remains required; task-port/get-task-allow, debugger, and DYLD-environment entitlements remain forbidden.",
+  "schema_version": 2,
+  "policy": "The only acceptable local-signing entitlement endpoint for the isolated copied Final Cut Pro 12.3 bundle is the five-key minimal policy below. The stock app remains read-only. The copied app removes every other stock entitlement, changes only app-sandbox from true to false, and adds only disable-library-validation=true. Apple application/team identity, app groups, CloudKit/APNS, keychain, automation/scripting, task-port/debugger, and DYLD-environment entitlements are forbidden.",
+  "canonical_final_values": {
+    "com.apple.security.app-sandbox": false,
+    "com.apple.security.cs.disable-library-validation": true,
+    "com.apple.security.device.audio-input": true,
+    "com.apple.security.device.camera": true,
+    "com.apple.security.device.microphone": true
+  },
   "removed": [
     "com.apple.application-identifier",
     "com.apple.developer.aps-environment",
@@ -9,9 +16,24 @@
     "com.apple.developer.icloud-services",
     "com.apple.developer.team-identifier",
     "com.apple.security.application-groups",
+    "com.apple.security.assets.movies.read-write",
+    "com.apple.security.assets.music.read-only",
+    "com.apple.security.assets.pictures.read-only",
     "com.apple.security.automation.apple-events",
+    "com.apple.security.device.usb",
+    "com.apple.security.files.bookmarks.app-scope",
+    "com.apple.security.files.bookmarks.document-scope",
+    "com.apple.security.files.user-selected.read-write",
+    "com.apple.security.network.client",
+    "com.apple.security.network.server",
+    "com.apple.security.personal-information.photos-library",
     "com.apple.security.scripting-targets",
     "com.apple.security.temporary-exception.apple-events",
+    "com.apple.security.temporary-exception.audio-unit-host",
+    "com.apple.security.temporary-exception.files.absolute-path.read-write",
+    "com.apple.security.temporary-exception.mach-lookup.global-name",
+    "com.apple.security.temporary-exception.sbpl",
+    "com.apple.security.temporary-exception.shared-preference.read-write",
     "keychain-access-groups"
   ],
   "added": [
@@ -20,13 +42,66 @@
   "required_added_values": {
     "com.apple.security.cs.disable-library-validation": true
   },
-  "changed": [],
-  "required_unchanged": {
-    "com.apple.security.app-sandbox": true
+  "changed": [
+    "com.apple.security.app-sandbox"
+  ],
+  "required_changed_values": {
+    "com.apple.security.app-sandbox": {
+      "from": true,
+      "to": false
+    }
   },
-  "forbidden_added": [
+  "required_unchanged": {
+    "com.apple.security.device.audio-input": true,
+    "com.apple.security.device.camera": true,
+    "com.apple.security.device.microphone": true
+  },
+  "forbidden_final_keys": [
+    "com.apple.application-identifier",
+    "com.apple.developer.aps-environment",
+    "com.apple.developer.icloud-container-environment",
+    "com.apple.developer.icloud-container-identifiers",
+    "com.apple.developer.icloud-services",
+    "com.apple.developer.team-identifier",
+    "com.apple.security.application-groups",
+    "com.apple.security.automation.apple-events",
     "com.apple.security.get-task-allow",
     "com.apple.security.cs.debugger",
-    "com.apple.security.cs.allow-dyld-environment-variables"
-  ]
+    "com.apple.security.cs.allow-dyld-environment-variables",
+    "com.apple.security.scripting-targets",
+    "keychain-access-groups"
+  ],
+  "legacy_sandboxed_copy_migration_input": {
+    "schema_version": 1,
+    "allowlist_sha256": "4c368a47bad91519fb6ed6c9a4683648d4e95b60a3a16f7de8cc327db5011252",
+    "policy": "Retired v1 policy. It is accepted only by the explicit one-time migration-input gate after matching provenance, bundle identity, receipt, runtime, signature, and manifest checks. It is never an acceptable final copied-app entitlement policy.",
+    "removed": [
+      "com.apple.application-identifier",
+      "com.apple.developer.aps-environment",
+      "com.apple.developer.icloud-container-environment",
+      "com.apple.developer.icloud-container-identifiers",
+      "com.apple.developer.icloud-services",
+      "com.apple.developer.team-identifier",
+      "com.apple.security.application-groups",
+      "com.apple.security.automation.apple-events",
+      "com.apple.security.scripting-targets",
+      "com.apple.security.temporary-exception.apple-events",
+      "keychain-access-groups"
+    ],
+    "added": [
+      "com.apple.security.cs.disable-library-validation"
+    ],
+    "required_added_values": {
+      "com.apple.security.cs.disable-library-validation": true
+    },
+    "changed": [],
+    "required_unchanged": {
+      "com.apple.security.app-sandbox": true
+    },
+    "forbidden_added": [
+      "com.apple.security.get-task-allow",
+      "com.apple.security.cs.debugger",
+      "com.apple.security.cs.allow-dyld-environment-variables"
+    ]
+  }
 }

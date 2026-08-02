@@ -34,7 +34,7 @@ expected_onboarding_framework_sha256="636cc140036217ab1f39d998ac53faaf2dd8682c09
 expected_onboarding_framework_arm64_uuid="45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D"
 expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"
 expected_mas_receipt_sha256="2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e"
-test_dir="$(/usr/bin/mktemp -d /tmp/fcpcc-offline-tests.XXXXXX)"
+test_dir="$(/bin/realpath "$(/usr/bin/mktemp -d /tmp/fcpcc-offline-tests.XXXXXX)")"
 load_path="@rpath/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
 rg_bin="$(command -v rg || true)"
 
@@ -55,7 +55,7 @@ require_fragment() {
     local fragment="$1"
     local path="$2"
     local label="$3"
-    if ! "$rg_bin" -F -q "$fragment" "$path"; then
+    if ! "$rg_bin" -F -q -- "$fragment" "$path"; then
         fail "$label is missing required fragment: $fragment"
     fi
 }
@@ -474,9 +474,35 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier" 
     if "$rg_bin" -F -q '/usr/bin/defaults' "$patcher_script" || "$rg_bin" -F -q '/bin/defaults' "$patcher_script"; then
         fail "patcher safety audit matched a defaults executable invocation"
     fi
-    require_fragment 'required_added_entitlement="com.apple.security.cs.disable-library-validation"' "$patcher_script" "patcher"
-    require_fragment 'com.apple.security.get-task-allow com.apple.security.cs.debugger com.apple.security.cs.allow-dyld-environment-variables' "$patcher_script" "patcher"
 done
+for canonical_migration_fragment in \
+    'com.apple.security.app-sandbox bool false' \
+    'com.apple.security.cs.disable-library-validation' \
+    '--verify-legacy-migration-input' \
+    'capture_bundle_manifest "$source_app"' \
+    'container_preferences_file=' \
+    'noncontainer_preferences_file=' \
+    'require_distinct_files "$source_executable" "$copied_executable"' \
+    '"$atomic_swap_helper" "$live_copied_app" "$stage_app"' \
+    'previous-complete-copy.app' \
+    'rollback=restored_previous_complete_copy'; do
+    require_fragment "$canonical_migration_fragment" "$runtime_updater" "contained no-sandbox migration updater"
+done
+require_fragment 'exec "$script_dir/update-copied-runtime" "$@"' "$repair_patcher" "entitlement repair compatibility wrapper"
+for fresh_canonical_patcher in "$initial_patcher" "$runtime_verifier"; do
+    for canonical_entitlement_fragment in \
+        'create_canonical_entitlements' \
+        'com.apple.security.app-sandbox bool false' \
+        'com.apple.security.cs.disable-library-validation bool true' \
+        'com.apple.security.device.audio-input bool true' \
+        'com.apple.security.device.camera bool true' \
+        'com.apple.security.device.microphone bool true'; do
+        require_fragment "$canonical_entitlement_fragment" "$fresh_canonical_patcher" "fresh canonical entitlement patcher"
+    done
+done
+if "$rg_bin" -F -q '/bin/cp "$patch_dir/stock-before/entitlements.plist" "$local_entitlements"' "$initial_patcher" || "$rg_bin" -F -q '/bin/cp "$verify_dir/stock-current/entitlements.plist" "$local_entitlements"' "$runtime_verifier"; then
+    fail "fresh canonical entitlement patchers must not derive the signing plist by copying stock entitlements"
+fi
 for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier"; do
     for required_provenance_fragment in \
         'onboarding_framework_relative_executable_path="Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"' \
@@ -490,10 +516,9 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         require_fragment "$required_provenance_fragment" "$patcher_script" "onboarding framework provenance patcher"
     done
 done
-for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier" "$repair_patcher"; do
+for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier"; do
     for required_receipt_aware_patcher_fragment in \
         'expected_host_bundle_identifier="com.apple.FinalCut"' \
-        'expected_copied_host_bundle_path="$copied_app"' \
         'expected_stock_pre_injection_host_executable_sha256="6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390"' \
         'mas_receipt_relative_path="Contents/_MASReceipt/receipt"' \
         'expected_mas_receipt_sha256="2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e"' \
@@ -541,24 +566,8 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier" 
         fail "patcher current schema-6 policy retains the retired query-discard contract"
     fi
 done
+require_fragment 'expected_copied_host_bundle_path="$live_copied_app"' "$runtime_updater" "transactional updater exact live path"
 
-legacy_policy_source="$(/usr/bin/sed -n '/^verify_legacy_compatibility_policy()/,/^}/p' "$runtime_updater")"
-for required_legacy_policy_fragment in \
-    'Print :SchemaVersion' \
-    '" != "4"' \
-    'legacy_host_bundle_identifier' \
-    'ExpectedHostExecutableSHA256' \
-    'PreferenceDomain' \
-    'ApprovedPreferenceKeys:0' \
-    'ApprovedPreferenceKeys:1' \
-    'CloudContentFirstLaunchCompleted' \
-    'FFCloudContentDisabled' \
-    'SynchronizeDeterministically' \
-    'discard_query_block_noop'; do
-    if ! print -r -- "$legacy_policy_source" | "$rg_bin" -F -q "$required_legacy_policy_fragment"; then
-        fail "updater one-time schema-4 migration contract is missing: $required_legacy_policy_fragment"
-    fi
-done
 updater_current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$runtime_updater")"
 for retired_current_updater_fragment in \
     'legacy_host_bundle_identifier' \
@@ -571,18 +580,32 @@ for retired_current_updater_fragment in \
     fi
 done
 for required_migration_fragment in \
-    'FCPCCIsolatedCloudContentCompatibility.plist' \
-    'migration_required="false"' \
-    'if [[ "$copied_identifier" == "$legacy_host_bundle_identifier" ]]; then' \
-    'verify_legacy_compatibility_policy' \
-    'legacy_policy=verified_for_one_time_migration' \
-    'legacy_policy=not_applicable' \
-    'Set :CFBundleIdentifier $expected_host_bundle_identifier' \
-    'bundle_identifier_migration=$legacy_host_bundle_identifier->$expected_host_bundle_identifier' \
+    'migration_required="entitlement_state_pending"' \
+    'entitlement_state=exact_retired_sandboxed_copy' \
+    'entitlement_state=already_canonical' \
+    '--verify-legacy-migration-input' \
+    'com.apple.security.app-sandbox bool false' \
+    'expected_copied_host_bundle_path="$live_copied_app"' \
     'verify_compatibility_policy "$embedded_compatibility_policy" "embedded"' \
     'copied MAS receipt changed during runtime update'; do
-    require_fragment "$required_migration_fragment" "$runtime_updater" "one-time receipt-compatible bundle-identifier migration"
+    require_fragment "$required_migration_fragment" "$runtime_updater" "one-time contained no-sandbox entitlement migration"
 done
+legacy_gate_line="$("$rg_bin" -n -F -- 'elif "$entitlement_verifier" --verify-legacy-migration-input' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+receipt_rebind_line="$("$rg_bin" -n -F -- 'elif [[ "$migration_required" == "true" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+if [[ -z "$legacy_gate_line" || -z "$receipt_rebind_line" || "$legacy_gate_line" -ge "$receipt_rebind_line" ]]; then
+    fail "legacy entitlement state must be resolved before receipt-provenance rebinding"
+fi
+for exact_framework_replacement_fragment in \
+    '/usr/bin/mv "$embedded_framework" "$rollback_dir/staged-retired-runtime-framework"' \
+    'capture_bundle_manifest "$built_framework" "$update_dir/built-runtime-framework.manifest"' \
+    'capture_bundle_manifest "$embedded_framework" "$update_dir/staged-runtime-framework-before-signing.manifest"' \
+    'fresh staged project runtime framework differs from the complete built framework manifest'; do
+    require_fragment "$exact_framework_replacement_fragment" "$runtime_updater" "exact staged runtime framework replacement"
+done
+require_fragment 'if ! /usr/bin/cmp -s "$update_dir/copied-before/Info.plist.sha256" "$update_dir/copied-after/Info.plist.sha256"; then' "$runtime_updater" "unconditional copied-app metadata preservation gate"
+if "$rg_bin" -F -q -- 'if [[ "$migration_required" == "false" ]] && ! /usr/bin/cmp -s "$update_dir/copied-before/Info.plist.sha256"' "$runtime_updater"; then
+    fail "copied-app Info.plist preservation must not be exempted during entitlement migration"
+fi
 if ! "$rg_bin" -F -q 'copied_onboarding_framework=stock_identity_matched' "$runtime_verifier" || ! "$rg_bin" -F -q 'query_setter_offsets=arm64:0x1313c,x86_64:0x13cc0' "$runtime_verifier"; then
     fail "copied-artifact verifier does not record exact framework provenance and setter offsets"
 fi
@@ -668,7 +691,7 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         fi
     done
 done
-if ! "$rg_bin" -F -q 'com.apple.security.app-sandbox' "$allowlist" || ! "$rg_bin" -F -q '"com.apple.security.cs.disable-library-validation": true' "$allowlist" || ! "$rg_bin" -F -q '"changed": []' "$allowlist"; then
+if ! "$rg_bin" -F -q '"com.apple.security.app-sandbox": false' "$allowlist" || ! "$rg_bin" -F -q '"com.apple.security.cs.disable-library-validation": true' "$allowlist" || ! "$rg_bin" -F -q '"changed": [' "$allowlist" || ! "$rg_bin" -F -q '"com.apple.security.app-sandbox"' "$allowlist"; then
     fail "allowlist does not restrict the reviewed entitlement policy"
 fi
 
@@ -715,22 +738,15 @@ fi
 print -r -- 'native_targeted_rotate_zoom_static_evidence=FCP_12_3_arm64 get_type=v64@0:8{?=qiIq}16^d40^d48^d56 set_type=v68@0:8{?=qiIq}16d40d48d56I64 FFHeXForm3DEffect.getPixelPositionAtTime:x:y:z:=0x3e6a10 FFHeXForm3DEffect.setPixelPositionAtTime:curveX:curveY:curveZ:options:=0x3e6c2c FFEffectStack.actionBegin:animationHint:deferUpdates:=0x156684 FFUndoHandler.undoableBegin:=0x32cdc4 live_mutation=unsupported_pending_exact_native_easing_and_native_undo_rollback_contracts'
 
 /usr/bin/codesign -d --entitlements :- "$source_app" > "$test_dir/stock-entitlements.plist" 2> "$test_dir/stock-entitlements.stderr"
-/bin/cp "$test_dir/stock-entitlements.plist" "$test_dir/expected-entitlements.plist"
+/usr/bin/plutil -create xml1 "$test_dir/expected-entitlements.plist"
 for entitlement_key in \
-    com.apple.application-identifier \
-    com.apple.developer.aps-environment \
-    com.apple.developer.icloud-container-environment \
-    com.apple.developer.icloud-container-identifiers \
-    com.apple.developer.icloud-services \
-    com.apple.developer.team-identifier \
-    com.apple.security.application-groups \
-    com.apple.security.automation.apple-events \
-    com.apple.security.scripting-targets \
-    com.apple.security.temporary-exception.apple-events \
-    keychain-access-groups; do
-    /usr/libexec/PlistBuddy -c "Delete :$entitlement_key" "$test_dir/expected-entitlements.plist" >/dev/null
+    com.apple.security.cs.disable-library-validation \
+    com.apple.security.device.audio-input \
+    com.apple.security.device.camera \
+    com.apple.security.device.microphone; do
+    /usr/libexec/PlistBuddy -c "Add :$entitlement_key bool true" "$test_dir/expected-entitlements.plist" >/dev/null
 done
-/usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' "$test_dir/expected-entitlements.plist" >/dev/null
+/usr/libexec/PlistBuddy -c 'Add :com.apple.security.app-sandbox bool false' "$test_dir/expected-entitlements.plist" >/dev/null
 /bin/cp "$test_dir/expected-entitlements.plist" "$test_dir/signed-entitlements.plist"
 "$entitlement_verifier" \
     "$test_dir/stock-entitlements.plist" \
@@ -743,14 +759,50 @@ if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/missi
     fail "entitlement verifier accepted a missing required library-validation entitlement"
 fi
 /bin/cp "$test_dir/expected-entitlements.plist" "$test_dir/false-library-validation-entitlements.plist"
-/usr/libexec/PlistBuddy -c 'Set :com.apple.security.cs.disable-library-validation bool false' "$test_dir/false-library-validation-entitlements.plist" >/dev/null
+/usr/libexec/PlistBuddy -c 'Delete :com.apple.security.cs.disable-library-validation' "$test_dir/false-library-validation-entitlements.plist" >/dev/null
+/usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool false' "$test_dir/false-library-validation-entitlements.plist" >/dev/null
 if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/false-library-validation-entitlements.plist" "$test_dir/false-library-validation-entitlements.plist" "$allowlist" > "$test_dir/false-library-validation-verifier.txt" 2>&1; then
     fail "entitlement verifier accepted com.apple.security.cs.disable-library-validation=false"
+fi
+/bin/cp "$test_dir/expected-entitlements.plist" "$test_dir/sandboxed-final-entitlements.plist"
+/usr/libexec/PlistBuddy -c 'Delete :com.apple.security.app-sandbox' "$test_dir/sandboxed-final-entitlements.plist" >/dev/null
+/usr/libexec/PlistBuddy -c 'Add :com.apple.security.app-sandbox bool true' "$test_dir/sandboxed-final-entitlements.plist" >/dev/null
+if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/sandboxed-final-entitlements.plist" "$test_dir/sandboxed-final-entitlements.plist" "$allowlist" > "$test_dir/sandboxed-final-verifier.txt" 2>&1; then
+    fail "entitlement verifier accepted app-sandbox=true as a final endpoint"
 fi
 /bin/cp "$test_dir/signed-entitlements.plist" "$test_dir/bad-signed-entitlements.plist"
 /usr/libexec/PlistBuddy -c 'Add :com.apple.security.get-task-allow bool true' "$test_dir/bad-signed-entitlements.plist" >/dev/null
 if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/expected-entitlements.plist" "$test_dir/bad-signed-entitlements.plist" "$allowlist" > "$test_dir/bad-entitlement-verifier.txt" 2>&1; then
     fail "entitlement verifier accepted an unallowed entitlement"
+fi
+
+/bin/cp "$test_dir/stock-entitlements.plist" "$test_dir/legacy-sandboxed-entitlements.plist"
+for entitlement_key in \
+    com.apple.application-identifier \
+    com.apple.developer.aps-environment \
+    com.apple.developer.icloud-container-environment \
+    com.apple.developer.icloud-container-identifiers \
+    com.apple.developer.icloud-services \
+    com.apple.developer.team-identifier \
+    com.apple.security.application-groups \
+    com.apple.security.automation.apple-events \
+    com.apple.security.scripting-targets \
+    com.apple.security.temporary-exception.apple-events \
+    keychain-access-groups; do
+    /usr/libexec/PlistBuddy -c "Delete :$entitlement_key" "$test_dir/legacy-sandboxed-entitlements.plist" >/dev/null
+done
+/usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' "$test_dir/legacy-sandboxed-entitlements.plist" >/dev/null
+"$entitlement_verifier" --verify-legacy-migration-input "$test_dir/stock-entitlements.plist" "$test_dir/legacy-sandboxed-entitlements.plist" "$allowlist" > "$test_dir/legacy-entitlement-verifier.txt"
+if "$entitlement_verifier" --verify-legacy-migration-input "$test_dir/stock-entitlements.plist" "$test_dir/expected-entitlements.plist" "$allowlist" > "$test_dir/canonical-as-legacy-verifier.txt" 2>&1; then
+    fail "legacy migration verifier accepted the canonical no-sandbox endpoint"
+fi
+
+/bin/mkdir "$test_dir/swap-a" "$test_dir/swap-b"
+print -r -- "a" > "$test_dir/swap-a/identity"
+print -r -- "b" > "$test_dir/swap-b/identity"
+"$plugin_dir/build/fcpcc-atomic-swap" "$test_dir/swap-a" "$test_dir/swap-b" > "$test_dir/atomic-swap.txt"
+if [[ "$(<"$test_dir/swap-a/identity")" != "b" || "$(<"$test_dir/swap-b/identity")" != "a" ]]; then
+    fail "atomic swap helper did not exchange complete directories"
 fi
 
 stock_main_after="$(/usr/bin/shasum -a 256 "$source_executable" | /usr/bin/awk '{print $1}')"

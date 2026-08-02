@@ -15,6 +15,7 @@ framework_dir="$build_dir/FCPCommandConsoleRuntime.framework"
 runtime_binary="$framework_dir/Versions/A/FCPCommandConsoleRuntime"
 injector_binary="$build_dir/fcpcc-insert-dylib"
 entitlement_verifier="$build_dir/fcpcc-entitlement-verify"
+atomic_swap_helper="$build_dir/fcpcc-atomic-swap"
 compatibility_policy_name="FCPCCOnboardingQueryCompatibility.plist"
 runtime_policy_source="$runtime_dir/Resources/$compatibility_policy_name"
 runtime_policy_build="$framework_dir/Versions/A/Resources/$compatibility_policy_name"
@@ -104,6 +105,18 @@ verify_compatibility_policy() {
   "$patcher_dir/verify-entitlement-allowlist.m" \
   -o "$entitlement_verifier"
 
+/usr/bin/clang \
+  -arch arm64 \
+  -arch x86_64 \
+  -mmacosx-version-min=13.0 \
+  -std=c11 \
+  -Wall \
+  -Wextra \
+  -Werror \
+  -Wstrict-prototypes \
+  "$patcher_dir/fcpcc-atomic-swap.c" \
+  -o "$atomic_swap_helper"
+
 /usr/bin/plutil -lint "$framework_dir/Versions/A/Resources/Info.plist" >/dev/null
 verify_compatibility_policy "$runtime_policy_build"
 /usr/bin/lipo "$runtime_binary" -verify_arch arm64
@@ -112,6 +125,8 @@ verify_compatibility_policy "$runtime_policy_build"
 /usr/bin/lipo "$injector_binary" -verify_arch x86_64
 /usr/bin/lipo "$entitlement_verifier" -verify_arch arm64
 /usr/bin/lipo "$entitlement_verifier" -verify_arch x86_64
+/usr/bin/lipo "$atomic_swap_helper" -verify_arch arm64
+/usr/bin/lipo "$atomic_swap_helper" -verify_arch x86_64
 
 source_hash="$(/usr/bin/shasum -a 256 "$tool_dir/src/main.c" | /usr/bin/awk '{print $1}')"
 runtime_hash="$(/usr/bin/shasum -a 256 "$runtime_binary" | /usr/bin/awk '{print $1}')"
@@ -119,3 +134,4 @@ injector_hash="$(/usr/bin/shasum -a 256 "$injector_binary" | /usr/bin/awk '{prin
 printf 'runtime=FCPCommandConsoleRuntime architectures=arm64,x86_64 sha256=%s\n' "$runtime_hash"
 printf 'injector=fcpcc-insert-dylib source_sha256=%s binary_sha256=%s\n' "$source_hash" "$injector_hash"
 printf 'entitlement_verifier=fcpcc-entitlement-verify architectures=arm64,x86_64\n'
+printf 'atomic_swap_helper=fcpcc-atomic-swap architectures=arm64,x86_64 renameatx_np=RENAME_SWAP\n'
