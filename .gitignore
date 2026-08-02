@@ -1,0 +1,16 @@
+# Runtime data belongs under ~/Movies/FCPCommandConsole, not in this repository.
+*.log
+.DS_Store
+
+# Local build and environment output.
+.build/
+.venv/
+DerivedData/
+
+# Keep empty scaffolding directories without committing generated payloads.
+reference/*/
+!reference/.gitkeep
+fixtures/incoming/*
+!fixtures/incoming/.gitkeep
+fixtures/expected/*
+!fixtures/expected/.gitkeep

@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-08-02T10:26:49Z",
+  "repositories": [
+    {
+      "name": "DannyMac180/sol-advisor",
+      "path": "reference/DannyMac180/sol-advisor",
+      "source_url": "https://github.com/DannyMac180/sol-advisor.git",
+      "commit": "92f0fb105854e0fa606bdc98bfe688411e1db989",
+      "license": "MIT",
+      "license_file": "LICENSE"
+    },
+    {
+      "name": "elliotttate/SpliceKit",
+      "path": "reference/elliotttate/SpliceKit",
+      "source_url": "https://github.com/elliotttate/SpliceKit.git",
+      "commit": "f4f6618121309a69b66272b441f34cf8ad57f306",
+      "license": "MIT",
+      "license_file": "LICENSE"
+    },
+    {
+      "name": "Comfy-Org/ComfyUI",
+      "path": "reference/Comfy-Org/ComfyUI",
+      "source_url": "https://github.com/Comfy-Org/ComfyUI.git",
+      "commit": "f06a187f50f896e4a0ba5be1ce1f2d2dcd13b77b",
+      "license": "GPL-3.0",
+      "license_file": "LICENSE"
+    },
+    {
+      "name": "BrokenSource/DepthFlow",
+      "path": "reference/BrokenSource/DepthFlow",
+      "source_url": "https://github.com/BrokenSource/DepthFlow.git",
+      "commit": "6c91d02f245d0a6a82e95c45a6ac28cd284622af",
+      "license": "AGPL-3.0",
+      "license_file": "license.txt"
+    },
+    {
+      "name": "akatz-ai/ComfyUI-Depthflow-Nodes",
+      "path": "reference/akatz-ai/ComfyUI-Depthflow-Nodes",
+      "source_url": "https://github.com/akatz-ai/ComfyUI-Depthflow-Nodes.git",
+      "commit": "1806b6edf332d34123d190e7266e49d81d6311ce",
+      "license": "AGPL-3.0",
+      "license_file": "LICENSE"
+    },
+    {
+      "name": "AEmotionStudio/ComfyUI-FFMPEGA",
+      "path": "reference/AEmotionStudio/ComfyUI-FFMPEGA",
+      "source_url": "https://github.com/AEmotionStudio/ComfyUI-FFMPEGA.git",
+      "commit": "0cfe2db05df104f95c98cc45e11f129fa5ef5193",
+      "license": "GPL-3.0",
+      "license_file": "LICENSE"
+    }
+  ]
+}
