@@ -41,11 +41,14 @@ public struct CommandAdapterCapability: Codable, Equatable, Sendable {
 /// undoing anything.
 public struct CommandSessionAdapter: Sendable {
     public typealias RevisionProvider = @Sendable () throws -> String
+    public typealias SnapshotHashProvider = @Sendable (EffectPlan) throws -> String
     public typealias Mutation = @Sendable (EffectPlan) throws -> VerifiedMutationEvidence
     public typealias Undo = @Sendable (JobRecord) throws -> VerifiedMutationEvidence
 
     public let capability: CommandAdapterCapability
     private let revisionProvider: RevisionProvider?
+    private let beforeSnapshotHashValue: String?
+    private let beforeSnapshotHashProvider: SnapshotHashProvider?
     private let mutation: Mutation?
     private let undoMutation: Undo?
 
@@ -53,10 +56,14 @@ public struct CommandSessionAdapter: Sendable {
         capability: CommandAdapterCapability = .offline,
         revisionProvider: RevisionProvider? = nil,
         mutation: Mutation? = nil,
-        undo: Undo? = nil
+        undo: Undo? = nil,
+        beforeSnapshotHash: String? = nil,
+        beforeSnapshotHashProvider: SnapshotHashProvider? = nil
     ) {
         self.capability = capability
         self.revisionProvider = revisionProvider
+        self.beforeSnapshotHashValue = beforeSnapshotHash
+        self.beforeSnapshotHashProvider = beforeSnapshotHashProvider
         self.mutation = mutation
         self.undoMutation = undo
     }
@@ -64,6 +71,7 @@ public struct CommandSessionAdapter: Sendable {
     public static let offline = CommandSessionAdapter()
 
     fileprivate var canMutate: Bool { mutation != nil }
+    fileprivate var canUndo: Bool { undoMutation != nil }
 
     fileprivate func currentRevision() throws -> String? {
         if let revisionProvider { return try revisionProvider() }
@@ -75,6 +83,11 @@ public struct CommandSessionAdapter: Sendable {
             throw CommandSessionError.capabilityDenied("No mutation adapter was injected")
         }
         return try mutation(plan)
+    }
+
+    fileprivate func beforeSnapshotHash(for plan: EffectPlan) throws -> String? {
+        if let beforeSnapshotHashProvider { return try beforeSnapshotHashProvider(plan) }
+        return beforeSnapshotHashValue
     }
 
     fileprivate func undo(_ record: JobRecord) throws -> VerifiedMutationEvidence {
@@ -125,6 +138,8 @@ public enum PanelPreviewStatus: String, Codable, CaseIterable, Sendable {
     case cancelled
     case applying
     case applied
+    case undoing
+    case undone
     case failed
 }
 
@@ -537,6 +552,7 @@ public actor CommandSession {
                     }
                     return revision
                 },
+                beforeSnapshotHash: try adapterForApply.beforeSnapshotHash(for: plan),
                 mutation: { try adapterForApply.apply(plan) }
             )
             await refreshPanel(error: nil)
@@ -564,14 +580,105 @@ public actor CommandSession {
         }
     }
 
-    /// JobCoordinator has no undo transition yet.  Keep the panel control
-    /// visible as disabled and return a precise error instead of claiming that
-    /// an injected closure restored Final Cut state.
     @discardableResult
     public func undo() async throws -> PanelState {
-        let error = CommandSessionError.undoUnavailable("Phase 1 has no verified undo transition")
-        await refreshPanel(error: issue(for: error))
-        throw error
+        guard let plan = activePlan, let record = activeRecord else {
+            let error = CommandSessionError.noPlan
+            await refreshPanel(error: issue(for: error))
+            throw error
+        }
+        if record.state == .undone {
+            await refreshPanel(error: nil)
+            return panel
+        }
+        guard record.state == .applied else {
+            let error = CommandSessionError.undoUnavailable("operation is already \(record.state.rawValue)")
+            await refreshPanel(error: issue(for: error))
+            throw error
+        }
+        guard adapter.capability.exactEffectSupport,
+              adapter.capability.supportedEffects.contains(plan.effectID),
+              adapter.capability.undoSupport else {
+            let error = CommandSessionError.undoUnavailable("exact undo support for \(plan.effectID.rawValue) was not proven")
+            await refreshPanel(error: issue(for: error))
+            throw error
+        }
+        guard adapter.canUndo else {
+            let error = CommandSessionError.undoUnavailable("no verified undo adapter was injected")
+            await refreshPanel(error: issue(for: error))
+            throw error
+        }
+        guard let evidence = record.verifiedEvidence,
+              evidence.verified, !evidence.evidenceID.isEmpty, !evidence.afterSnapshotHash.isEmpty,
+              let postRevision = evidence.postMutationRevision,
+              !postRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let error = CommandSessionError.undoUnavailable("verified apply evidence has no complete post-mutation revision")
+            await refreshPanel(error: issue(for: error))
+            throw error
+        }
+
+        let currentRevision: String
+        do {
+            guard let revision = try adapter.currentRevision() else {
+                throw CommandSessionError.undoUnavailable("a current revision was not proven")
+            }
+            currentRevision = revision
+        } catch let error as CommandSessionError {
+            await refreshPanel(error: issue(for: error))
+            throw error
+        } catch {
+            let wrapped = CommandSessionError.undoUnavailable("current revision could not be read: \(error.localizedDescription)")
+            await refreshPanel(error: issue(for: wrapped))
+            throw wrapped
+        }
+        guard currentRevision == postRevision else {
+            let error = CommandSessionError.staleRevision(expected: postRevision, actual: currentRevision)
+            await refreshPanel(error: issue(for: error))
+            throw error
+        }
+        guard await coordinator.canUndo(operationID: plan.operationID, currentRevision: currentRevision) else {
+            let error = CommandSessionError.undoUnavailable("rollback payload or current adapter capability is not valid for undo")
+            await refreshPanel(error: issue(for: error))
+            throw error
+        }
+
+        let adapterForUndo = adapter
+        do {
+            activeRecord = try await coordinator.undo(
+                plan: plan,
+                revisionProvider: {
+                    guard let revision = try adapterForUndo.currentRevision() else {
+                        throw CommandSessionError.undoUnavailable("a current revision was not proven")
+                    }
+                    return revision
+                },
+                mutation: { try adapterForUndo.undo($0) }
+            )
+            await refreshPanel(error: nil)
+            return panel
+        } catch let error as JobCoordinatorError {
+            activeRecord = await coordinator.record(operationID: plan.operationID)
+            let wrapped: CommandSessionError = {
+                if case .staleRevision(let expected, let actual) = error {
+                    return .staleRevision(expected: expected, actual: actual)
+                }
+                if case .undoUnavailable(let reason) = error {
+                    return .undoUnavailable(reason)
+                }
+                return .jobCoordinator(error.localizedDescription)
+            }()
+            await refreshPanel(error: issue(for: wrapped))
+            throw wrapped
+        } catch let error as CommandSessionError {
+            activeRecord = await coordinator.record(operationID: plan.operationID)
+            await refreshPanel(error: issue(for: error))
+            throw error
+        } catch {
+            activeRecord = await coordinator.record(operationID: plan.operationID)
+            let wrapped = CommandSessionError.adapterRejected(error.localizedDescription)
+            await refreshPanel(error: issue(for: wrapped))
+            throw wrapped
+        }
     }
 
     private func refreshPanel(error: PanelIssue?) async {
@@ -585,17 +692,33 @@ public actor CommandSession {
         case .previewed, .planned: previewStatus = .ready
         case .applying: previewStatus = .applying
         case .applied: previewStatus = .applied
+        case .undoing: previewStatus = .undoing
+        case .undone: previewStatus = .undone
         case .cancelled: previewStatus = .cancelled
         case .failed, .rollbackRequired: previewStatus = .failed
         case nil: previewStatus = .unavailable
         }
         let editability = activePlan.map { editabilitySummary(for: $0) } ?? PanelEditabilitySummary()
-        let currentRevision = try? adapter.currentRevision()
+        let currentRevision: String?
+        do { currentRevision = try adapter.currentRevision() }
+        catch { currentRevision = nil }
         let canApply: Bool
         if let plan = activePlan, let state = recordState, (state == .planned || state == .previewed), let currentRevision {
             canApply = adapter.canMutate && currentRevision == plan.preconditionRevision && adapter.capability.proves(effect: plan.effectID, revision: currentRevision)
         } else {
             canApply = false
+        }
+        let canUndo: Bool
+        if let plan = activePlan, let state = recordState, state == .applied,
+           adapter.canUndo,
+           adapter.capability.undoSupport,
+           adapter.capability.exactEffectSupport,
+           adapter.capability.supportedEffects.contains(plan.effectID),
+           let currentRevision,
+           !currentRevision.isEmpty {
+            canUndo = await coordinator.canUndo(operationID: plan.operationID, currentRevision: currentRevision)
+        } else {
+            canUndo = false
         }
         panel = PanelState(
             commandText: panel.commandText,
@@ -608,7 +731,7 @@ public actor CommandSession {
             previewRendered: false,
             applyEnabled: canApply,
             cancelEnabled: recordState == .planned || recordState == .previewed,
-            undoEnabled: false,
+            undoEnabled: canUndo,
             jobState: recordState,
             history: history,
             error: error
