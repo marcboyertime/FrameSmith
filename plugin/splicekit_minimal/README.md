@@ -10,29 +10,42 @@ Every mutation entry point returns `unsupported_unverified_fcp_12_3` until a
 separately reviewed live spike verifies the exact host and exactly-one-library
 invariant.
 
-The copied-app signing policy removes only the documented Apple-bound
-entitlements and adds exactly
-`com.apple.security.cs.disable-library-validation=true`. A controlled launch
-attempt stopped in `dyld` before any library access because locally signing the
-top-level copy caused a Team ID mismatch with Apple-signed nested frameworks.
-This narrow entitlement is therefore required to preserve those nested
-frameworks; sandboxing remains required, while task-port/get-task-allow,
-debugger, and DYLD-environment entitlements remain forbidden. That observation
-does not establish runtime behavior or authorize a Final Cut library mutation.
+The copied-app signing policy is an exact five-key allowlist:
+`com.apple.security.app-sandbox=false`,
+`com.apple.security.cs.disable-library-validation=true`, and the preserved
+audio-input, camera, and microphone entitlements. The library-validation
+exception is required because locally signing the top-level copy otherwise
+conflicts with its Apple-signed nested frameworks. Task-port/get-task-allow,
+debugger, and DYLD-environment entitlements remain forbidden. This signing
+policy does not establish runtime behavior or authorize a Final Cut library
+mutation.
 
-The copied-app startup compatibility is one constructor-time Objective-C caller
-compatibility bridge. It can replace only `POFDesktopOnboardingCoordinator`
-`setQueryDemoProjectInfo:` after retaining and validating the original setter
-IMP. Before doing so, it requires copied-host containment and active-slice UUID,
-the exact nested `ProOnboardingFlowModelOne` framework path, its whole-file
-SHA-256 and active slice UUID, instance-method placement, three Objective-C
-arguments, void return type, exact `v24@0:8@?16` encoding, and the inspected
-implementation offset in the active architecture. The bridge then calls that
-original setter with one provider that asynchronously completes on the main
-queue with nil demo metadata. This preserves the coordinator completion flow
-without fabricating a project or error, invoking CloudKit, or starting a retry.
-The copied artifact verifier records stock-versus-copied framework provenance
-before it can report the compatibility contract as present.
+The copied-app startup compatibility has exactly two constructor-time,
+compile-time Objective-C replacements. The existing
+`POFDesktopOnboardingCoordinator` `setQueryDemoProjectInfo:` bridge retains and
+validates its original setter IMP before calling it with one provider that
+asynchronously completes on the main queue with nil demo metadata. The only
+additional replacement is the `CCFirstLaunchHelper` instance method
+`setupAndPresentFirstLaunchIfNeededWithCompletionHandler:`. It has the exact
+`v24@0:8@?<v@?@"NSError">16` ABI and inspected original IMP offsets `0x924e8`
+(arm64) and `0xc74c0` (x86_64). Its replacement immediately returns without
+invoking, copying, retaining, inspecting, or otherwise accessing the
+completion block.
+
+Each replacement is installed only after copied-host containment, exact path,
+bundle identifier, version, build, receipt, and active-slice UUID checks. The
+onboarding bridge additionally requires the exact nested
+`ProOnboardingFlowModelOne` framework path, whole-file SHA-256, active-slice
+UUID, instance-method placement, argument count, return type, full encoding,
+and original IMP. The first-launch replacement requires the same placement and
+ABI checks plus that its original IMP resolves to the exact copied host image,
+with the active-slice UUID and architecture-specific offset. Both replacements
+post-verify their installed IMP and encoding; any mismatch leaves the target
+method unchanged. Static inspection also pins the PEAppController send and its
+independent continuation in both slices, and shows the automatic listener is
+created only by the suppressed call's completion route. The copied artifact
+verifier records stock-versus-copied provenance before it can report the
+compatibility contract as present.
 
 This bridge is not a license workaround. Static receipt validation in this FCP
 release compares the parsed receipt bundle identifier with
@@ -42,9 +55,9 @@ also requires the exact copied app path, the copied receipt's reviewed SHA-256,
 the copied executable UUID, and the embedded framework path. The stock
 pre-injection executable SHA-256 remains a patcher provenance check because
 the copied executable must gain one reviewed load command and a new signature.
-The runtime never writes Final Cut preferences. Before any manual Option-launch
-test, no production library may be open; the existing exactly-one disposable
-library manifest gate remains fail-closed and all mutations remain disabled.
+The runtime never writes Final Cut preferences. No production library may be
+open; the existing exactly-one disposable library manifest gate remains
+fail-closed and all mutations remain disabled.
 
 The fixed CloudContent names and contracts were manually transcribed from the
 locked `reference/elliotttate/SpliceKit` snapshot at

@@ -191,7 +191,7 @@ verify_compatibility_policy() {
     if ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
         fail "$label compatibility policy is invalid"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "6" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "7" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" ]]; then
         fail "$label compatibility policy host bundle identifier is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "$expected_host_version" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "$expected_host_build" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "$expected_stock_pre_injection_host_executable_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
@@ -208,7 +208,10 @@ verify_compatibility_policy() {
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "forward_original_setter_async_nil_metadata_provider" ]]; then
         fail "$label compatibility policy single onboarding query setter contract is not exact"
     fi
-    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:RuntimeClass' "$policy_path")" != "CCFirstLaunchHelper" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:Selector' "$policy_path")" != "setupAndPresentFirstLaunchIfNeededWithCompletionHandler:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ObjectiveCTypeEncoding' "$policy_path")" != 'v24@0:8@?<v@?@"NSError">16' || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x924e8" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0xc74c0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:Replacement' "$policy_path")" != "immediate_noop_return_without_completion_access" ]]; then
+        fail "$label cloud first-launch replacement contract is not exact"
+    fi
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:2' "$policy_path" >/dev/null 2>&1; then
         fail "$label compatibility policy permits an extra method replacement"
     fi
 }
@@ -452,7 +455,11 @@ for required_runtime_string in \
     'setQueryDemoProjectInfo:' \
     'v24@0:8@?16' \
     '636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce' \
-    'onboarding_query_compatibility=installed'; do
+    'onboarding_query_compatibility=installed' \
+    'CCFirstLaunchHelper' \
+    'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:' \
+    'v24@0:8@?<v@?@"NSError">16' \
+    'cloud_first_launch_registration_suppression=installed'; do
     if ! /usr/bin/grep -F -x -q "$required_runtime_string" "$verify_dir/runtime-strings.txt"; then
         fail "runtime is missing required exact-host or method-compatibility string: $required_runtime_string"
     fi
@@ -468,13 +475,11 @@ for forbidden_runtime_string in \
     DemoProjectDownloadHelper \
     CloudContentCatalog \
     CloudContentFeatureFlag \
-    CCFirstLaunchHelper \
     fetchDefaultDemoProjectWithCompletionHandler: \
     isCloudContentEnabled \
     isRunningSubscriptionApp \
     startListeningForApplicationDidBecomeActiveNotifications \
     shouldShowFirstLaunchExperience \
-    setupAndPresentFirstLaunchIfNeededWithCompletionHandler: \
     main_queue_once \
     will_finish_launching_once \
     cloud_content_method_guard; do
@@ -482,7 +487,7 @@ for forbidden_runtime_string in \
         fail "runtime contains a forbidden broad-discovery or unrelated-feature string: $forbidden_runtime_string"
     fi
 done
-print -r -- "onboarding_query_compatibility=pass host=$expected_host_bundle_identifier copied_path=$expected_copied_host_bundle_path version=$expected_host_version build=$expected_host_build stock_pre_injection_host_sha256=$expected_stock_pre_injection_host_executable_sha256 mas_receipt_path=$mas_receipt_relative_path mas_receipt_sha256=$expected_mas_receipt_sha256 host_arm64_uuid=AD024067-E145-3988-AFF9-BD33391C416D host_x86_64_uuid=2ACCBD11-6965-3D09-BD87-9A900FDC740E onboarding_framework_path=$onboarding_framework_relative_executable_path onboarding_framework_sha256=$expected_onboarding_framework_sha256 onboarding_framework_arm64_uuid=$expected_onboarding_framework_arm64_uuid onboarding_framework_x86_64_uuid=$expected_onboarding_framework_x86_64_uuid query_setter=POFDesktopOnboardingCoordinator:setQueryDemoProjectInfo: query_setter_offsets=arm64:0x1313c,x86_64:0x13cc0 query_setter_type=v24@0:8@?16 replacement=forward_original_setter_async_nil_metadata_provider copied_onboarding_framework=stock_identity_matched copied_receipt=stock_receipt_matched" > "$verify_dir/runtime-compatibility-audit.txt"
+print -r -- "onboarding_query_compatibility=pass host=$expected_host_bundle_identifier copied_path=$expected_copied_host_bundle_path version=$expected_host_version build=$expected_host_build stock_pre_injection_host_sha256=$expected_stock_pre_injection_host_executable_sha256 mas_receipt_path=$mas_receipt_relative_path mas_receipt_sha256=$expected_mas_receipt_sha256 host_arm64_uuid=AD024067-E145-3988-AFF9-BD33391C416D host_x86_64_uuid=2ACCBD11-6965-3D09-BD87-9A900FDC740E onboarding_framework_path=$onboarding_framework_relative_executable_path onboarding_framework_sha256=$expected_onboarding_framework_sha256 onboarding_framework_arm64_uuid=$expected_onboarding_framework_arm64_uuid onboarding_framework_x86_64_uuid=$expected_onboarding_framework_x86_64_uuid query_setter=POFDesktopOnboardingCoordinator:setQueryDemoProjectInfo: query_setter_offsets=arm64:0x1313c,x86_64:0x13cc0 query_setter_type=v24@0:8@?16 replacement=forward_original_setter_async_nil_metadata_provider cloud_first_launch=CCFirstLaunchHelper:setupAndPresentFirstLaunchIfNeededWithCompletionHandler: cloud_first_launch_offsets=arm64:0x924e8,x86_64:0xc74c0 cloud_first_launch_type='v24@0:8@?<v@?@\"NSError\">16' cloud_first_launch_replacement=immediate_noop_return_without_completion_access copied_onboarding_framework=stock_identity_matched copied_receipt=stock_receipt_matched" > "$verify_dir/runtime-compatibility-audit.txt"
 
 /usr/sbin/lsof -nP -iTCP -sTCP:LISTEN > "$verify_dir/listener-audit.txt" 2>&1 || true
 require_not_running "$verify_dir/process-after-verify.txt"

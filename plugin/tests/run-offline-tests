@@ -70,6 +70,68 @@ if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboardin
     fail "required source app or reviewed onboarding framework is missing"
 fi
 
+# The automatic Cloud Content first-launch route is pinned from the exact
+# installed Final Cut Pro 12.3 executable. These are static inspections only;
+# this test never launches either Final Cut app.
+/usr/bin/otool -arch arm64 -o -v "$source_executable" > "$test_dir/fcp-12-3-cloud-first-launch-objc-arm64.txt"
+/usr/bin/otool -arch x86_64 -o -v "$source_executable" > "$test_dir/fcp-12-3-cloud-first-launch-objc-x86_64.txt"
+/usr/bin/otool -arch arm64 -tvV "$source_executable" > "$test_dir/fcp-12-3-cloud-first-launch-disassembly-arm64.txt"
+/usr/bin/otool -arch x86_64 -tvV "$source_executable" > "$test_dir/fcp-12-3-cloud-first-launch-disassembly-x86_64.txt"
+/usr/bin/otool -arch x86_64 -s __DATA __objc_selrefs "$source_executable" > "$test_dir/fcp-12-3-cloud-first-launch-selrefs-x86_64.txt"
+for arm64_metadata_fragment in \
+    'CCFirstLaunchHelper' \
+    'v24@0:8@?<v@?@"NSError">16' \
+    'imp     0xfff9de5c (0x1000924e8)'; do
+    if ! "$rg_bin" -F -q -- "$arm64_metadata_fragment" "$test_dir/fcp-12-3-cloud-first-launch-objc-arm64.txt"; then
+        fail "installed Final Cut Pro 12.3 arm64 first-launch metadata drifted: $arm64_metadata_fragment"
+    fi
+done
+for x86_64_metadata_fragment in \
+    'CCFirstLaunchHelper' \
+    'v24@0:8@?<v@?@"NSError">16' \
+    'imp     0x1000c74c0'; do
+    if ! "$rg_bin" -F -q -- "$x86_64_metadata_fragment" "$test_dir/fcp-12-3-cloud-first-launch-objc-x86_64.txt"; then
+        fail "installed Final Cut Pro 12.3 x86_64 first-launch metadata drifted: $x86_64_metadata_fragment"
+    fi
+done
+for arm64_route_fragment in \
+    '-[PEAppController presentMainWindowOnAppLaunch:]:' \
+    '000000010003b648' \
+    '"_objc_msgSend$setupAndPresentFirstLaunchIfNeededWithCompletionHandler:"' \
+    '000000010003b64c' \
+    '___48-[PEAppController presentMainWindowOnAppLaunch:]_block_invoke:' \
+    '000000010003c32c' \
+    '_objc_msgSend$startListeningForApplicationDidBecomeActiveNotifications'; do
+    if ! "$rg_bin" -F -q -- "$arm64_route_fragment" "$test_dir/fcp-12-3-cloud-first-launch-disassembly-arm64.txt"; then
+        fail "installed Final Cut Pro 12.3 arm64 first-launch route drifted: $arm64_route_fragment"
+    fi
+done
+for x86_64_route_fragment in \
+    '-[PEAppController presentMainWindowOnAppLaunch:]:' \
+    '000000010004f19c' \
+    '0x15d8e5(%rip)' \
+    '000000010004f1ad' \
+    '000000010004f1b0' \
+    '___48-[PEAppController presentMainWindowOnAppLaunch:]_block_invoke:' \
+    '00000001000503c8' \
+    '0x10e80a(%rip)'; do
+    if ! "$rg_bin" -F -q -- "$x86_64_route_fragment" "$test_dir/fcp-12-3-cloud-first-launch-disassembly-x86_64.txt"; then
+        fail "installed Final Cut Pro 12.3 x86_64 first-launch route drifted: $x86_64_route_fragment"
+    fi
+done
+for x86_64_selector_fragment in \
+    '00000001001aca78' \
+    '75 b3 12 00 00 00 10 00 66 52 13 00 00 00 10 00' \
+    '00000001001aca88' \
+    'c2 39 13 00 00 00 10 00 de 84 11 00 00 00 10 00'; do
+    if ! "$rg_bin" -F -q -- "$x86_64_selector_fragment" "$test_dir/fcp-12-3-cloud-first-launch-selrefs-x86_64.txt"; then
+        fail "installed Final Cut Pro 12.3 x86_64 first-launch selector reference drifted: $x86_64_selector_fragment"
+    fi
+done
+if [[ "$("$rg_bin" -F -o '_objc_msgSend$startListeningForApplicationDidBecomeActiveNotifications' "$test_dir/fcp-12-3-cloud-first-launch-disassembly-arm64.txt" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$("$rg_bin" -F -o '00000001000503c8' "$test_dir/fcp-12-3-cloud-first-launch-disassembly-x86_64.txt" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
+    fail "installed Final Cut Pro 12.3 first-launch completion has more than one automatic listener route"
+fi
+
 /usr/bin/otool -arch arm64 -o -v "$source_flexo_framework" > "$test_dir/fcp-12-3-flexo-objc-arm64.txt"
 for installed_flexo_fragment in \
     'v64@0:8{?=qiIq}16^d40^d48^d56' \
@@ -286,7 +348,16 @@ for required_runtime_fragment in \
     'FCPCCVerifiedOnboardingQueryDemoProjectInfoSetter' \
     'FCPCCCompleteOnboardingDemoProjectInfoAsyncWithNil' \
     'FCPCCForwardOnboardingQueryDemoProjectInfoSetterWithAsyncNilMetadata' \
-    'FCPCCInstallOnboardingQueryCompatibility'; do
+    'FCPCCInstallOnboardingQueryCompatibility' \
+    'FCPCCExpectedCloudFirstLaunchHelperClassName' \
+    'FCPCCExpectedCloudFirstLaunchSetupSelectorName' \
+    'FCPCCExpectedCloudFirstLaunchSetupTypeEncoding' \
+    'FCPCCExpectedCurrentArchitectureCloudFirstLaunchSetupOffset' \
+    '0x924e8' \
+    '0xc74c0' \
+    'FCPCCCopiedHostIdentityForImplementation' \
+    'FCPCCSuppressCloudFirstLaunchRegistration' \
+    'FCPCCInstallCloudFirstLaunchRegistrationSuppression'; do
     require_fragment "$required_runtime_fragment" "$runtime_implementation" "runtime exact onboarding compatibility"
 done
 host_identity_source="$(/usr/bin/sed -n '/static BOOL FCPCCCopiedHostImageUUIDMatches/,/^}/p' "$runtime_implementation")"
@@ -327,16 +398,28 @@ for required_framework_identity_fragment in \
         fail "runtime onboarding framework identity check is missing: $required_framework_identity_fragment"
     fi
 done
+cloud_host_identity_source="$(/usr/bin/sed -n '/static FCPCCCopiedHostIdentityDisposition FCPCCCopiedHostIdentityForImplementation/,/^}/p' "$runtime_implementation")"
+for required_cloud_host_identity_fragment in \
+    'dladdr((const void *)implementation, &image)' \
+    'FCPCCExpectedCopiedHostBundlePath stringByAppendingPathComponent:@"Contents/MacOS/Final Cut Pro"' \
+    'FCPCCExpectedCurrentArchitectureHostUUID()' \
+    'FCPCCLoadedMachOImageHasExpectedUUID' \
+    'actualOffset != expectedOffset'; do
+    if ! print -r -- "$cloud_host_identity_source" | "$rg_bin" -F -q "$required_cloud_host_identity_fragment"; then
+        fail "runtime cloud first-launch original IMP identity check is missing: $required_cloud_host_identity_fragment"
+    fi
+done
 runtime_constructor_source="$(/usr/bin/sed -n '/__attribute__((constructor))/,/^}/p' "$runtime_implementation")"
 if print -r -- "$runtime_constructor_source" | "$rg_bin" -F -q 'showPanel:' || print -r -- "$runtime_constructor_source" | "$rg_bin" -F -q 'showWindow:' || print -r -- "$runtime_constructor_source" | "$rg_bin" -F -q 'makeKeyAndOrderFront:'; then
     fail "runtime constructor auto-shows the panel"
 fi
 compatibility_install_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F '(void)FCPCCInstallOnboardingQueryCompatibility();' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+cloud_compatibility_install_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F '(void)FCPCCInstallCloudFirstLaunchRegistrationSuppression();' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
 menu_enqueue_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F '[[FCPCCRuntime sharedRuntime] installMenuWhenReady];' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
 constructor_containment_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F 'FCPCCRuntimeContainmentGate alloc' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-constructor_reject_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F 'if (!containment.isVerified)' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-if [[ -z "$constructor_containment_line" || -z "$constructor_reject_line" || -z "$compatibility_install_line" || -z "$menu_enqueue_line" || "$constructor_containment_line" -ge "$constructor_reject_line" || "$constructor_reject_line" -ge "$compatibility_install_line" || "$compatibility_install_line" -ge "$menu_enqueue_line" ]]; then
-    fail "exact copied-host containment does not precede the compatibility bridge and menu scheduling"
+constructor_reject_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F 'if (!containment.isVerified || !FCPCCCopiedHostImageUUIDMatches())' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+if [[ -z "$constructor_containment_line" || -z "$constructor_reject_line" || -z "$compatibility_install_line" || -z "$cloud_compatibility_install_line" || -z "$menu_enqueue_line" || "$constructor_containment_line" -ge "$constructor_reject_line" || "$constructor_reject_line" -ge "$compatibility_install_line" || "$compatibility_install_line" -ge "$cloud_compatibility_install_line" || "$cloud_compatibility_install_line" -ge "$menu_enqueue_line" ]]; then
+    fail "exact copied-host containment and active-slice UUID do not precede both compatibility replacements and menu scheduling"
 fi
 query_compatibility_source="$(/usr/bin/sed -n '/static NSString \*FCPCCInstallOnboardingQueryCompatibility/,/^}/p' "$runtime_implementation")"
 for required_query_compatibility_fragment in \
@@ -377,6 +460,42 @@ fi
 if "$rg_bin" -n -i -F 'FCPCCDiscardOnboardingQueryDemoProjectInfo' "$runtime_implementation" >/dev/null || "$rg_bin" -n -i -F 'discard_query_block_noop' "$runtime_implementation" "$runtime_policy_source" >/dev/null; then
     fail "retired query-discard behavior remains reachable"
 fi
+cloud_first_launch_compatibility_source="$(/usr/bin/sed -n '/static NSString \*FCPCCInstallCloudFirstLaunchRegistrationSuppression/,/^}/p' "$runtime_implementation")"
+for required_cloud_first_launch_fragment in \
+    'dispatch_once(&onceToken, ^{' \
+    'FCPCCRuntimeContainmentGate alloc' \
+    'FCPCCCopiedHostImageUUIDMatches()' \
+    'objc_getClass(FCPCCExpectedCloudFirstLaunchHelperClassName.UTF8String)' \
+    'sel_registerName(FCPCCExpectedCloudFirstLaunchSetupSelectorName.UTF8String)' \
+    'class_getInstanceMethod(targetClass, selector)' \
+    'class_getClassMethod(targetClass, selector)' \
+    'method_getNumberOfArguments(method) != 3' \
+    'method_copyReturnType(method)' \
+    'method_getTypeEncoding(method)' \
+    'method_getImplementation(method)' \
+    'FCPCCCopiedHostIdentityForImplementation(originalImplementation,' \
+    'FCPCCExpectedCurrentArchitectureCloudFirstLaunchSetupOffset()' \
+    'class_replaceMethod(targetClass,' \
+    'FCPCCSuppressCloudFirstLaunchRegistration' \
+    'method_getImplementation(installedMethod)' \
+    'cloud_first_launch_registration_suppression=installed'; do
+    if ! print -r -- "$cloud_first_launch_compatibility_source" | "$rg_bin" -F -q "$required_cloud_first_launch_fragment"; then
+        fail "runtime cloud first-launch compatibility is missing: $required_cloud_first_launch_fragment"
+    fi
+done
+if [[ "$(print -r -- "$cloud_first_launch_compatibility_source" | "$rg_bin" -F -o 'class_replaceMethod' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$(print -r -- "$cloud_first_launch_compatibility_source" | "$rg_bin" -F -o 'objc_getClass(' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$(print -r -- "$cloud_first_launch_compatibility_source" | "$rg_bin" -F -o 'sel_registerName(' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
+    fail "cloud first-launch compatibility is not limited to one exact replacement path"
+fi
+cloud_first_launch_noop_source="$(/usr/bin/sed -n '/static void FCPCCSuppressCloudFirstLaunchRegistration/,/^}/p' "$runtime_implementation")"
+if ! print -r -- "$cloud_first_launch_noop_source" | "$rg_bin" -F -q 'id ignoredCompletion __attribute__((unused))) {' || [[ "$(print -r -- "$cloud_first_launch_noop_source" | "$rg_bin" -F -o 'ignoredCompletion' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || -n "$(print -r -- "$cloud_first_launch_noop_source" | /usr/bin/sed '1,3d;$d' | /usr/bin/tr -d '[:space:]')" ]]; then
+    fail "cloud first-launch replacement must immediately return without accessing its completion block"
+fi
+if print -r -- "$cloud_first_launch_noop_source" | "$rg_bin" -F -q 'dispatch_' || print -r -- "$cloud_first_launch_noop_source" | "$rg_bin" -F -q 'Block_' || print -r -- "$cloud_first_launch_noop_source" | "$rg_bin" -F -q 'original'; then
+    fail "cloud first-launch replacement retains completion work or original-call behavior"
+fi
+if [[ "$("$rg_bin" -F -o 'class_replaceMethod(' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "2" ]]; then
+    fail "runtime must contain exactly two approved Objective-C replacements"
+fi
 for forbidden_runtime_surface in \
     'FCPCCCloudContentCompatibilityEntry' \
     'FCPCCInstallCloudContentCompatibilityEntry' \
@@ -385,13 +504,11 @@ for forbidden_runtime_surface in \
     'DemoProjectDownloadHelper' \
     'CloudContentCatalog' \
     'CloudContentFeatureFlag' \
-    'CCFirstLaunchHelper' \
     'fetchDefaultDemoProjectWithCompletionHandler:' \
     'isCloudContentEnabled' \
     'isRunningSubscriptionApp' \
     'startListeningForApplicationDidBecomeActiveNotifications' \
     'shouldShowFirstLaunchExperience' \
-    'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:' \
     'NSApplicationWillFinishLaunchingNotification' \
     'main_queue_once' \
     'will_finish_launching_once' \
@@ -411,7 +528,7 @@ if [[ -e "$retired_runtime_policy_source" || -e "$retired_runtime_policy_build" 
     fail "retired isolated preference policy remains present"
 fi
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "6" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "7" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
         fail "compatibility policy copied-host, receipt, or onboarding identity is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "1" ]]; then
@@ -425,7 +542,10 @@ for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "forward_original_setter_async_nil_metadata_provider" ]]; then
         fail "compatibility policy single onboarding query setter contract is not exact"
     fi
-    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:RuntimeClass' "$policy_path")" != "CCFirstLaunchHelper" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:Selector' "$policy_path")" != "setupAndPresentFirstLaunchIfNeededWithCompletionHandler:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ObjectiveCTypeEncoding' "$policy_path")" != 'v24@0:8@?<v@?@"NSError">16' || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x924e8" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0xc74c0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:Replacement' "$policy_path")" != "immediate_noop_return_without_completion_access" ]]; then
+        fail "compatibility policy cloud first-launch replacement contract is not exact"
+    fi
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:2' "$policy_path" >/dev/null 2>&1; then
         fail "compatibility policy permits an extra method replacement"
     fi
 done
@@ -446,7 +566,11 @@ for required_runtime_binary_string in \
     'setQueryDemoProjectInfo:' \
     'v24@0:8@?16' \
     '636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce' \
-    'onboarding_query_compatibility=installed'; do
+    'onboarding_query_compatibility=installed' \
+    'CCFirstLaunchHelper' \
+    'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:' \
+    'v24@0:8@?<v@?@"NSError">16' \
+    'cloud_first_launch_registration_suppression=installed'; do
     if ! /usr/bin/grep -F -x -q "$required_runtime_binary_string" "$test_dir/runtime-binary-strings.txt"; then
         fail "built runtime is missing required exact binary string: $required_runtime_binary_string"
     fi
@@ -539,7 +663,7 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
     current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$patcher_script")"
     for required_current_policy_fragment in \
         'Print :SchemaVersion' \
-        '" != "6"' \
+        '" != "7"' \
         'ExpectedHostBundleIdentifier' \
         'ExpectedCopiedHostBundlePath' \
         'ExpectedHostVersion' \
@@ -564,13 +688,20 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         'setQueryDemoProjectInfo:' \
         '0x1313c' \
         '0x13cc0' \
-        'forward_original_setter_async_nil_metadata_provider'; do
+        'forward_original_setter_async_nil_metadata_provider' \
+        'CCFirstLaunchHelper' \
+        'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:' \
+        'v24@0:8@?<v@?@"NSError">16' \
+        '0x924e8' \
+        '0xc74c0' \
+        'immediate_noop_return_without_completion_access' \
+        'ApprovedMethodReplacements:2'; do
         if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q "$required_current_policy_fragment"; then
-            fail "patcher current schema-6 policy contract is missing: $required_current_policy_fragment"
+            fail "patcher current schema-7 policy contract is missing: $required_current_policy_fragment"
         fi
     done
     if print -r -- "$current_policy_source" | "$rg_bin" -F -q 'discard_query_block_noop'; then
-        fail "patcher current schema-6 policy retains the retired query-discard contract"
+        fail "patcher current schema-7 policy retains the retired query-discard contract"
     fi
 done
 require_fragment 'expected_copied_host_bundle_path="$live_copied_app"' "$runtime_updater" "transactional updater exact live path"
@@ -602,6 +733,86 @@ receipt_rebind_line="$("$rg_bin" -n -F -- 'elif [[ "$migration_required" == "tru
 if [[ -z "$legacy_gate_line" || -z "$receipt_rebind_line" || "$legacy_gate_line" -ge "$receipt_rebind_line" ]]; then
     fail "legacy entitlement state must be resolved before receipt-provenance rebinding"
 fi
+
+# The canonical Schema-6 receipt rebind is a distinct one-time classifier, not
+# a fallback for a partially verified copied app. Exercise the pure classifier
+# directly so each proof category is proven necessary without touching either
+# Final Cut bundle.
+for exact_schema6_rebind_fragment in \
+    'expected_legacy_schema6_runtime_sha256="b78c9ddedc510c2959488f1c67ce0951089be875b10795ce9288f1a98ff95220"' \
+    'expected_legacy_schema6_policy_sha256="2787108b5eb6cc6d1d6a330208ad0ba0e626fe95dde2a3430b847e662345c708"' \
+    'expected_legacy_schema6_copied_cdhash_full="4d40df5ac3153f0301d9776513832a21b81ac692d1daae25f8ada4cc21125bb2"' \
+    'verify_exact_legacy_schema6_rebind_policy' \
+    'select_exact_canonical_schema6_missing_receipt_provenance_rebind' \
+    'verify_exact_canonical_schema6_missing_receipt_provenance_rebind' \
+    'process-before-rebind.txt' \
+    'codesign-verify-rebind-before.txt' \
+    'entitlement-allowlist-rebind-before.txt' \
+    'historical-receipt-artifacts.txt' \
+    'exact_canonical_schema6_missing_receipt_provenance_rebind'; do
+    require_fragment "$exact_schema6_rebind_fragment" "$runtime_updater" "exact Schema-6 receipt-provenance rebind"
+done
+legacy_schema6_policy_source="$(/usr/bin/sed -n '/^verify_exact_legacy_schema6_rebind_policy()/,/^}/p' "$runtime_updater")"
+for required_legacy_schema6_policy_fragment in \
+    'Print :SchemaVersion' \
+    '" != "6"' \
+    'ApprovedMethodReplacements:0:RuntimeClass' \
+    'POFDesktopOnboardingCoordinator' \
+    'setQueryDemoProjectInfo:' \
+    'forward_original_setter_async_nil_metadata_provider' \
+    'ApprovedMethodReplacements:1' \
+    'FirstLaunchCompleted' \
+    'CloudContentDisabled'; do
+    if ! print -r -- "$legacy_schema6_policy_source" | "$rg_bin" -F -q -- "$required_legacy_schema6_policy_fragment"; then
+        fail "exact Schema-6 policy rebind gate is missing: $required_legacy_schema6_policy_fragment"
+    fi
+done
+rebind_classifier_helper="$test_dir/exact-schema6-rebind-classifier.zsh"
+/usr/bin/sed -n '/^select_exact_canonical_schema6_missing_receipt_provenance_rebind()/,/^}/p' "$runtime_updater" > "$rebind_classifier_helper"
+if [[ "$(/bin/zsh -f -c 'source "$1"; select_exact_canonical_schema6_missing_receipt_provenance_rebind verified verified verified verified verified verified verified verified verified verified' -- "$rebind_classifier_helper")" != "exact_canonical_schema6_missing_receipt_provenance_rebind" ]]; then
+    fail "exact Schema-6 rebind classifier rejected the fully reviewed baseline"
+fi
+rebind_drift_labels=(canonical_paths no_final_cut_process bundle_metadata receipt_hash_and_equality active_slice_uuids deep_strict_signature canonical_entitlements legacy_schema6_policy baseline_cdhash historical_provenance)
+for rebind_drift_index in {1..10}; do
+    if /bin/zsh -f -c 'source "$1"; rebind_proofs=(verified verified verified verified verified verified verified verified verified verified); rebind_proofs[$2]=drifted; select_exact_canonical_schema6_missing_receipt_provenance_rebind "${rebind_proofs[@]}"' -- "$rebind_classifier_helper" "$rebind_drift_index" >/dev/null 2>&1; then
+        fail "exact Schema-6 rebind classifier accepted a drifted ${rebind_drift_labels[$rebind_drift_index]} proof"
+    fi
+done
+if /bin/zsh -f -c 'source "$1"; select_exact_canonical_schema6_missing_receipt_provenance_rebind verified verified verified verified verified verified verified verified verified' -- "$rebind_classifier_helper" >/dev/null 2>&1; then
+    fail "exact Schema-6 rebind classifier accepted an incomplete proof vector"
+fi
+rebind_live_gate_source="$(/usr/bin/sed -n '/^verify_exact_canonical_schema6_missing_receipt_provenance_rebind()/,/^}/p' "$runtime_updater")"
+for required_rebind_live_gate_fragment in \
+    'canonical_nonsymlink_paths="verified"' \
+    'no_final_cut_process="verified"' \
+    'bundle_metadata="verified"' \
+    'receipt_hash_and_equality="verified"' \
+    'active_slice_uuids="verified"' \
+    'deep_strict_signature="verified"' \
+    'canonical_entitlements="verified"' \
+    'legacy_schema6_runtime_and_policy="verified"' \
+    'baseline_cdhash="verified"' \
+    'historical_receipt_absence="verified"' \
+    '"$source_receipt_sha256" == "$expected_mas_receipt_sha256"' \
+    '"$copied_receipt_sha256" == "$expected_mas_receipt_sha256"' \
+    '/usr/bin/cmp -s "$source_app/$mas_receipt_relative_path" "$copied_app/$mas_receipt_relative_path"' \
+    '"$source_arm64_uuid" == "AD024067-E145-3988-AFF9-BD33391C416D"' \
+    '"$source_x86_64_uuid" == "2ACCBD11-6965-3D09-BD87-9A900FDC740E"' \
+    '"$copied_arm64_uuid" == "$source_arm64_uuid"' \
+    '"$copied_x86_64_uuid" == "$source_x86_64_uuid"' \
+    '"$entitlement_verifier" "$update_dir/stock-before/entitlements.plist" "$expected_entitlements" "$update_dir/copied-before/entitlements.plist" "$allowlist"' \
+    '"$observed_cdhash" == "$expected_legacy_schema6_copied_cdhash_full"' \
+    '-e "$initial_patch_dir/stock-before/receipt"' \
+    'historical-receipt-artifacts.txt' \
+    'verify_exact_legacy_schema6_rebind_policy "$embedded_compatibility_policy" "current"'; do
+    if ! print -r -- "$rebind_live_gate_source" | "$rg_bin" -F -q -- "$required_rebind_live_gate_fragment"; then
+        fail "exact Schema-6 rebind live gate is missing: $required_rebind_live_gate_fragment"
+    fi
+done
+rebind_branch_line="$("$rg_bin" -n -F -- 'elif [[ "$migration_required" == "false" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+if [[ -z "$rebind_branch_line" || "$rebind_branch_line" -le "$receipt_rebind_line" ]]; then
+    fail "canonical Schema-6 rebind must follow the unchanged legacy-sandboxed receipt path"
+fi
 for exact_framework_replacement_fragment in \
     '/bin/mv "$embedded_framework" "$rollback_dir/staged-retired-runtime-framework"' \
     'capture_bundle_manifest "$built_framework" "$update_dir/built-runtime-framework.manifest"' \
@@ -626,8 +837,8 @@ require_fragment 'if ! /usr/bin/cmp -s "$update_dir/copied-before/Info.plist.sha
 if "$rg_bin" -F -q -- 'if [[ "$migration_required" == "false" ]] && ! /usr/bin/cmp -s "$update_dir/copied-before/Info.plist.sha256"' "$runtime_updater"; then
     fail "copied-app Info.plist preservation must not be exempted during entitlement migration"
 fi
-if ! "$rg_bin" -F -q 'copied_onboarding_framework=stock_identity_matched' "$runtime_verifier" || ! "$rg_bin" -F -q 'query_setter_offsets=arm64:0x1313c,x86_64:0x13cc0' "$runtime_verifier"; then
-    fail "copied-artifact verifier does not record exact framework provenance and setter offsets"
+if ! "$rg_bin" -F -q 'copied_onboarding_framework=stock_identity_matched' "$runtime_verifier" || ! "$rg_bin" -F -q 'query_setter_offsets=arm64:0x1313c,x86_64:0x13cc0' "$runtime_verifier" || ! "$rg_bin" -F -q 'cloud_first_launch_offsets=arm64:0x924e8,x86_64:0xc74c0' "$runtime_verifier"; then
+    fail "copied-artifact verifier does not record exact framework provenance and both replacement offsets"
 fi
 runtime_string_loop_source="$(/usr/bin/sed -n '/for required_runtime_string in/,/^done/p' "$runtime_verifier")"
 if ! print -r -- "$runtime_string_loop_source" | "$rg_bin" -F -q "'v24@0:8@?16'"; then
@@ -648,7 +859,11 @@ for required_runtime_binary_string in \
     'setQueryDemoProjectInfo:' \
     'v24@0:8@?16' \
     '636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce' \
-    'onboarding_query_compatibility=installed'; do
+    'onboarding_query_compatibility=installed' \
+    'CCFirstLaunchHelper' \
+    'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:' \
+    'v24@0:8@?<v@?@"NSError">16' \
+    'cloud_first_launch_registration_suppression=installed'; do
     if ! print -r -- "$runtime_string_loop_source" | "$rg_bin" -F -q "'$required_runtime_binary_string'"; then
         fail "copied-artifact verifier is missing required literalized runtime binary string: $required_runtime_binary_string"
     fi

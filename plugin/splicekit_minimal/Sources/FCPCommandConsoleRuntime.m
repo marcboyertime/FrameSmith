@@ -3,7 +3,8 @@
 // The candidate strings below were manually transcribed from the locked
 // SpliceKit symbol snapshot at f4f6618121309a69b66272b441f34cf8ad57f306.
 // Candidate strings remain constants only; the separately documented exact
-// onboarding gate below uses one fixed selector after its image and ABI checks.
+// compatibility gates below use two fixed selectors after their image and ABI
+// checks.
 
 #import "FCPCommandConsoleRuntime.h"
 
@@ -35,6 +36,9 @@ static NSString * const FCPCCExpectedOnboardingCoordinatorClassName = @"POFDeskt
 static NSString * const FCPCCExpectedOnboardingQuerySetterName = @"setQueryDemoProjectInfo:";
 static const char * const FCPCCExpectedOnboardingQuerySetterTypeEncoding = "v24@0:8@?16";
 static const char * const FCPCCExpectedOnboardingFrameworkSHA256 = "636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce";
+static NSString * const FCPCCExpectedCloudFirstLaunchHelperClassName = @"CCFirstLaunchHelper";
+static NSString * const FCPCCExpectedCloudFirstLaunchSetupSelectorName = @"setupAndPresentFirstLaunchIfNeededWithCompletionHandler:";
+static const char * const FCPCCExpectedCloudFirstLaunchSetupTypeEncoding = "v24@0:8@?<v@?@\"NSError\">16";
 static NSString * const FCPCCExpectedFlexoFrameworkRelativeExecutablePath = @"Contents/Frameworks/Flexo.framework/Versions/A/Flexo";
 static const char * const FCPCCExpectedFlexoFrameworkSHA256 = "704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e";
 
@@ -606,6 +610,14 @@ typedef NS_ENUM(NSUInteger, FCPCCOnboardingFrameworkIdentityDisposition) {
     FCPCCOnboardingFrameworkIdentityDispositionImplementationMismatch = 5,
 };
 
+typedef NS_ENUM(NSUInteger, FCPCCCopiedHostIdentityDisposition) {
+    FCPCCCopiedHostIdentityDispositionMatches = 0,
+    FCPCCCopiedHostIdentityDispositionImageUnavailable = 1,
+    FCPCCCopiedHostIdentityDispositionPathMismatch = 2,
+    FCPCCCopiedHostIdentityDispositionUUIDMismatch = 3,
+    FCPCCCopiedHostIdentityDispositionImplementationMismatch = 4,
+};
+
 static const uint8_t *FCPCCExpectedCurrentArchitectureHostUUID(void) {
 #if defined(__arm64__)
     return FCPCCExpectedHostArm64UUID;
@@ -631,6 +643,16 @@ static uintptr_t FCPCCExpectedCurrentArchitectureOnboardingQuerySetterOffset(voi
     return 0x1313c;
 #elif defined(__x86_64__)
     return 0x13cc0;
+#else
+    return 0;
+#endif
+}
+
+static uintptr_t FCPCCExpectedCurrentArchitectureCloudFirstLaunchSetupOffset(void) {
+#if defined(__arm64__)
+    return 0x924e8;
+#elif defined(__x86_64__)
+    return 0xc74c0;
 #else
     return 0;
 #endif
@@ -735,6 +757,37 @@ static BOOL FCPCCCopiedHostImageUUIDMatches(void) {
         return NO;
     }
     return FCPCCLoadedMachOImageHasExpectedUUID(mainImageHeader, expectedUUID);
+}
+
+static FCPCCCopiedHostIdentityDisposition FCPCCCopiedHostIdentityForImplementation(IMP implementation,
+                                                                                      uintptr_t expectedOffset) {
+    Dl_info image = {0};
+    if (implementation == NULL
+        || expectedOffset == 0
+        || dladdr((const void *)implementation, &image) == 0
+        || image.dli_fbase == NULL
+        || image.dli_fname == NULL) {
+        return FCPCCCopiedHostIdentityDispositionImageUnavailable;
+    }
+
+    NSString *expectedPath = [[FCPCCExpectedCopiedHostBundlePath stringByAppendingPathComponent:@"Contents/MacOS/Final Cut Pro"] stringByStandardizingPath];
+    NSString *loadedPath = [[NSString alloc] initWithUTF8String:image.dli_fname];
+    if (expectedPath.length == 0 || loadedPath == nil
+        || ![[loadedPath stringByStandardizingPath] isEqualToString:expectedPath]) {
+        return FCPCCCopiedHostIdentityDispositionPathMismatch;
+    }
+
+    const uint8_t *expectedUUID = FCPCCExpectedCurrentArchitectureHostUUID();
+    if (expectedUUID == NULL
+        || !FCPCCLoadedMachOImageHasExpectedUUID((const struct mach_header *)image.dli_fbase, expectedUUID)) {
+        return FCPCCCopiedHostIdentityDispositionUUIDMismatch;
+    }
+
+    uintptr_t actualOffset = (uintptr_t)implementation - (uintptr_t)image.dli_fbase;
+    if (actualOffset != expectedOffset) {
+        return FCPCCCopiedHostIdentityDispositionImplementationMismatch;
+    }
+    return FCPCCCopiedHostIdentityDispositionMatches;
 }
 
 static FCPCCOnboardingFrameworkIdentityDisposition FCPCCOnboardingFrameworkIdentityForImplementation(IMP implementation) {
@@ -892,6 +945,109 @@ static NSString *FCPCCInstallOnboardingQueryCompatibility(void) {
         summary = @"onboarding_query_compatibility=installed";
     });
     return summary ?: @"onboarding_query_compatibility=unavailable";
+}
+
+// This replacement intentionally has no completion parameter name and no
+// body. It returns immediately without invoking, copying, retaining,
+// inspecting, or otherwise accessing the caller's completion block.
+static void FCPCCSuppressCloudFirstLaunchRegistration(id self __attribute__((unused)),
+                                                       SEL command __attribute__((unused)),
+                                                       id ignoredCompletion __attribute__((unused))) {
+}
+
+static NSString *FCPCCInstallCloudFirstLaunchRegistrationSuppression(void) {
+    static NSString *summary;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
+        if (!containment.isVerified) {
+            summary = @"cloud_first_launch_registration_suppression=host_containment_unverified";
+            return;
+        }
+        if (!FCPCCCopiedHostImageUUIDMatches()) {
+            summary = @"cloud_first_launch_registration_suppression=host_uuid_unverified";
+            return;
+        }
+
+        Class targetClass = objc_getClass(FCPCCExpectedCloudFirstLaunchHelperClassName.UTF8String);
+        if (targetClass == Nil) {
+            summary = @"cloud_first_launch_registration_suppression=class_unavailable";
+            return;
+        }
+        SEL selector = sel_registerName(FCPCCExpectedCloudFirstLaunchSetupSelectorName.UTF8String);
+        if (selector == NULL) {
+            summary = @"cloud_first_launch_registration_suppression=selector_unavailable";
+            return;
+        }
+
+        Method method = class_getInstanceMethod(targetClass, selector);
+        if (method == NULL) {
+            summary = class_getClassMethod(targetClass, selector) == NULL
+                ? @"cloud_first_launch_registration_suppression=method_unavailable"
+                : @"cloud_first_launch_registration_suppression=method_placement_mismatch";
+            return;
+        }
+        if (method_getNumberOfArguments(method) != 3) {
+            summary = @"cloud_first_launch_registration_suppression=argument_count_mismatch";
+            return;
+        }
+        char *returnType = method_copyReturnType(method);
+        BOOL returnTypeMatches = returnType != NULL && strcmp(returnType, "v") == 0;
+        if (returnType != NULL) {
+            free(returnType);
+        }
+        if (!returnTypeMatches) {
+            summary = @"cloud_first_launch_registration_suppression=return_type_mismatch";
+            return;
+        }
+        const char *typeEncoding = method_getTypeEncoding(method);
+        if (typeEncoding == NULL || strcmp(typeEncoding, FCPCCExpectedCloudFirstLaunchSetupTypeEncoding) != 0) {
+            summary = @"cloud_first_launch_registration_suppression=type_encoding_mismatch";
+            return;
+        }
+
+        IMP originalImplementation = method_getImplementation(method);
+        switch (FCPCCCopiedHostIdentityForImplementation(originalImplementation,
+                                                          FCPCCExpectedCurrentArchitectureCloudFirstLaunchSetupOffset())) {
+            case FCPCCCopiedHostIdentityDispositionMatches:
+                break;
+            case FCPCCCopiedHostIdentityDispositionImageUnavailable:
+                summary = @"cloud_first_launch_registration_suppression=host_image_unavailable";
+                return;
+            case FCPCCCopiedHostIdentityDispositionPathMismatch:
+                summary = @"cloud_first_launch_registration_suppression=host_path_mismatch";
+                return;
+            case FCPCCCopiedHostIdentityDispositionUUIDMismatch:
+                summary = @"cloud_first_launch_registration_suppression=host_uuid_mismatch";
+                return;
+            case FCPCCCopiedHostIdentityDispositionImplementationMismatch:
+                summary = @"cloud_first_launch_registration_suppression=original_imp_mismatch";
+                return;
+        }
+
+        class_replaceMethod(targetClass,
+                            selector,
+                            (IMP)FCPCCSuppressCloudFirstLaunchRegistration,
+                            FCPCCExpectedCloudFirstLaunchSetupTypeEncoding);
+        Method installedMethod = class_getInstanceMethod(targetClass, selector);
+        const char *installedTypeEncoding = installedMethod == NULL ? NULL : method_getTypeEncoding(installedMethod);
+        char *installedReturnType = installedMethod == NULL ? NULL : method_copyReturnType(installedMethod);
+        BOOL installedReturnTypeMatches = installedReturnType != NULL && strcmp(installedReturnType, "v") == 0;
+        if (installedReturnType != NULL) {
+            free(installedReturnType);
+        }
+        if (installedMethod == NULL
+            || method_getImplementation(installedMethod) != (IMP)FCPCCSuppressCloudFirstLaunchRegistration
+            || method_getNumberOfArguments(installedMethod) != 3
+            || !installedReturnTypeMatches
+            || installedTypeEncoding == NULL
+            || strcmp(installedTypeEncoding, FCPCCExpectedCloudFirstLaunchSetupTypeEncoding) != 0) {
+            summary = @"cloud_first_launch_registration_suppression=post_replacement_verification_failed";
+            return;
+        }
+        summary = @"cloud_first_launch_registration_suppression=installed";
+    });
+    return summary ?: @"cloud_first_launch_registration_suppression=unavailable";
 }
 
 // Read-only model access is deliberately a closed list of contracts captured
@@ -2263,10 +2419,11 @@ nativePixelPositionConversionVerified:NO
 __attribute__((constructor))
 static void FCPCCInstallRuntime(void) {
     FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
-    if (!containment.isVerified) {
+    if (!containment.isVerified || !FCPCCCopiedHostImageUUIDMatches()) {
         return;
     }
     (void)FCPCCInstallOnboardingQueryCompatibility();
+    (void)FCPCCInstallCloudFirstLaunchRegistrationSuppression();
     dispatch_async(dispatch_get_main_queue(), ^{
         [[FCPCCRuntime sharedRuntime] installMenuWhenReady];
     });

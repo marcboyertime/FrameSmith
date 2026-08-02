@@ -14,7 +14,6 @@ live_copied_app="$destination_root/Final Cut Pro - FCPCommandConsole.app"
 copied_app="$live_copied_app"
 copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
 expected_host_bundle_identifier="com.apple.FinalCut"
-legacy_host_bundle_identifier="com.local.fcpcommandconsole.FinalCut"
 expected_copied_host_bundle_path="$live_copied_app"
 expected_host_version="12.3"
 expected_host_build="450152"
@@ -28,6 +27,12 @@ onboarding_framework_load_path="@rpath/ProOnboardingFlowModelOne.framework/Versi
 expected_onboarding_framework_sha256="636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce"
 expected_onboarding_framework_arm64_uuid="45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D"
 expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"
+# This is not a general legacy-upgrade allowance.  It identifies the one
+# reviewed Schema-6 copy that predates receipt capture and is admitted only by
+# the separately named, current-artifact rebind proof below.
+expected_legacy_schema6_runtime_sha256="b78c9ddedc510c2959488f1c67ce0951089be875b10795ce9288f1a98ff95220"
+expected_legacy_schema6_policy_sha256="2787108b5eb6cc6d1d6a330208ad0ba0e626fe95dde2a3430b847e662345c708"
+expected_legacy_schema6_copied_cdhash_full="4d40df5ac3153f0301d9776513832a21b81ac692d1daae25f8ada4cc21125bb2"
 framework_name="FCPCommandConsoleRuntime.framework"
 built_framework="$plugin_dir/build/$framework_name"
 built_runtime="$built_framework/Versions/A/FCPCommandConsoleRuntime"
@@ -35,7 +40,6 @@ built_compatibility_policy="$built_framework/Versions/A/Resources/FCPCCOnboardin
 embedded_framework="$copied_app/Contents/Frameworks/$framework_name"
 embedded_runtime="$embedded_framework/Versions/A/FCPCommandConsoleRuntime"
 embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
-legacy_embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 entitlement_verifier="$plugin_dir/build/fcpcc-entitlement-verify"
 atomic_swap_helper="$plugin_dir/build/fcpcc-atomic-swap"
 allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
@@ -166,7 +170,6 @@ bind_copied_paths() {
     embedded_framework="$copied_app/Contents/Frameworks/$framework_name"
     embedded_runtime="$embedded_framework/Versions/A/FCPCommandConsoleRuntime"
     embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
-    legacy_embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 }
 
 capture_receipt() {
@@ -298,7 +301,7 @@ verify_compatibility_policy() {
     if ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
         fail "$label compatibility policy is invalid"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "6" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "7" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" ]]; then
         fail "$label compatibility policy host bundle identifier is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "$expected_host_version" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "$expected_host_build" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "$expected_stock_pre_injection_host_executable_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
@@ -315,30 +318,169 @@ verify_compatibility_policy() {
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "forward_original_setter_async_nil_metadata_provider" ]]; then
         fail "$label compatibility policy single onboarding query setter contract is not exact"
     fi
-    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:RuntimeClass' "$policy_path")" != "CCFirstLaunchHelper" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:Selector' "$policy_path")" != "setupAndPresentFirstLaunchIfNeededWithCompletionHandler:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ObjectiveCTypeEncoding' "$policy_path")" != 'v24@0:8@?<v@?@"NSError">16' || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x924e8" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0xc74c0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1:Replacement' "$policy_path")" != "immediate_noop_return_without_completion_access" ]]; then
+        fail "$label cloud first-launch replacement contract is not exact"
+    fi
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:2' "$policy_path" >/dev/null 2>&1; then
         fail "$label compatibility policy permits an extra method replacement"
     fi
 }
 
-# The legacy policy is accepted only as a one-time migration input. It is
-# never installed or treated as a current runtime policy.
-verify_legacy_compatibility_policy() {
+# The Schema-6 policy is accepted only as the exact source of the one-time
+# receipt-provenance rebind below.  Normal updates continue to require the
+# current Schema-7 policy through verify_compatibility_policy().
+verify_exact_legacy_schema6_rebind_policy() {
     local policy_path="$1"
-    if [[ ! -f "$policy_path" ]] || ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
-        fail "legacy copied runtime policy is missing or invalid"
+    local label="$2"
+    local policy_sha256 runtime_sha256 retired_preference_fragment
+    if [[ ! -f "$policy_path" || -L "$policy_path" || ! -f "$embedded_runtime" || -L "$embedded_runtime" ]]; then
+        fail "$label legacy Schema-6 runtime or policy is missing or symlinked"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "4" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$legacy_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "$expected_host_version" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "$expected_host_build" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "$expected_stock_pre_injection_host_executable_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
-        fail "legacy copied runtime policy host or binary identity is not exact"
+    if ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
+        fail "$label legacy Schema-6 policy is invalid"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:0' "$policy_path")" != "CloudContentFirstLaunchCompleted" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:1' "$policy_path")" != "FFCloudContentDisabled" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "1" ]]; then
-        fail "legacy copied runtime policy preference or guard contract is not exact"
+    policy_sha256="$(/usr/bin/shasum -a 256 "$policy_path" | /usr/bin/awk '{print $1}')"
+    runtime_sha256="$(/usr/bin/shasum -a 256 "$embedded_runtime" | /usr/bin/awk '{print $1}')"
+    if [[ "$policy_sha256" != "$expected_legacy_schema6_policy_sha256" || "$runtime_sha256" != "$expected_legacy_schema6_runtime_sha256" ]]; then
+        fail "$label legacy Schema-6 runtime or policy hash is not the reviewed baseline"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "discard_query_block_noop" ]]; then
-        fail "legacy copied runtime policy onboarding setter contract is not exact"
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "6" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "$expected_host_version" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "$expected_host_build" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "$expected_stock_pre_injection_host_executable_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "1" ]]; then
+        fail "$label legacy Schema-6 policy identity or containment contract is not exact"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "forward_original_setter_async_nil_metadata_provider" ]]; then
+        fail "$label legacy Schema-6 onboarding replacement contract is not exact"
     fi
     if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
-        fail "legacy copied runtime policy permits an extra method replacement"
+        fail "$label legacy Schema-6 policy permits more than the reviewed onboarding replacement"
     fi
+    {
+        /usr/bin/strings -a "$embedded_runtime"
+        /usr/bin/strings -a "$policy_path"
+    } > "$update_dir/legacy-schema6-runtime-policy.strings.txt"
+    for retired_preference_fragment in FirstLaunchCompleted CloudContentDisabled; do
+        if /usr/bin/grep -F -q -- "$retired_preference_fragment" "$update_dir/legacy-schema6-runtime-policy.strings.txt"; then
+            fail "$label legacy Schema-6 runtime or policy retains a forbidden Cloud preference surface"
+        fi
+    done
+}
+
+# This selector is deliberately pure so offline tests can demonstrate that no
+# partial proof classifies a copied app for the one-time rebind.
+select_exact_canonical_schema6_missing_receipt_provenance_rebind() {
+    if [[ "$#" -ne 10 ]]; then
+        return 1
+    fi
+    local canonical_nonsymlink_paths="$1"
+    local no_final_cut_process="$2"
+    local bundle_metadata="$3"
+    local receipt_hash_and_equality="$4"
+    local active_slice_uuids="$5"
+    local deep_strict_signature="$6"
+    local canonical_entitlements="$7"
+    local legacy_schema6_runtime_and_policy="$8"
+    local baseline_cdhash="$9"
+    local historical_receipt_absence="${10}"
+    if [[ "$canonical_nonsymlink_paths" != "verified" || "$no_final_cut_process" != "verified" || "$bundle_metadata" != "verified" || "$receipt_hash_and_equality" != "verified" || "$active_slice_uuids" != "verified" || "$deep_strict_signature" != "verified" || "$canonical_entitlements" != "verified" || "$legacy_schema6_runtime_and_policy" != "verified" || "$baseline_cdhash" != "verified" || "$historical_receipt_absence" != "verified" ]]; then
+        return 1
+    fi
+    print -r -- "exact_canonical_schema6_missing_receipt_provenance_rebind"
+}
+
+verify_exact_canonical_schema6_missing_receipt_provenance_rebind() {
+    local rebind_proof="$update_dir/rebind-provenance.txt"
+    local canonical_nonsymlink_paths="unverified"
+    local no_final_cut_process="unverified"
+    local bundle_metadata="unverified"
+    local receipt_hash_and_equality="unverified"
+    local active_slice_uuids="unverified"
+    local deep_strict_signature="unverified"
+    local canonical_entitlements="unverified"
+    local legacy_schema6_runtime_and_policy="unverified"
+    local baseline_cdhash="unverified"
+    local historical_receipt_absence="unverified"
+    local source_receipt_sha256 copied_receipt_sha256 observed_cdhash classification
+
+    print -r -- "rebind_source=exact_current_artifact_proof" > "$rebind_proof"
+    if [[ "$source_app" == "/Applications/Final Cut Pro.app" && "$live_copied_app" == "$expected_copied_host_bundle_path" && -d "$source_app" && ! -L "$source_app" && "$(/bin/realpath "$source_app")" == "$source_app" && -d "$live_copied_app" && ! -L "$live_copied_app" && "$(/bin/realpath "$live_copied_app")" == "$live_copied_app" && -f "$source_executable" && ! -L "$source_executable" && "$(/bin/realpath "$source_executable")" == "$source_executable" && -f "$copied_executable" && ! -L "$copied_executable" && "$(/bin/realpath "$copied_executable")" == "$copied_executable" && -f "$source_app/$mas_receipt_relative_path" && ! -L "$source_app/$mas_receipt_relative_path" && "$(/bin/realpath "$source_app/$mas_receipt_relative_path")" == "$source_app/$mas_receipt_relative_path" && -f "$copied_app/$mas_receipt_relative_path" && ! -L "$copied_app/$mas_receipt_relative_path" && "$(/bin/realpath "$copied_app/$mas_receipt_relative_path")" == "$copied_app/$mas_receipt_relative_path" && -d "$embedded_framework" && ! -L "$embedded_framework" && "$(/bin/realpath "$embedded_framework")" == "$embedded_framework" && -f "$embedded_runtime" && ! -L "$embedded_runtime" && "$(/bin/realpath "$embedded_runtime")" == "$embedded_runtime" && -f "$embedded_compatibility_policy" && ! -L "$embedded_compatibility_policy" && "$(/bin/realpath "$embedded_compatibility_policy")" == "$embedded_compatibility_policy" ]]; then
+        canonical_nonsymlink_paths="verified"
+    else
+        fail "exact Schema-6 receipt-provenance rebind requires canonical nonsymlink stock and copied paths"
+    fi
+
+    require_not_running "$update_dir/process-before-rebind.txt"
+    no_final_cut_process="verified"
+
+    if [[ "$source_identifier" == "$expected_host_bundle_identifier" && "$copied_identifier" == "$expected_host_bundle_identifier" && "$source_version" == "$expected_host_version" && "$source_build" == "$expected_host_build" && "$copied_version" == "$expected_host_version" && "$copied_build" == "$expected_host_build" && "$copied_name" == "Final Cut Pro - FCPCommandConsole" && "$copied_display_name" == "Final Cut Pro - FCPCommandConsole" && "$copied_executable_name" == "Final Cut Pro" ]]; then
+        bundle_metadata="verified"
+    else
+        fail "exact Schema-6 receipt-provenance rebind requires the reviewed stock and copied bundle metadata"
+    fi
+
+    source_receipt_sha256="$(/usr/bin/shasum -a 256 "$source_app/$mas_receipt_relative_path" | /usr/bin/awk '{print $1}')"
+    copied_receipt_sha256="$(/usr/bin/shasum -a 256 "$copied_app/$mas_receipt_relative_path" | /usr/bin/awk '{print $1}')"
+    if [[ "$source_receipt_sha256" == "$expected_mas_receipt_sha256" && "$copied_receipt_sha256" == "$expected_mas_receipt_sha256" && "$source_receipt_sha256" == "$copied_receipt_sha256" ]] && /usr/bin/cmp -s "$source_app/$mas_receipt_relative_path" "$copied_app/$mas_receipt_relative_path"; then
+        receipt_hash_and_equality="verified"
+    else
+        fail "exact Schema-6 receipt-provenance rebind requires byte-identical reviewed stock and copied receipts"
+    fi
+
+    if [[ "$source_arm64_uuid" == "AD024067-E145-3988-AFF9-BD33391C416D" && "$source_x86_64_uuid" == "2ACCBD11-6965-3D09-BD87-9A900FDC740E" && "$copied_arm64_uuid" == "$source_arm64_uuid" && "$copied_x86_64_uuid" == "$source_x86_64_uuid" ]]; then
+        active_slice_uuids="verified"
+    else
+        fail "exact Schema-6 receipt-provenance rebind requires reviewed matching active-slice UUIDs"
+    fi
+
+    if ! /usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$update_dir/codesign-verify-rebind-before.txt" 2>&1; then
+        fail "exact Schema-6 receipt-provenance rebind requires a deep/strict signed copied app"
+    fi
+    deep_strict_signature="verified"
+
+    if "$entitlement_verifier" "$update_dir/stock-before/entitlements.plist" "$expected_entitlements" "$update_dir/copied-before/entitlements.plist" "$allowlist" > "$update_dir/entitlement-allowlist-rebind-before.txt" 2>&1; then
+        canonical_entitlements="verified"
+    else
+        fail "exact Schema-6 receipt-provenance rebind requires the exact canonical five-entitlement endpoint"
+    fi
+
+    verify_exact_legacy_schema6_rebind_policy "$embedded_compatibility_policy" "current"
+    legacy_schema6_runtime_and_policy="verified"
+
+    /usr/bin/codesign -dvvv "$copied_app" > "$update_dir/copied-before/rebind-codesign-metadata.txt" 2>&1
+    observed_cdhash="$(/usr/bin/awk -F= '/^CandidateCDHashFull sha256=/{print $2; exit}' "$update_dir/copied-before/rebind-codesign-metadata.txt")"
+    if [[ "$observed_cdhash" == "$expected_legacy_schema6_copied_cdhash_full" ]]; then
+        baseline_cdhash="verified"
+    else
+        fail "exact Schema-6 receipt-provenance rebind requires the reviewed pre-update CandidateCDHashFull"
+    fi
+
+    if [[ ! -d "$initial_patch_dir" || -L "$initial_patch_dir" || "$(/bin/realpath "$initial_patch_dir")" != "$initial_patch_dir" || -e "$initial_patch_dir/stock-before/receipt" || -L "$initial_patch_dir/stock-before/receipt" || -e "$initial_patch_dir/stock-before/receipt.sha256" || -L "$initial_patch_dir/stock-before/receipt.sha256" || -e "$initial_patch_dir/copied-before/receipt" || -L "$initial_patch_dir/copied-before/receipt" || -e "$initial_patch_dir/copied-before/receipt.sha256" || -L "$initial_patch_dir/copied-before/receipt.sha256" ]]; then
+        fail "exact Schema-6 receipt-provenance rebind requires historical absence limited to receipt capture"
+    fi
+    /usr/bin/find "$initial_patch_dir" -xdev \( -name receipt -o -name receipt.sha256 \) -print > "$update_dir/historical-receipt-artifacts.txt"
+    if [[ -s "$update_dir/historical-receipt-artifacts.txt" ]]; then
+        fail "exact Schema-6 receipt-provenance rebind found contradictory historical receipt artifacts"
+    fi
+    historical_receipt_absence="verified"
+
+    if ! classification="$(select_exact_canonical_schema6_missing_receipt_provenance_rebind "$canonical_nonsymlink_paths" "$no_final_cut_process" "$bundle_metadata" "$receipt_hash_and_equality" "$active_slice_uuids" "$deep_strict_signature" "$canonical_entitlements" "$legacy_schema6_runtime_and_policy" "$baseline_cdhash" "$historical_receipt_absence")"; then
+        fail "exact Schema-6 receipt-provenance rebind classification was not fully proven"
+    fi
+    print -r -- "classification=$classification" >> "$rebind_proof"
+    print -r -- "canonical_nonsymlink_paths=$canonical_nonsymlink_paths" >> "$rebind_proof"
+    print -r -- "no_final_cut_process=$no_final_cut_process" >> "$rebind_proof"
+    print -r -- "bundle_metadata=$bundle_metadata" >> "$rebind_proof"
+    print -r -- "receipt_hash_and_equality=$receipt_hash_and_equality" >> "$rebind_proof"
+    print -r -- "stock_receipt_sha256=$source_receipt_sha256" >> "$rebind_proof"
+    print -r -- "copied_receipt_sha256=$copied_receipt_sha256" >> "$rebind_proof"
+    print -r -- "active_slice_uuids=$active_slice_uuids" >> "$rebind_proof"
+    print -r -- "deep_strict_signature=$deep_strict_signature" >> "$rebind_proof"
+    print -r -- "canonical_entitlements=$canonical_entitlements" >> "$rebind_proof"
+    print -r -- "legacy_schema6_runtime_and_policy=$legacy_schema6_runtime_and_policy" >> "$rebind_proof"
+    print -r -- "legacy_runtime_sha256=$expected_legacy_schema6_runtime_sha256" >> "$rebind_proof"
+    print -r -- "legacy_policy_sha256=$expected_legacy_schema6_policy_sha256" >> "$rebind_proof"
+    print -r -- "baseline_cdhash=$baseline_cdhash" >> "$rebind_proof"
+    print -r -- "observed_preupdate_cdhash_full=$observed_cdhash" >> "$rebind_proof"
+    print -r -- "historical_receipt_absence=$historical_receipt_absence" >> "$rebind_proof"
+    print -r -- "initial_patch_provenance=$initial_patch_dir" >> "$rebind_proof"
 }
 
 if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboarding_framework" ]]; then
@@ -350,7 +492,7 @@ require_canonical_directory "/Users/marcboyer/Applications"
 require_canonical_directory "/Users/marcboyer/Applications/SpliceKit"
 require_canonical_directory "$destination_root"
 require_canonical_directory "$live_copied_app"
-if [[ ! -d "$copied_app" || -L "$copied_app" || ! -f "$copied_executable" || ! -f "$copied_onboarding_framework" || ! -d "$embedded_framework" || ! -f "$embedded_runtime" ]]; then
+if [[ ! -d "$copied_app" || -L "$copied_app" || ! -f "$copied_executable" || -L "$copied_executable" || ! -f "$copied_onboarding_framework" || -L "$copied_onboarding_framework" || ! -d "$embedded_framework" || -L "$embedded_framework" || ! -f "$embedded_runtime" || -L "$embedded_runtime" || ! -f "$embedded_compatibility_policy" || -L "$embedded_compatibility_policy" ]]; then
     fail "approved copied-app path or current embedded runtime baseline is missing"
 fi
 if [[ ! -d "$built_framework" || ! -f "$built_runtime" || ! -f "$built_compatibility_policy" || ! -f "$allowlist" || ! -x "$entitlement_verifier" || ! -x "$atomic_swap_helper" ]]; then
@@ -362,12 +504,13 @@ fi
 require_distinct_files "$source_executable" "$copied_executable" "main executable"
 require_distinct_files "$source_app/$mas_receipt_relative_path" "$copied_app/$mas_receipt_relative_path" "MAS receipt"
 
+source_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$source_app/Contents/Info.plist")"
 source_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_app/Contents/Info.plist")"
 source_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$source_app/Contents/Info.plist")"
 copied_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$copied_app/Contents/Info.plist")"
 copied_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$copied_app/Contents/Info.plist")"
-if [[ "$source_version" != "$expected_host_version" || "$source_build" != "$expected_host_build" || "$copied_version" != "$expected_host_version" || "$copied_build" != "$expected_host_build" ]]; then
-    fail "stock or copied app version/build guard failed (expected 12.3/450152)"
+if [[ "$source_identifier" != "$expected_host_bundle_identifier" || "$source_version" != "$expected_host_version" || "$source_build" != "$expected_host_build" || "$copied_version" != "$expected_host_version" || "$copied_build" != "$expected_host_build" ]]; then
+    fail "stock or copied app bundle identity/version/build guard failed (expected com.apple.FinalCut 12.3/450152)"
 fi
 copied_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copied_app/Contents/Info.plist")"
 copied_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$copied_app/Contents/Info.plist")"
@@ -415,6 +558,7 @@ fi
 verify_onboarding_framework_load_path "$source_executable" "$update_dir/stock-before" "stock-before"
 verify_onboarding_framework_load_path "$copied_executable" "$update_dir/copied-before" "copied-before"
 /usr/bin/shasum -a 256 "$embedded_runtime" | /usr/bin/awk '{print $1}' > "$update_dir/embedded-runtime-before.sha256"
+/usr/bin/shasum -a 256 "$embedded_compatibility_policy" | /usr/bin/awk '{print $1}' > "$update_dir/embedded-compatibility-policy-before.sha256"
 source_executable_sha256="$(/usr/bin/awk '{print $1}' "$update_dir/stock-before/main-executable.sha256")"
 source_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$update_dir/stock-before/main-executable.uuids.txt")"
 source_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$update_dir/stock-before/main-executable.uuids.txt")"
@@ -431,8 +575,9 @@ print -r -- "copied_x86_64_uuid=$copied_x86_64_uuid" >> "$update_dir/exact-host-
 print -r -- "stock_receipt_sha256=$(cat "$update_dir/stock-before/receipt.sha256")" >> "$update_dir/exact-host-identity.txt"
 
 # Resolve the current entitlement state before consulting historical receipt
-# provenance. Missing legacy receipt evidence may be rebound only after the
-# exact retired sandboxed-copy policy has passed its separately named gate.
+# provenance. The ordinary legacy-sandboxed migration is retained unchanged;
+# the only additional route is the exact canonical Schema-6 rebind proved
+# below from live artifacts and a specifically receipt-only historical gap.
 expected_entitlements="$update_dir/expected-current-entitlements.plist"
 /usr/bin/plutil -create xml1 "$expected_entitlements"
 for entitlement_key in com.apple.security.cs.disable-library-validation com.apple.security.device.audio-input com.apple.security.device.camera com.apple.security.device.microphone; do
@@ -453,6 +598,7 @@ print -r -- "resolved_migration_required=$migration_required" >> "$update_dir/co
 
 initial_patch_dir=""
 initial_patch_receipt_provenance="false"
+receipt_provenance_classification="unresolved"
 for candidate in "$provenance_root"/patch-*; do
     if [[ -f "$candidate/stock-before/main-executable.sha256" && -f "$candidate/stock-before/Info.plist.sha256" && -f "$candidate/stock-before/stock-preferences.sha256" && -f "$candidate/copied-main-executable.pre-injection.sha256" ]]; then
         initial_patch_dir="$candidate"
@@ -474,11 +620,21 @@ if [[ "$initial_patch_receipt_provenance" == "true" ]]; then
     if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt.sha256" "$update_dir/stock-before/receipt.sha256" || ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt" "$update_dir/stock-before/receipt"; then
         fail "stock MAS receipt differs from receipt provenance captured by the initial patch"
     fi
+    receipt_provenance_classification="complete_initial_receipt_provenance"
 elif [[ "$migration_required" == "true" ]]; then
     print -r -- "legacy_receipt_provenance=rebound_to_current_stock_copy_proof" >> "$update_dir/initial-provenance.txt"
+    receipt_provenance_classification="exact_retired_sandboxed_copy_rebind"
+elif [[ "$migration_required" == "false" ]]; then
+    if [[ -L "$initial_patch_dir/signing.txt" || -L "$initial_patch_dir/stock-before/main-executable.sha256" || -L "$initial_patch_dir/stock-before/Info.plist.sha256" || -L "$initial_patch_dir/stock-before/stock-preferences.sha256" || -L "$initial_patch_dir/copied-main-executable.pre-injection.sha256" ]]; then
+        fail "exact Schema-6 receipt-provenance rebind requires ordinary historical baseline files"
+    fi
+    verify_exact_canonical_schema6_missing_receipt_provenance_rebind
+    receipt_provenance_classification="exact_canonical_schema6_missing_receipt_provenance_rebind"
 else
     fail "current copied app update requires receipt provenance from the initial patch"
 fi
+print -r -- "receipt_provenance_classification=$receipt_provenance_classification" >> "$update_dir/initial-provenance.txt"
+print -r -- "receipt_provenance_classification=$receipt_provenance_classification" >> "$update_dir/copied-identity.txt"
 
 /usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$update_dir/codesign-verify-before.txt" 2>&1
 /usr/bin/codesign --verify --strict --verbose=4 "$embedded_framework" > "$update_dir/runtime-codesign-verify-before.txt" 2>&1
@@ -492,10 +648,14 @@ for forbidden_added_key in com.apple.security.get-task-allow com.apple.security.
         fail "current copied app contains forbidden entitlement: $forbidden_added_key"
     fi
 done
-if [[ ! -f "$embedded_compatibility_policy" || -e "$legacy_embedded_compatibility_policy" ]]; then
-    fail "copied runtime must contain only the reviewed schema6 compatibility policy"
+if [[ ! -f "$embedded_compatibility_policy" || -L "$embedded_compatibility_policy" ]]; then
+    fail "copied runtime compatibility policy is missing"
 fi
-verify_compatibility_policy "$embedded_compatibility_policy" "current"
+if [[ "$receipt_provenance_classification" != "exact_canonical_schema6_missing_receipt_provenance_rebind" ]]; then
+    # The rebind helper already pinned and semantically verified the sole
+    # reviewed Schema-6 source. Every normal path still requires Schema-7.
+    verify_compatibility_policy "$embedded_compatibility_policy" "current"
+fi
 verify_compatibility_policy "$built_compatibility_policy" "built"
 /usr/bin/shasum -a 256 "$built_runtime" | /usr/bin/awk '{print $1}' > "$update_dir/built-runtime.sha256"
 /usr/bin/shasum -a 256 "$built_compatibility_policy" | /usr/bin/awk '{print $1}' > "$update_dir/built-compatibility-policy.sha256"
@@ -541,9 +701,6 @@ if ! /usr/bin/cmp -s "$update_dir/built-runtime-framework.manifest" "$update_dir
 fi
 if ! /usr/bin/cmp -s "$built_runtime" "$embedded_runtime" || ! /usr/bin/cmp -s "$built_compatibility_policy" "$embedded_compatibility_policy"; then
     fail "fresh built framework was not copied exactly into the approved copied app"
-fi
-if [[ -e "$legacy_embedded_compatibility_policy" ]]; then
-    fail "retired compatibility policy was not removed during schema6 runtime installation"
 fi
 verify_compatibility_policy "$embedded_compatibility_policy" "embedded"
 require_not_running "$update_dir/process-before-signing.txt"

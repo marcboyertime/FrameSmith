@@ -45,10 +45,20 @@ for required_launcher_fragment in \
     'pgrep_status=1' \
     'pgrep_status=$pgrep_status' \
     'codesign --verify --deep --strict --verbose=4' \
-    'expected_copied_cdhash_full="4d40df5ac3153f0301d9776513832a21b81ac692d1daae25f8ada4cc21125bb2"' \
+    'expected_copied_cdhash_full="10991c560ad77617c7877b9b5059018da11f69c5c562927f1ebfe672119f33ff"' \
     'verify_reviewed_copied_cdhash' \
     'CandidateCDHashFull' \
     'create_five_entitlements' \
+    'SchemaVersion)" == "7"' \
+    'ApprovedMethodReplacements:0:RuntimeClass' \
+    'POFDesktopOnboardingCoordinator' \
+    'ApprovedMethodReplacements:1:RuntimeClass' \
+    'CCFirstLaunchHelper' \
+    'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:' \
+    'v24@0:8@?<v@?@"NSError">16' \
+    '0x924e8' \
+    '0xc74c0' \
+    'ApprovedMethodReplacements:2' \
     'CFFIXED_USER_HOME="$isolated_home"' \
     'HOME="$isolated_home"' \
     'TMPDIR="$isolated_home/tmp"' \
