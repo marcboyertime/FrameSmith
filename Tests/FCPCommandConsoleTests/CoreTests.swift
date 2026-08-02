@@ -90,6 +90,8 @@ final class CoreTests: XCTestCase {
         XCTAssertThrowsError(try costs.enforce(uploadEstimate, operationID: uploadOperation), "provider/text approval must not authorize media upload")
         costs.approveMediaUpload(for: uploadOperation)
         XCTAssertTrue(costs.isMediaUploadApproved(for: uploadOperation))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: costs.mediaUploadApprovalURL.path))
+        XCTAssertTrue(String(data: try Data(contentsOf: costs.mediaUploadApprovalURL), encoding: .utf8)?.contains(uploadOperation.uuidString) == true)
         XCTAssertNoThrow(try costs.enforce(uploadEstimate, operationID: uploadOperation))
         let paidUpload = CostEstimate(paid: true, usd: 1, provider: "provider", requiresMediaUpload: true)
         let paidOperation = UUID()

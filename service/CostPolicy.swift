@@ -30,15 +30,27 @@ public struct UsageRecord: Codable, Equatable, Sendable {
     }
 }
 
+public struct MediaUploadApprovalRecord: Codable, Equatable, Sendable {
+    public var timestamp: Date
+    public var operationID: UUID
+    public var scope: String
+
+    public init(timestamp: Date = Date(), operationID: UUID, scope: String = "operation") {
+        self.timestamp = timestamp; self.operationID = operationID; self.scope = scope
+    }
+}
+
 public struct CostPolicy: Sendable {
     public let monthlyCeilingUSD: Double
     public let usageURL: URL
+    public let mediaUploadApprovalURL: URL
     private var approvedProviders: Set<String>
     private var approvedMediaUploadOperations: Set<UUID>
 
-    public init(monthlyCeilingUSD: Double = 20, usageURL: URL = PathPolicy.defaultOutputRoot.appendingPathComponent("usage/cost.jsonl"), approvedProviders: Set<String> = [], approvedMediaUploadOperations: Set<UUID> = []) {
+    public init(monthlyCeilingUSD: Double = 20, usageURL: URL = PathPolicy.defaultOutputRoot.appendingPathComponent("usage/cost.jsonl"), approvedProviders: Set<String> = [], approvedMediaUploadOperations: Set<UUID> = [], mediaUploadApprovalURL: URL? = nil) {
         self.monthlyCeilingUSD = monthlyCeilingUSD
         self.usageURL = usageURL
+        self.mediaUploadApprovalURL = mediaUploadApprovalURL ?? usageURL.deletingLastPathComponent().appendingPathComponent("media-upload-approvals.jsonl")
         self.approvedProviders = approvedProviders
         self.approvedMediaUploadOperations = approvedMediaUploadOperations
     }
@@ -51,6 +63,14 @@ public struct CostPolicy: Sendable {
     /// provider approval never adds an operation to this set.
     public mutating func approveMediaUpload(for operationID: UUID) {
         approvedMediaUploadOperations.insert(operationID)
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; encoder.outputFormatting = [.sortedKeys]
+        if let line = try? encoder.encode(MediaUploadApprovalRecord(operationID: operationID)) {
+            try? FileManager.default.createDirectory(at: mediaUploadApprovalURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: mediaUploadApprovalURL.path) { FileManager.default.createFile(atPath: mediaUploadApprovalURL.path, contents: nil) }
+            if let handle = try? FileHandle(forWritingTo: mediaUploadApprovalURL) {
+                try? handle.seekToEnd(); try? handle.write(contentsOf: line); try? handle.write(contentsOf: Data([0x0a])); try? handle.close()
+            }
+        }
     }
 
     public func isMediaUploadApproved(for operationID: UUID) -> Bool {
