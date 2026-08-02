@@ -24,7 +24,10 @@
     {"name":"direction","valueType":"string","defaultValue":"clockwise","keyframeable":false},
     {"name":"easing","valueType":"string","defaultValue":"ease_in_out","keyframeable":false},
     {"name":"anchorX","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":0.5,"keyframeable":false},
-    {"name":"anchorY","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":0.5,"keyframeable":false}
+    {"name":"anchorY","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":0.5,"keyframeable":false},
+    {"name":"positionX","valueType":"number","minimum":-4.0,"maximum":4.0,"defaultValue":0.0,"keyframeable":true},
+    {"name":"positionY","valueType":"number","minimum":-4.0,"maximum":4.0,"defaultValue":0.0,"keyframeable":true},
+    {"name":"keyframeTimes","valueType":"time-range","keyframeable":false}
   ],
   "generatedAssets": [],
   "preview": "native-transform-preview",
