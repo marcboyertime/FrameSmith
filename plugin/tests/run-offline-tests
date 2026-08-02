@@ -64,7 +64,7 @@ for forbidden in \
     'NSTask' \
     'socket' \
     'bind' \
-    'listen' \
+    '\blisten[[:space:]]*\(' \
     'accept' \
     'NSURLSession' \
     'CFNetwork' \
@@ -74,6 +74,13 @@ for forbidden in \
     'sendAction:' \
     'FCPXML' \
     'NSUserDefaults' \
+    'objc_getClassList' \
+    'class_copyMethodList' \
+    'NSClassFromString' \
+    'NSSelectorFromString' \
+    'method_exchangeImplementations' \
+    'method_setImplementation' \
+    'strstr' \
     'Sentry' \
     'telemetry' \
     '\\bLua\\b' \
@@ -143,6 +150,28 @@ constructor_tail="$(/usr/bin/sed -n '/static void FCPCCInstallRuntime(void)/,$p'
 if print -r -- "$constructor_tail" | "$rg_bin" -F -q 'showPanel:' || print -r -- "$constructor_tail" | "$rg_bin" -F -q 'showWindow:' || print -r -- "$constructor_tail" | "$rg_bin" -F -q 'makeKeyAndOrderFront:'; then
     fail "runtime constructor auto-shows the panel"
 fi
+if ! print -r -- "$constructor_tail" | "$rg_bin" -F -q 'FCPCCInstallIsolatedCloudContentMethodCompatibility();'; then
+    fail "runtime constructor does not attempt the fixed CloudContent method guard"
+fi
+method_guard_attempt_source="$(/usr/bin/sed -n '/static void FCPCCAttemptIsolatedCloudContentMethodCompatibility/,/static void FCPCCInstallIsolatedCloudContentMethodCompatibility/p' "$runtime_implementation")"
+method_guard_gate_line="$(print -r -- "$method_guard_attempt_source" | "$rg_bin" -n -F 'FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+method_guard_guard_line="$(print -r -- "$method_guard_attempt_source" | "$rg_bin" -n -F 'if (!containment.isVerified)' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+method_guard_install_line="$(print -r -- "$method_guard_attempt_source" | "$rg_bin" -n -F 'FCPCCInstallCloudContentCompatibilityEntry(&FCPCCCloudContentCompatibilityEntries[index], index, status);' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+if [[ -z "$method_guard_gate_line" || -z "$method_guard_guard_line" || -z "$method_guard_install_line" || "$method_guard_gate_line" -ge "$method_guard_guard_line" || "$method_guard_guard_line" -ge "$method_guard_install_line" ]]; then
+    fail "exact-host containment gate does not precede every fixed method-guard installation"
+fi
+method_guard_registration_source="$(/usr/bin/sed -n '/static void FCPCCInstallIsolatedCloudContentMethodCompatibility/,/^}/p' "$runtime_implementation")"
+if [[ "$(print -r -- "$method_guard_registration_source" | "$rg_bin" -F -o 'NSApplicationWillFinishLaunchingNotification' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]] || ! print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseConstructor);' || ! print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseWillFinishLaunching);'; then
+    fail "method guard does not use exactly the constructor and single will-finish attempts"
+fi
+if ! "$rg_bin" -F -q 'if (status.willFinishLaunchingAttempts != 0)' "$runtime_implementation"; then
+    fail "method guard will-finish retry is not explicitly one-shot"
+fi
+for forbidden_method_guard_surface in 'dispatch_after' 'NSTimer' 'performSelector:afterDelay:' '@try'; do
+    if "$rg_bin" -F -q "$forbidden_method_guard_surface" "$runtime_implementation"; then
+        fail "runtime method guard contains a forbidden polling or exception-suppression surface: $forbidden_method_guard_surface"
+    fi
+done
 /usr/bin/plutil -lint "$runtime_policy_source" >/dev/null
 /usr/bin/plutil -lint "$runtime_policy_build" >/dev/null
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
@@ -156,8 +185,97 @@ for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
         fail "compatibility policy permits more than two preference keys"
     fi
 done
+expected_replacement_classes=(
+    '_TtC13Final_Cut_Pro19CloudContentCatalog'
+    '_TtC13Final_Cut_Pro19CloudContentCatalog'
+    '_TtC13Final_Cut_Pro19CloudContentCatalog'
+    '_TtC13Final_Cut_Pro19CloudContentCatalog'
+    '_TtC13Final_Cut_Pro23CloudContentFeatureFlag'
+    '_TtC13Final_Cut_Pro23CloudContentFeatureFlag'
+    'CCFirstLaunchHelper'
+)
+expected_replacement_selectors=(
+    'updateCatalogAndRegistry'
+    'isCloudContentEnabled'
+    'isRunningSubscriptionApp'
+    'startListeningForApplicationDidBecomeActiveNotifications'
+    'isEnabled'
+    'shouldShowFirstLaunchExperience'
+    'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:'
+)
+expected_replacement_kinds=(instance instance instance instance class class instance)
+expected_replacement_argument_counts=(2 2 2 2 2 2 3)
+expected_replacement_return_types=(v B B v B B v)
+expected_replacement_type_encodings=(
+    'v16@0:8'
+    'B16@0:8'
+    'B16@0:8'
+    'v16@0:8'
+    'B16@0:8'
+    'B16@0:8'
+    'v24@0:8@?<v@?@"NSError">16'
+)
+expected_replacement_contracts=(void_noop return_false return_false void_noop return_false return_false completion_nil_success)
+for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "will_finish_launching_once" ]]; then
+        fail "compatibility policy method guard mode or install phases are not exact"
+    fi
+    if /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:2' "$policy_path" >/dev/null 2>&1; then
+        fail "compatibility policy permits an extra method-guard install phase"
+    fi
+    for index in {1..7}; do
+        policy_index=$((index - 1))
+        if [[ "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:RuntimeClass" "$policy_path")" != "${expected_replacement_classes[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:Selector" "$policy_path")" != "${expected_replacement_selectors[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:MethodKind" "$policy_path")" != "${expected_replacement_kinds[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCArgumentCount" "$policy_path")" != "${expected_replacement_argument_counts[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCReturnType" "$policy_path")" != "${expected_replacement_return_types[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCTypeEncoding" "$policy_path")" != "${expected_replacement_type_encodings[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:Replacement" "$policy_path")" != "${expected_replacement_contracts[index]}" ]]; then
+            fail "compatibility policy method replacement $policy_index is not the exact reviewed contract"
+        fi
+    done
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:7' "$policy_path" >/dev/null 2>&1; then
+        fail "compatibility policy permits an extra method replacement"
+    fi
+done
 if ! /usr/bin/cmp -s "$runtime_policy_source" "$runtime_policy_build"; then
     fail "built compatibility policy differs from the project-owned source policy"
+fi
+
+for required_guard_fragment in \
+    'static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityEntries[]' \
+    'static const NSUInteger FCPCCCloudContentCompatibilityEntryCount' \
+    'FCPCCInstallCloudContentCompatibilityEntry' \
+    'FCPCCAttemptIsolatedCloudContentMethodCompatibility' \
+    'method_getNumberOfArguments' \
+    'method_copyReturnType' \
+    'method_getTypeEncoding' \
+    'class_replaceMethod' \
+    'sel_registerName(entry->selectorName)' \
+    'objc_getClass(entry->runtimeClassName)' \
+    'FCPCCCloudContentCompleteFirstLaunch'; do
+    if ! "$rg_bin" -F -q "$required_guard_fragment" "$runtime_implementation"; then
+        fail "runtime is missing required fixed method-guard operation: $required_guard_fragment"
+    fi
+done
+if [[ "$("$rg_bin" -F -o 'class_replaceMethod' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$("$rg_bin" -F -o 'sel_registerName(entry->selectorName)' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$("$rg_bin" -F -o 'objc_getClass(entry->runtimeClassName)' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
+    fail "runtime method guard is not limited to the one fixed installation path"
+fi
+catalog_runtime_class_count="$("$rg_bin" -F -o '"_TtC13Final_Cut_Pro19CloudContentCatalog"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+feature_runtime_class_count="$("$rg_bin" -F -o '"_TtC13Final_Cut_Pro23CloudContentFeatureFlag"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+first_launch_runtime_class_count="$("$rg_bin" -F -o '"CCFirstLaunchHelper"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+if [[ "$catalog_runtime_class_count" != "4" || "$feature_runtime_class_count" != "2" || "$first_launch_runtime_class_count" != "1" ]]; then
+    fail "runtime method guard class allowlist cardinality is not exactly 4 catalog, 2 feature-flag, and 1 first-launch entries"
+fi
+for selector_literal in \
+    '"updateCatalogAndRegistry"' \
+    '"isCloudContentEnabled"' \
+    '"isRunningSubscriptionApp"' \
+    '"startListeningForApplicationDidBecomeActiveNotifications"' \
+    '"isEnabled"' \
+    '"shouldShowFirstLaunchExperience"' \
+    '"setupAndPresentFirstLaunchIfNeededWithCompletionHandler:"'; do
+    if [[ "$("$rg_bin" -F -o "$selector_literal" "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
+        fail "runtime method guard selector allowlist is not exact: $selector_literal"
+    fi
+done
+if [[ "$("$rg_bin" -F -o '"v16@0:8"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "2" || "$("$rg_bin" -F -o '"B16@0:8"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "4" || "$("$rg_bin" -F -o '"v24@0:8@?<v@?@\"NSError\">16"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
+    fail "runtime method guard type-encoding cardinality is not exact"
 fi
 
 for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp" "$plugin_dir/patcher/repair-library-validation-entitlement" "$runtime_updater"; do
@@ -221,6 +339,31 @@ fi
 for forbidden_launcher in '/usr/bin/open' '/bin/open' 'open -a' 'exec ' 'launchctl'; do
     if "$rg_bin" -F -q "$forbidden_launcher" "$runtime_updater"; then
         fail "runtime updater may launch Final Cut"
+    fi
+done
+for patcher_script in "$runtime_updater" "$plugin_dir/patcher/verify-copied-fcp"; do
+    for required_method_guard_patcher_fragment in \
+        'ImmutableCompileTimeAllowlist' \
+        'RuntimeDiscoveryAllowed' \
+        'CompatibilityInstallPhases:2' \
+        'ApprovedMethodReplacements:7' \
+        '_TtC13Final_Cut_Pro19CloudContentCatalog' \
+        '_TtC13Final_Cut_Pro23CloudContentFeatureFlag' \
+        'CCFirstLaunchHelper' \
+        'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:'; do
+        if ! "$rg_bin" -F -q "$required_method_guard_patcher_fragment" "$patcher_script"; then
+            fail "patcher does not enforce the fixed CloudContent method guard: $required_method_guard_patcher_fragment"
+        fi
+    done
+done
+for required_verifier_fragment in \
+    '_sel_registerName' \
+    '_class_replaceMethod' \
+    '_method_copyReturnType' \
+    'method_guard_entries=7' \
+    'objc_getClassList class_copyMethodList NSClassFromString FFImagePlayground DemoProjectDownloadHelper'; do
+    if ! "$rg_bin" -F -q "$required_verifier_fragment" "$plugin_dir/patcher/verify-copied-fcp"; then
+        fail "copied-artifact verifier is missing required method-guard evidence: $required_verifier_fragment"
     fi
 done
 source_hash="$(/usr/bin/shasum -a 256 "$plugin_dir/tools/fcpcc-insert-dylib/src/main.c" | /usr/bin/awk '{print $1}')"

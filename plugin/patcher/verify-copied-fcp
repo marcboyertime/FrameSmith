@@ -80,6 +80,46 @@ require_not_running() {
 verify_compatibility_policy() {
     local policy_path="$1"
     local label="$2"
+    local -a expected_classes
+    local -a expected_selectors
+    local -a expected_kinds
+    local -a expected_argument_counts
+    local -a expected_return_types
+    local -a expected_type_encodings
+    local -a expected_replacements
+
+    expected_classes=(
+        '_TtC13Final_Cut_Pro19CloudContentCatalog'
+        '_TtC13Final_Cut_Pro19CloudContentCatalog'
+        '_TtC13Final_Cut_Pro19CloudContentCatalog'
+        '_TtC13Final_Cut_Pro19CloudContentCatalog'
+        '_TtC13Final_Cut_Pro23CloudContentFeatureFlag'
+        '_TtC13Final_Cut_Pro23CloudContentFeatureFlag'
+        'CCFirstLaunchHelper'
+    )
+    expected_selectors=(
+        'updateCatalogAndRegistry'
+        'isCloudContentEnabled'
+        'isRunningSubscriptionApp'
+        'startListeningForApplicationDidBecomeActiveNotifications'
+        'isEnabled'
+        'shouldShowFirstLaunchExperience'
+        'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:'
+    )
+    expected_kinds=(instance instance instance instance class class instance)
+    expected_argument_counts=(2 2 2 2 2 2 3)
+    expected_return_types=(v B B v B B v)
+    expected_type_encodings=(
+        'v16@0:8'
+        'B16@0:8'
+        'B16@0:8'
+        'v16@0:8'
+        'B16@0:8'
+        'B16@0:8'
+        'v24@0:8@?<v@?@"NSError">16'
+    )
+    expected_replacements=(void_noop return_false return_false void_noop return_false return_false completion_nil_success)
+
     if ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
         fail "$label compatibility policy is invalid"
     fi
@@ -100,6 +140,23 @@ verify_compatibility_policy() {
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" ]]; then
         fail "$label compatibility policy does not require the reviewed true values and synchronization"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "will_finish_launching_once" ]]; then
+        fail "$label compatibility policy method guard mode or phases are not exact"
+    fi
+    if /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:2' "$policy_path" >/dev/null 2>&1; then
+        fail "$label compatibility policy permits an extra install phase"
+    fi
+
+    local index
+    for index in {1..7}; do
+        local policy_index=$((index - 1))
+        if [[ "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:RuntimeClass" "$policy_path")" != "${expected_classes[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:Selector" "$policy_path")" != "${expected_selectors[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:MethodKind" "$policy_path")" != "${expected_kinds[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCArgumentCount" "$policy_path")" != "${expected_argument_counts[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCReturnType" "$policy_path")" != "${expected_return_types[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCTypeEncoding" "$policy_path")" != "${expected_type_encodings[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:Replacement" "$policy_path")" != "${expected_replacements[index]}" ]]; then
+            fail "$label compatibility policy replacement $policy_index is not the fixed reviewed contract"
+        fi
+    done
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:7' "$policy_path" >/dev/null 2>&1; then
+        fail "$label compatibility policy permits an extra method replacement"
     fi
 }
 
@@ -253,9 +310,20 @@ verify_entitlement_allowlist \
 if /usr/bin/grep -E '(_socket|_bind|_listen|_accept)' "$verify_dir/runtime-undefined-symbols.txt" >/dev/null; then
     fail "runtime imports a listener primitive"
 fi
-for required_runtime_symbol in _CFPreferencesSetAppValue _CFPreferencesAppSynchronize; do
+for required_runtime_symbol in \
+    _CFPreferencesSetAppValue \
+    _CFPreferencesAppSynchronize \
+    _objc_getClass \
+    _sel_registerName \
+    _class_getInstanceMethod \
+    _class_getClassMethod \
+    _class_replaceMethod \
+    _method_getNumberOfArguments \
+    _method_copyReturnType \
+    _method_getTypeEncoding \
+    _method_getImplementation; do
     if ! /usr/bin/grep -F -q "$required_runtime_symbol" "$verify_dir/runtime-undefined-symbols.txt"; then
-        fail "runtime does not import required isolated preference initializer symbol: $required_runtime_symbol"
+        fail "runtime does not import required isolated preference or exact method-guard symbol: $required_runtime_symbol"
     fi
 done
 verify_compatibility_policy "$built_compatibility_policy" "built"
@@ -264,9 +332,27 @@ if ! /usr/bin/cmp -s "$built_compatibility_policy" "$embedded_compatibility_poli
     fail "embedded compatibility policy does not exactly match the freshly built runtime policy"
 fi
 /usr/bin/strings "$embedded_runtime" > "$verify_dir/runtime-strings.txt"
-for required_runtime_string in com.local.fcpcommandconsole.FinalCut 12.3 450152 CloudContentFirstLaunchCompleted FFCloudContentDisabled; do
+for required_runtime_string in \
+    com.local.fcpcommandconsole.FinalCut \
+    12.3 \
+    450152 \
+    CloudContentFirstLaunchCompleted \
+    FFCloudContentDisabled \
+    _TtC13Final_Cut_Pro19CloudContentCatalog \
+    _TtC13Final_Cut_Pro23CloudContentFeatureFlag \
+    CCFirstLaunchHelper \
+    updateCatalogAndRegistry \
+    isCloudContentEnabled \
+    isRunningSubscriptionApp \
+    startListeningForApplicationDidBecomeActiveNotifications \
+    isEnabled \
+    shouldShowFirstLaunchExperience \
+    setupAndPresentFirstLaunchIfNeededWithCompletionHandler: \
+    v16@0:8 \
+    B16@0:8 \
+    'v24@0:8@?<v@?@"NSError">16'; do
     if ! /usr/bin/grep -F -x -q "$required_runtime_string" "$verify_dir/runtime-strings.txt"; then
-        fail "runtime is missing required exact-host or approved preference string: $required_runtime_string"
+        fail "runtime is missing required exact-host, preference, or method-guard string: $required_runtime_string"
     fi
 done
 if /usr/bin/grep -F -q 'com.apple.FinalCut' "$verify_dir/runtime-strings.txt"; then
@@ -275,7 +361,12 @@ fi
 if /usr/bin/grep -E '(^|/)defaults($| )' "$verify_dir/runtime-strings.txt" >/dev/null; then
     fail "runtime contains a defaults executable invocation surface"
 fi
-print -r -- "isolated_compatibility_policy=pass host=com.local.fcpcommandconsole.FinalCut version=12.3 build=450152 writes=2 domain=current_application synchronized=true" > "$verify_dir/runtime-compatibility-audit.txt"
+for forbidden_runtime_string in objc_getClassList class_copyMethodList NSClassFromString FFImagePlayground DemoProjectDownloadHelper; do
+    if /usr/bin/grep -F -x -q "$forbidden_runtime_string" "$verify_dir/runtime-strings.txt"; then
+        fail "runtime contains a forbidden broad-discovery or unrelated-feature string: $forbidden_runtime_string"
+    fi
+done
+print -r -- "isolated_compatibility_policy=pass host=com.local.fcpcommandconsole.FinalCut version=12.3 build=450152 writes=2 domain=current_application synchronized=true method_guard_entries=7 phases=constructor,will_finish_launching_once" > "$verify_dir/runtime-compatibility-audit.txt"
 
 /usr/sbin/lsof -nP -iTCP -sTCP:LISTEN > "$verify_dir/listener-audit.txt" 2>&1 || true
 require_not_running "$verify_dir/process-after-verify.txt"

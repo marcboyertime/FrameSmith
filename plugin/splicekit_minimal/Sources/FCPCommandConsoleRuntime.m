@@ -7,6 +7,10 @@
 
 #import "FCPCommandConsoleRuntime.h"
 
+#import <objc/runtime.h>
+#import <stdlib.h>
+#import <string.h>
+
 NSString * const FCPCCMutationErrorUnsupportedUnverifiedFCP123 = @"unsupported_unverified_fcp_12_3";
 
 static NSString * const FCPCCExpectedHostBundleIdentifier = @"com.local.fcpcommandconsole.FinalCut";
@@ -320,6 +324,353 @@ static FCPCCCloudContentCompatibilityStatus *FCPCCInitializeIsolatedCloudContent
     return status;
 }
 
+// FCP 12.3 exposes these exact Objective-C runtime names and method contracts.
+// The entries are compile-time constants, not resource-driven configuration: the
+// bundled policy is an auditable statement of this fixed implementation, never
+// input to it. No class or method discovery is performed.
+typedef NS_ENUM(NSUInteger, FCPCCCloudContentMethodKind) {
+    FCPCCCloudContentMethodKindInstance = 0,
+    FCPCCCloudContentMethodKindClass = 1,
+};
+
+typedef NS_ENUM(NSUInteger, FCPCCCloudContentReplacementDisposition) {
+    FCPCCCloudContentReplacementDispositionPending = 0,
+    FCPCCCloudContentReplacementDispositionInstalled = 1,
+    FCPCCCloudContentReplacementDispositionClassUnavailable = 2,
+    FCPCCCloudContentReplacementDispositionMethodUnavailable = 3,
+    FCPCCCloudContentReplacementDispositionMethodPlacementMismatch = 4,
+    FCPCCCloudContentReplacementDispositionArgumentCountMismatch = 5,
+    FCPCCCloudContentReplacementDispositionReturnTypeMismatch = 6,
+    FCPCCCloudContentReplacementDispositionTypeEncodingMismatch = 7,
+    FCPCCCloudContentReplacementDispositionVerificationFailed = 8,
+};
+
+typedef NS_ENUM(NSUInteger, FCPCCCloudContentAttemptPhase) {
+    FCPCCCloudContentAttemptPhaseConstructor = 0,
+    FCPCCCloudContentAttemptPhaseWillFinishLaunching = 1,
+};
+
+typedef struct {
+    const char *runtimeClassName;
+    const char *selectorName;
+    FCPCCCloudContentMethodKind methodKind;
+    NSUInteger argumentCount;
+    const char *returnType;
+    const char *typeEncoding;
+    IMP replacement;
+    const char *auditLabel;
+} FCPCCCloudContentCompatibilityEntry;
+
+static void FCPCCCloudContentReturnVoid(id self, SEL command) {
+    (void)self;
+    (void)command;
+}
+
+static BOOL FCPCCCloudContentReturnFalse(id self, SEL command) {
+    (void)self;
+    (void)command;
+    return NO;
+}
+
+// This IMP is reachable only after the exact three-argument completion-handler
+// encoding has been confirmed. A nonnull completion receives the documented
+// successful no-error result; no exception suppression or fallback invocation is used.
+static void FCPCCCloudContentCompleteFirstLaunch(id self, SEL command, void (^completion)(NSError *)) {
+    (void)self;
+    (void)command;
+    if (completion != nil) {
+        completion(nil);
+    }
+}
+
+static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityEntries[] = {
+    {
+        "_TtC13Final_Cut_Pro19CloudContentCatalog",
+        "updateCatalogAndRegistry",
+        FCPCCCloudContentMethodKindInstance,
+        2,
+        "v",
+        "v16@0:8",
+        (IMP)FCPCCCloudContentReturnVoid,
+        "catalog.update"
+    },
+    {
+        "_TtC13Final_Cut_Pro19CloudContentCatalog",
+        "isCloudContentEnabled",
+        FCPCCCloudContentMethodKindInstance,
+        2,
+        "B",
+        "B16@0:8",
+        (IMP)FCPCCCloudContentReturnFalse,
+        "catalog.enabled"
+    },
+    {
+        "_TtC13Final_Cut_Pro19CloudContentCatalog",
+        "isRunningSubscriptionApp",
+        FCPCCCloudContentMethodKindInstance,
+        2,
+        "B",
+        "B16@0:8",
+        (IMP)FCPCCCloudContentReturnFalse,
+        "catalog.subscription"
+    },
+    {
+        "_TtC13Final_Cut_Pro19CloudContentCatalog",
+        "startListeningForApplicationDidBecomeActiveNotifications",
+        FCPCCCloudContentMethodKindInstance,
+        2,
+        "v",
+        "v16@0:8",
+        (IMP)FCPCCCloudContentReturnVoid,
+        "catalog.listener"
+    },
+    {
+        "_TtC13Final_Cut_Pro23CloudContentFeatureFlag",
+        "isEnabled",
+        FCPCCCloudContentMethodKindClass,
+        2,
+        "B",
+        "B16@0:8",
+        (IMP)FCPCCCloudContentReturnFalse,
+        "feature.enabled"
+    },
+    {
+        "_TtC13Final_Cut_Pro23CloudContentFeatureFlag",
+        "shouldShowFirstLaunchExperience",
+        FCPCCCloudContentMethodKindClass,
+        2,
+        "B",
+        "B16@0:8",
+        (IMP)FCPCCCloudContentReturnFalse,
+        "feature.first_launch"
+    },
+    {
+        "CCFirstLaunchHelper",
+        "setupAndPresentFirstLaunchIfNeededWithCompletionHandler:",
+        FCPCCCloudContentMethodKindInstance,
+        3,
+        "v",
+        "v24@0:8@?<v@?@\"NSError\">16",
+        (IMP)FCPCCCloudContentCompleteFirstLaunch,
+        "first_launch.setup_completion"
+    },
+};
+
+static const NSUInteger FCPCCCloudContentCompatibilityEntryCount = sizeof(FCPCCCloudContentCompatibilityEntries) / sizeof(FCPCCCloudContentCompatibilityEntries[0]);
+
+static NSString *FCPCCCloudContentReplacementDispositionSummary(FCPCCCloudContentReplacementDisposition disposition) {
+    switch (disposition) {
+        case FCPCCCloudContentReplacementDispositionPending:
+            return @"pending";
+        case FCPCCCloudContentReplacementDispositionInstalled:
+            return @"installed";
+        case FCPCCCloudContentReplacementDispositionClassUnavailable:
+            return @"class_unavailable";
+        case FCPCCCloudContentReplacementDispositionMethodUnavailable:
+            return @"method_unavailable";
+        case FCPCCCloudContentReplacementDispositionMethodPlacementMismatch:
+            return @"method_kind_mismatch";
+        case FCPCCCloudContentReplacementDispositionArgumentCountMismatch:
+            return @"argument_count_mismatch";
+        case FCPCCCloudContentReplacementDispositionReturnTypeMismatch:
+            return @"return_type_mismatch";
+        case FCPCCCloudContentReplacementDispositionTypeEncodingMismatch:
+            return @"type_encoding_mismatch";
+        case FCPCCCloudContentReplacementDispositionVerificationFailed:
+            return @"replacement_verification_failed";
+    }
+    return @"unknown";
+}
+
+@interface FCPCCCloudContentMethodCompatibilityStatus : NSObject
+@property (nonatomic, strong) NSMutableArray<NSNumber *> *entryDispositions;
+@property (nonatomic) NSUInteger constructorAttempts;
+@property (nonatomic) NSUInteger willFinishLaunchingAttempts;
+@property (nonatomic) BOOL hostVerified;
+- (void)recordDisposition:(FCPCCCloudContentReplacementDisposition)disposition atIndex:(NSUInteger)index;
+- (NSString *)summary;
+- (NSArray<NSString *> *)entryAuditSummaries;
+@end
+
+@implementation FCPCCCloudContentMethodCompatibilityStatus
+
+- (instancetype)init {
+    self = [super init];
+    if (self != nil) {
+        _entryDispositions = [[NSMutableArray alloc] initWithCapacity:FCPCCCloudContentCompatibilityEntryCount];
+        for (NSUInteger index = 0; index < FCPCCCloudContentCompatibilityEntryCount; index += 1) {
+            [_entryDispositions addObject:@(FCPCCCloudContentReplacementDispositionPending)];
+        }
+    }
+    return self;
+}
+
+- (void)recordDisposition:(FCPCCCloudContentReplacementDisposition)disposition atIndex:(NSUInteger)index {
+    if (index < self.entryDispositions.count) {
+        self.entryDispositions[index] = @(disposition);
+    }
+}
+
+- (NSString *)summary {
+    if (!self.hostVerified) {
+        return @"method_guard_host_unverified";
+    }
+
+    NSUInteger installed = 0;
+    for (NSNumber *number in self.entryDispositions) {
+        if (number.unsignedIntegerValue == FCPCCCloudContentReplacementDispositionInstalled) {
+            installed += 1;
+        }
+    }
+    NSUInteger attempts = self.constructorAttempts + self.willFinishLaunchingAttempts;
+    return [NSString stringWithFormat:@"method_guard=%lu/%lu attempts=%lu",
+            (unsigned long)installed,
+            (unsigned long)FCPCCCloudContentCompatibilityEntryCount,
+            (unsigned long)attempts];
+}
+
+- (NSArray<NSString *> *)entryAuditSummaries {
+    NSMutableArray<NSString *> *summaries = [[NSMutableArray alloc] initWithCapacity:FCPCCCloudContentCompatibilityEntryCount];
+    for (NSUInteger index = 0; index < FCPCCCloudContentCompatibilityEntryCount; index += 1) {
+        FCPCCCloudContentReplacementDisposition disposition = self.entryDispositions[index].unsignedIntegerValue;
+        NSString *label = [NSString stringWithUTF8String:FCPCCCloudContentCompatibilityEntries[index].auditLabel];
+        [summaries addObject:[label stringByAppendingFormat:@"=%@", FCPCCCloudContentReplacementDispositionSummary(disposition)]];
+    }
+    return summaries;
+}
+
+@end
+
+static FCPCCCloudContentMethodCompatibilityStatus *FCPCCCloudContentMethodCompatibilityStatusShared(void) {
+    static FCPCCCloudContentMethodCompatibilityStatus *status;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        status = [[FCPCCCloudContentMethodCompatibilityStatus alloc] init];
+    });
+    return status;
+}
+
+static void FCPCCInstallCloudContentCompatibilityEntry(const FCPCCCloudContentCompatibilityEntry *entry,
+                                                        NSUInteger index,
+                                                        FCPCCCloudContentMethodCompatibilityStatus *status) {
+    // runtimeClassName originates only from the fixed array above; it is never
+    // supplied by a caller, resource, environment, or notification payload.
+    Class targetClass = objc_getClass(entry->runtimeClassName);
+    if (targetClass == Nil) {
+        [status recordDisposition:FCPCCCloudContentReplacementDispositionClassUnavailable atIndex:index];
+        return;
+    }
+
+    SEL selector = sel_registerName(entry->selectorName);
+    if (selector == NULL) {
+        [status recordDisposition:FCPCCCloudContentReplacementDispositionMethodUnavailable atIndex:index];
+        return;
+    }
+
+    Method expectedMethod = entry->methodKind == FCPCCCloudContentMethodKindInstance
+        ? class_getInstanceMethod(targetClass, selector)
+        : class_getClassMethod(targetClass, selector);
+    if (expectedMethod == NULL) {
+        Method oppositePlacement = entry->methodKind == FCPCCCloudContentMethodKindInstance
+            ? class_getClassMethod(targetClass, selector)
+            : class_getInstanceMethod(targetClass, selector);
+        [status recordDisposition:oppositePlacement == NULL
+                                      ? FCPCCCloudContentReplacementDispositionMethodUnavailable
+                                      : FCPCCCloudContentReplacementDispositionMethodPlacementMismatch
+                           atIndex:index];
+        return;
+    }
+
+    if (method_getNumberOfArguments(expectedMethod) != entry->argumentCount) {
+        [status recordDisposition:FCPCCCloudContentReplacementDispositionArgumentCountMismatch atIndex:index];
+        return;
+    }
+
+    char *actualReturnType = method_copyReturnType(expectedMethod);
+    BOOL returnTypeMatches = actualReturnType != NULL && strcmp(actualReturnType, entry->returnType) == 0;
+    if (actualReturnType != NULL) {
+        free(actualReturnType);
+    }
+    if (!returnTypeMatches) {
+        [status recordDisposition:FCPCCCloudContentReplacementDispositionReturnTypeMismatch atIndex:index];
+        return;
+    }
+
+    const char *actualTypeEncoding = method_getTypeEncoding(expectedMethod);
+    if (actualTypeEncoding == NULL || strcmp(actualTypeEncoding, entry->typeEncoding) != 0) {
+        [status recordDisposition:FCPCCCloudContentReplacementDispositionTypeEncodingMismatch atIndex:index];
+        return;
+    }
+
+    if (method_getImplementation(expectedMethod) == entry->replacement) {
+        [status recordDisposition:FCPCCCloudContentReplacementDispositionInstalled atIndex:index];
+        return;
+    }
+
+    Class replacementTarget = entry->methodKind == FCPCCCloudContentMethodKindInstance
+        ? targetClass
+        : object_getClass(targetClass);
+    if (replacementTarget == Nil) {
+        [status recordDisposition:FCPCCCloudContentReplacementDispositionMethodPlacementMismatch atIndex:index];
+        return;
+    }
+    class_replaceMethod(replacementTarget, selector, entry->replacement, entry->typeEncoding);
+
+    Method installedMethod = entry->methodKind == FCPCCCloudContentMethodKindInstance
+        ? class_getInstanceMethod(targetClass, selector)
+        : class_getClassMethod(targetClass, selector);
+    if (installedMethod == NULL || method_getImplementation(installedMethod) != entry->replacement) {
+        [status recordDisposition:FCPCCCloudContentReplacementDispositionVerificationFailed atIndex:index];
+        return;
+    }
+    [status recordDisposition:FCPCCCloudContentReplacementDispositionInstalled atIndex:index];
+}
+
+static void FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhase phase) {
+    FCPCCCloudContentMethodCompatibilityStatus *status = FCPCCCloudContentMethodCompatibilityStatusShared();
+    @synchronized (status) {
+        if (phase == FCPCCCloudContentAttemptPhaseConstructor) {
+            if (status.constructorAttempts != 0) {
+                return;
+            }
+            status.constructorAttempts = 1;
+        } else {
+            if (status.willFinishLaunchingAttempts != 0) {
+                return;
+            }
+            status.willFinishLaunchingAttempts = 1;
+        }
+
+        FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
+        if (!containment.isVerified) {
+            status.hostVerified = NO;
+            return;
+        }
+        status.hostVerified = YES;
+
+        for (NSUInteger index = 0; index < FCPCCCloudContentCompatibilityEntryCount; index += 1) {
+            FCPCCInstallCloudContentCompatibilityEntry(&FCPCCCloudContentCompatibilityEntries[index], index, status);
+        }
+    }
+}
+
+static void FCPCCInstallIsolatedCloudContentMethodCompatibility(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
+        if (!containment.isVerified) {
+            return;
+        }
+        FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseConstructor);
+        [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationWillFinishLaunchingNotification
+                                                          object:nil
+                                                           queue:nil
+                                                      usingBlock:^(__unused NSNotification *note) {
+            FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseWillFinishLaunching);
+        }];
+    });
+}
+
 @interface FCPCCCapabilityStatus : NSObject
 @property (nonatomic, copy, readonly) NSString *selectionSummary;
 @property (nonatomic, copy, readonly) NSString *capabilitySummary;
@@ -423,10 +774,11 @@ static FCPCCCloudContentCompatibilityStatus *FCPCCInitializeIsolatedCloudContent
 
     FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
     FCPCCCloudContentCompatibilityStatus *compatibility = FCPCCInitializeIsolatedCloudContentCompatibility();
+    FCPCCCloudContentMethodCompatibilityStatus *methodCompatibility = FCPCCCloudContentMethodCompatibilityStatusShared();
     FCPCCGateStatus *library = [[[FCPCCLibraryInvariantGate alloc] init] evaluate];
     FCPCCCapabilityStatus *capabilities = FCPCCCapabilityStatus.unverifiedPlaceholder;
     self.containmentField = [self label:[@"Copied app/runtime: " stringByAppendingString:containment.summary] frame:NSMakeRect(20, 462, width - 40, 30) weight:NSFontWeightRegular];
-    self.compatibilityField = [self label:[@"Isolated cloud compatibility: " stringByAppendingString:compatibility.summary] frame:NSMakeRect(20, 426, width - 40, 30) weight:NSFontWeightRegular];
+    self.compatibilityField = [self label:[NSString stringWithFormat:@"Isolated cloud compatibility: %@; %@", compatibility.summary, methodCompatibility.summary] frame:NSMakeRect(20, 426, width - 40, 30) weight:NSFontWeightRegular];
     self.libraryField = [self label:[@"Library invariant: " stringByAppendingString:library.summary] frame:NSMakeRect(20, 390, width - 40, 30) weight:NSFontWeightRegular];
     self.capabilityField = [self label:[capabilities.selectionSummary stringByAppendingFormat:@"\n%@", capabilities.capabilitySummary] frame:NSMakeRect(20, 346, width - 40, 38) weight:NSFontWeightRegular];
     [content addSubview:self.containmentField];
@@ -549,6 +901,7 @@ static FCPCCCloudContentCompatibilityStatus *FCPCCInitializeIsolatedCloudContent
 __attribute__((constructor))
 static void FCPCCInstallRuntime(void) {
     (void)FCPCCInitializeIsolatedCloudContentCompatibility();
+    FCPCCInstallIsolatedCloudContentMethodCompatibility();
     dispatch_async(dispatch_get_main_queue(), ^{
         [[FCPCCRuntime sharedRuntime] installMenuWhenReady];
     });

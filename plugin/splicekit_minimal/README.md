@@ -20,7 +20,16 @@ frameworks; sandboxing remains required, while task-port/get-task-allow,
 debugger, and DYLD-environment entitlements remain forbidden. That observation
 does not establish runtime behavior or authorize a Final Cut library mutation.
 
-The static candidate strings in the source were manually transcribed from the
+The isolated-copy startup compatibility guard has exactly seven compile-time
+allowlisted CloudContent method contracts for Final Cut Pro 12.3. It installs
+only after the exact copied-host containment gate passes, attempts once in the
+framework constructor and once at will-finish-launching, and skips every method
+whose class, placement, argument count, return type, or full Objective-C type
+encoding differs from the reviewed contract. The policy resource is an audit
+artifact, not runtime input; no class or method enumeration is used.
+
+The fixed CloudContent names and contracts were manually transcribed from the
 locked `reference/elliotttate/SpliceKit` snapshot at
-`f4f6618121309a69b66272b441f34cf8ad57f306`. No SpliceKit source code, server,
-plugin framework, or runtime feature is compiled into this framework.
+`f4f6618121309a69b66272b441f34cf8ad57f306` and static inspection of the exact
+FCP 12.3 host. No SpliceKit source code, server, plugin framework, or runtime
+feature is compiled into this framework.
