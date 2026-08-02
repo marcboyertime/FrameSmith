@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "policy": "The copied app starts from the captured stock entitlement plist. Only these Apple-bound keys may be removed for local signing. No keys may be added or changed in this offline build.",
+  "removed": [
+    "com.apple.application-identifier",
+    "com.apple.developer.aps-environment",
+    "com.apple.developer.icloud-container-environment",
+    "com.apple.developer.icloud-container-identifiers",
+    "com.apple.developer.icloud-services",
+    "com.apple.developer.team-identifier",
+    "com.apple.security.application-groups",
+    "com.apple.security.automation.apple-events",
+    "com.apple.security.scripting-targets",
+    "com.apple.security.temporary-exception.apple-events",
+    "keychain-access-groups"
+  ],
+  "added": [],
+  "changed": [],
+  "required_unchanged": {
+    "com.apple.security.app-sandbox": true
+  },
+  "forbidden_added": [
+    "com.apple.security.cs.disable-library-validation",
+    "com.apple.security.get-task-allow"
+  ]
+}

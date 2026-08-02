@@ -1,0 +1,218 @@
+#!/bin/zsh
+# Read-only verifier for the one approved copied Final Cut artifact.
+
+set -euo pipefail
+
+script_dir="$(cd "$(/usr/bin/dirname "$0")" && /bin/pwd)"
+plugin_dir="$(/usr/bin/dirname "$script_dir")"
+repo_dir="$(/usr/bin/dirname "$plugin_dir")"
+source_app="/Applications/Final Cut Pro.app"
+source_executable="$source_app/Contents/MacOS/Final Cut Pro"
+destination_root="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole"
+copied_app="$destination_root/Final Cut Pro - FCPCommandConsole.app"
+copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
+framework_name="FCPCommandConsoleRuntime.framework"
+embedded_framework="$copied_app/Contents/Frameworks/$framework_name"
+embedded_runtime="$embedded_framework/Versions/A/FCPCommandConsoleRuntime"
+allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
+preferences_file="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
+provenance_root="/Users/marcboyer/Movies/FCPCommandConsole/provenance"
+verify_dir="$provenance_root/patch-$(/bin/date -u +%Y%m%dT%H%M%SZ)-verify-$$"
+load_path="@rpath/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
+removed_entitlements=(
+    com.apple.application-identifier
+    com.apple.developer.aps-environment
+    com.apple.developer.icloud-container-environment
+    com.apple.developer.icloud-container-identifiers
+    com.apple.developer.icloud-services
+    com.apple.developer.team-identifier
+    com.apple.security.application-groups
+    com.apple.security.automation.apple-events
+    com.apple.security.scripting-targets
+    com.apple.security.temporary-exception.apple-events
+    keychain-access-groups
+)
+
+fail() {
+    print -u2 -r -- "verify-copied-fcp: $1"
+    exit 1
+}
+
+capture_preferences() {
+    local output_dir="$1"
+    if [[ -f "$preferences_file" ]]; then
+        /usr/bin/plutil -convert xml1 -o "$output_dir/stock-preferences.xml" "$preferences_file"
+        /usr/bin/shasum -a 256 "$output_dir/stock-preferences.xml" | /usr/bin/awk '{print $1}' > "$output_dir/stock-preferences.sha256"
+    else
+        print -r -- "absent" > "$output_dir/stock-preferences.xml"
+        /usr/bin/shasum -a 256 "$output_dir/stock-preferences.xml" | /usr/bin/awk '{print $1}' > "$output_dir/stock-preferences.sha256"
+    fi
+}
+
+capture_bundle() {
+    local app_path="$1"
+    local executable_path="$2"
+    local output_dir="$3"
+    /bin/mkdir -p "$output_dir"
+    /bin/cp "$app_path/Contents/Info.plist" "$output_dir/Info.plist"
+    /usr/bin/shasum -a 256 "$executable_path" | /usr/bin/awk '{print $1}' > "$output_dir/main-executable.sha256"
+    /usr/bin/shasum -a 256 "$app_path/Contents/Info.plist" | /usr/bin/awk '{print $1}' > "$output_dir/Info.plist.sha256"
+    /usr/bin/codesign -dvvv "$app_path" > "$output_dir/codesign-metadata.txt" 2>&1
+    /usr/bin/codesign -d -r- "$app_path" > "$output_dir/designated-requirement.txt" 2>&1
+    /usr/bin/codesign -d --entitlements :- "$app_path" > "$output_dir/entitlements.plist" 2> "$output_dir/entitlements.stderr"
+    /usr/bin/otool -arch arm64 -L "$executable_path" > "$output_dir/main-libraries-arm64.txt"
+    /usr/bin/otool -arch x86_64 -L "$executable_path" > "$output_dir/main-libraries-x86_64.txt"
+}
+
+require_not_running() {
+    local audit_file="$1"
+    if /usr/bin/pgrep -fl 'Final Cut Pro' > "$audit_file"; then
+        fail "Final Cut Pro is running; verifier will not proceed"
+    fi
+    print -r -- "no Final Cut Pro process observed" > "$audit_file"
+}
+
+verify_entitlement_allowlist() {
+    local stock_entitlements="$1"
+    local expected_entitlements="$2"
+    local signed_entitlements="$3"
+    local output_dir="$4"
+    local expected_binary="$output_dir/expected-entitlements.bplist"
+    local signed_binary="$output_dir/signed-entitlements.bplist"
+    local expected_canonical="$output_dir/expected-entitlements.canonical.plist"
+    local signed_canonical="$output_dir/signed-entitlements.canonical.plist"
+
+    for entitlement_key in "${removed_entitlements[@]}"; do
+        if ! /usr/libexec/PlistBuddy -c "Print :$entitlement_key" "$stock_entitlements" >/dev/null 2>&1; then
+            fail "captured stock entitlements do not contain required removable key: $entitlement_key"
+        fi
+        if /usr/libexec/PlistBuddy -c "Print :$entitlement_key" "$expected_entitlements" >/dev/null 2>&1; then
+            fail "generated local entitlements retained removable key: $entitlement_key"
+        fi
+        if /usr/libexec/PlistBuddy -c "Print :$entitlement_key" "$signed_entitlements" >/dev/null 2>&1; then
+            fail "signed copied app retained removable key: $entitlement_key"
+        fi
+    done
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$signed_entitlements")" != "true" ]]; then
+        fail "copied app does not retain com.apple.security.app-sandbox=true"
+    fi
+    for forbidden_added_key in com.apple.security.cs.disable-library-validation com.apple.security.get-task-allow; do
+        if /usr/libexec/PlistBuddy -c "Print :$forbidden_added_key" "$signed_entitlements" >/dev/null 2>&1; then
+            fail "forbidden added entitlement is present: $forbidden_added_key"
+        fi
+    done
+    /usr/bin/plutil -convert binary1 -o "$expected_binary" "$expected_entitlements"
+    /usr/bin/plutil -convert xml1 -o "$expected_canonical" "$expected_binary"
+    /usr/bin/plutil -convert binary1 -o "$signed_binary" "$signed_entitlements"
+    /usr/bin/plutil -convert xml1 -o "$signed_canonical" "$signed_binary"
+    if ! /usr/bin/cmp -s "$expected_canonical" "$signed_canonical"; then
+        fail "signed copied-app entitlement diff contains an unallowed addition, removal, or change"
+    fi
+    /usr/bin/shasum -a 256 "$allowlist" | /usr/bin/awk '{print $1}' > "$output_dir/patch-entitlement-allowlist-config.sha256"
+    print -r -- "entitlement_allowlist=pass removed=11 added=0 changed=0 sandbox=true" > "$output_dir/entitlement-allowlist.txt"
+}
+
+if [[ ! -d "$source_app" || ! -f "$source_executable" ]]; then
+    fail "required source app is missing"
+fi
+if [[ ! -d "$copied_app" || ! -f "$copied_executable" || ! -f "$embedded_runtime" ]]; then
+    fail "approved copied artifact or embedded runtime is missing"
+fi
+if [[ ! -f "$allowlist" ]]; then
+    fail "run plugin/scripts/build-minimal-runtime successfully before verification"
+fi
+source_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_app/Contents/Info.plist")"
+source_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$source_app/Contents/Info.plist")"
+if [[ "$source_version" != "12.3" || "$source_build" != "450152" ]]; then
+    fail "source app version/build guard failed (expected 12.3/450152)"
+fi
+
+/bin/mkdir -p "$provenance_root"
+if [[ -e "$verify_dir" ]]; then
+    fail "unique verification provenance destination already exists"
+fi
+/bin/mkdir "$verify_dir"
+require_not_running "$verify_dir/process-before-verify.txt"
+capture_bundle "$source_app" "$source_executable" "$verify_dir/stock-current"
+capture_preferences "$verify_dir/stock-current"
+capture_bundle "$copied_app" "$copied_executable" "$verify_dir/copied-current"
+
+initial_patch_dir=""
+for candidate in "$provenance_root"/patch-*; do
+    if [[ -f "$candidate/stock-before/main-executable.sha256" && -f "$candidate/stock-before/Info.plist.sha256" && -f "$candidate/stock-before/stock-preferences.sha256" && -f "$candidate/copied-main-executable.pre-injection.sha256" ]]; then
+        initial_patch_dir="$candidate"
+        break
+    fi
+done
+if [[ -z "$initial_patch_dir" ]]; then
+    fail "initial patch provenance is missing"
+fi
+print -r -- "initial_patch_provenance=$initial_patch_dir" > "$verify_dir/initial-provenance.txt"
+
+if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/main-executable.sha256" "$verify_dir/stock-current/main-executable.sha256"; then
+    fail "stock main executable fingerprint differs from initial patch evidence"
+fi
+if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/Info.plist.sha256" "$verify_dir/stock-current/Info.plist.sha256"; then
+    fail "stock Info.plist fingerprint differs from initial patch evidence"
+fi
+if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/stock-preferences.sha256" "$verify_dir/stock-current/stock-preferences.sha256"; then
+    fail "stock preference export fingerprint differs from initial patch evidence"
+fi
+if ! /usr/bin/cmp -s "$initial_patch_dir/copied-main-executable.pre-injection.sha256" "$verify_dir/stock-current/main-executable.sha256"; then
+    fail "captured pre-injection copied executable differs from stock fingerprint"
+fi
+
+copied_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copied_app/Contents/Info.plist")"
+copied_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$copied_app/Contents/Info.plist")"
+copied_display_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$copied_app/Contents/Info.plist")"
+copied_executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$copied_app/Contents/Info.plist")"
+if [[ "$copied_identifier" != "com.local.fcpcommandconsole.FinalCut" || "$copied_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_display_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_executable_name" != "Final Cut Pro" ]]; then
+    fail "copied app metadata does not match the approved isolated identity"
+fi
+print -r -- "bundle_identifier=$copied_identifier" > "$verify_dir/copied-identity.txt"
+print -r -- "bundle_name=$copied_name" >> "$verify_dir/copied-identity.txt"
+print -r -- "display_name=$copied_display_name" >> "$verify_dir/copied-identity.txt"
+print -r -- "executable_name=$copied_executable_name" >> "$verify_dir/copied-identity.txt"
+
+/usr/bin/otool -arch arm64 -L "$copied_executable" > "$verify_dir/copied-load-commands-arm64.txt"
+/usr/bin/otool -arch x86_64 -L "$copied_executable" > "$verify_dir/copied-load-commands-x86_64.txt"
+arm64_count="$(/usr/bin/grep -F -c "$load_path" "$verify_dir/copied-load-commands-arm64.txt" || true)"
+x86_64_count="$(/usr/bin/grep -F -c "$load_path" "$verify_dir/copied-load-commands-x86_64.txt" || true)"
+if [[ "$arm64_count" != "1" || "$x86_64_count" != "1" ]]; then
+    fail "expected exactly one intended load command in each architecture"
+fi
+/usr/bin/sed '1d' "$verify_dir/stock-current/main-libraries-arm64.txt" > "$verify_dir/stock-libraries-arm64-without-header.txt"
+/usr/bin/sed '1d' "$verify_dir/stock-current/main-libraries-x86_64.txt" > "$verify_dir/stock-libraries-x86_64-without-header.txt"
+/usr/bin/grep -F -v "$load_path" "$verify_dir/copied-load-commands-arm64.txt" | /usr/bin/sed '1d' > "$verify_dir/copied-libraries-arm64-without-intended-load.txt"
+/usr/bin/grep -F -v "$load_path" "$verify_dir/copied-load-commands-x86_64.txt" | /usr/bin/sed '1d' > "$verify_dir/copied-libraries-x86_64-without-intended-load.txt"
+if ! /usr/bin/cmp -s "$verify_dir/stock-libraries-arm64-without-header.txt" "$verify_dir/copied-libraries-arm64-without-intended-load.txt"; then
+    fail "unexpected arm64 main-executable dependency change"
+fi
+if ! /usr/bin/cmp -s "$verify_dir/stock-libraries-x86_64-without-header.txt" "$verify_dir/copied-libraries-x86_64-without-intended-load.txt"; then
+    fail "unexpected x86_64 main-executable dependency change"
+fi
+
+local_entitlements="$verify_dir/local-signing-entitlements.plist"
+/bin/cp "$verify_dir/stock-current/entitlements.plist" "$local_entitlements"
+for entitlement_key in "${removed_entitlements[@]}"; do
+    /usr/libexec/PlistBuddy -c "Delete :$entitlement_key" "$local_entitlements" >/dev/null
+done
+verify_entitlement_allowlist \
+    "$verify_dir/stock-current/entitlements.plist" \
+    "$local_entitlements" \
+    "$verify_dir/copied-current/entitlements.plist" \
+    "$verify_dir"
+
+/usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$verify_dir/codesign-verify.txt" 2>&1
+/usr/bin/codesign --verify --strict --verbose=4 "$embedded_framework" > "$verify_dir/runtime-codesign-verify.txt" 2>&1
+/usr/bin/otool -L "$embedded_runtime" > "$verify_dir/runtime-libraries.txt"
+/usr/bin/nm -u "$embedded_runtime" > "$verify_dir/runtime-undefined-symbols.txt"
+if /usr/bin/grep -E '(_socket|_bind|_listen|_accept)' "$verify_dir/runtime-undefined-symbols.txt" >/dev/null; then
+    fail "runtime imports a listener primitive"
+fi
+
+/usr/sbin/lsof -nP -iTCP -sTCP:LISTEN > "$verify_dir/listener-audit.txt" 2>&1 || true
+require_not_running "$verify_dir/process-after-verify.txt"
+print -r -- "status=verified"
+print -r -- "copied_app=$copied_app"
+print -r -- "provenance=$verify_dir"

@@ -1,0 +1,87 @@
+#!/bin/zsh
+# Build only project-owned offline artifacts. This script intentionally has no
+# dependency resolution or network behavior.
+
+set -euo pipefail
+
+script_dir="$(cd "$(/usr/bin/dirname "$0")" && /bin/pwd)"
+plugin_dir="$(/usr/bin/dirname "$script_dir")"
+repo_dir="$(/usr/bin/dirname "$plugin_dir")"
+build_dir="$plugin_dir/build"
+runtime_dir="$plugin_dir/splicekit_minimal"
+tool_dir="$plugin_dir/tools/fcpcc-insert-dylib"
+patcher_dir="$plugin_dir/patcher"
+framework_dir="$build_dir/FCPCommandConsoleRuntime.framework"
+runtime_binary="$framework_dir/Versions/A/FCPCommandConsoleRuntime"
+injector_binary="$build_dir/fcpcc-insert-dylib"
+entitlement_verifier="$build_dir/fcpcc-entitlement-verify"
+
+/bin/mkdir -p "$build_dir"
+/bin/mkdir -p "$framework_dir/Versions/A/Resources"
+
+/usr/bin/clang \
+  -arch arm64 \
+  -arch x86_64 \
+  -mmacosx-version-min=13.0 \
+  -dynamiclib \
+  -fobjc-arc \
+  -fmodules \
+  -Wall \
+  -Wextra \
+  -Werror \
+  -Wstrict-prototypes \
+  -Werror=unguarded-availability-new \
+  -Wl,-fatal_warnings \
+  -framework Cocoa \
+  -install_name @rpath/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime \
+  -I "$runtime_dir/Sources" \
+  "$runtime_dir/Sources/FCPCommandConsoleRuntime.m" \
+  -o "$runtime_binary"
+
+/bin/cp "$runtime_dir/Resources/FCPCommandConsoleRuntime-Info.plist" "$framework_dir/Versions/A/Resources/Info.plist"
+/bin/cp "$repo_dir/config/fcpcommandconsole-library-manifest.json" "$framework_dir/Versions/A/Resources/FCPCommandConsoleLibraryManifest.json"
+/bin/cp "$runtime_dir/Resources/LATER_INTEGRATION_INTERFACE.json" "$framework_dir/Versions/A/Resources/LATER_INTEGRATION_INTERFACE.json"
+/bin/ln -sfn A "$framework_dir/Versions/Current"
+/bin/ln -sfn Versions/Current/FCPCommandConsoleRuntime "$framework_dir/FCPCommandConsoleRuntime"
+/bin/ln -sfn Versions/Current/Resources "$framework_dir/Resources"
+
+/usr/bin/clang \
+  -arch arm64 \
+  -arch x86_64 \
+  -mmacosx-version-min=13.0 \
+  -std=c11 \
+  -Wall \
+  -Wextra \
+  -Werror \
+  -Wstrict-prototypes \
+  "$tool_dir/src/main.c" \
+  -o "$injector_binary"
+
+/usr/bin/clang \
+  -arch arm64 \
+  -arch x86_64 \
+  -mmacosx-version-min=13.0 \
+  -fobjc-arc \
+  -fmodules \
+  -Wall \
+  -Wextra \
+  -Werror \
+  -Wstrict-prototypes \
+  -framework Foundation \
+  "$patcher_dir/verify-entitlement-allowlist.m" \
+  -o "$entitlement_verifier"
+
+/usr/bin/plutil -lint "$framework_dir/Versions/A/Resources/Info.plist" >/dev/null
+/usr/bin/lipo "$runtime_binary" -verify_arch arm64
+/usr/bin/lipo "$runtime_binary" -verify_arch x86_64
+/usr/bin/lipo "$injector_binary" -verify_arch arm64
+/usr/bin/lipo "$injector_binary" -verify_arch x86_64
+/usr/bin/lipo "$entitlement_verifier" -verify_arch arm64
+/usr/bin/lipo "$entitlement_verifier" -verify_arch x86_64
+
+source_hash="$(/usr/bin/shasum -a 256 "$tool_dir/src/main.c" | /usr/bin/awk '{print $1}')"
+runtime_hash="$(/usr/bin/shasum -a 256 "$runtime_binary" | /usr/bin/awk '{print $1}')"
+injector_hash="$(/usr/bin/shasum -a 256 "$injector_binary" | /usr/bin/awk '{print $1}')"
+printf 'runtime=FCPCommandConsoleRuntime architectures=arm64,x86_64 sha256=%s\n' "$runtime_hash"
+printf 'injector=fcpcc-insert-dylib source_sha256=%s binary_sha256=%s\n' "$source_hash" "$injector_hash"
+printf 'entitlement_verifier=fcpcc-entitlement-verify architectures=arm64,x86_64\n'

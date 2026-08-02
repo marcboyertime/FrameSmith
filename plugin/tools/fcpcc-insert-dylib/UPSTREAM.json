@@ -1,0 +1,9 @@
+{
+  "tool": "fcpcc-insert-dylib",
+  "ownership": "Project-authored minimal implementation; no upstream source code is vendored.",
+  "upstream_reference_url": "https://github.com/tyilo/insert_dylib",
+  "upstream_reference_commit": "eb7278162af8fcc372e7f2946a2dee6a386b17d8",
+  "upstream_reference_accessed_once_at_build_setup": "2026-08-02",
+  "source_sha256": "c5772a06bd43b14509fdfc485d7b9631bfcb212ed6ffc03c69815d00a04681e3",
+  "scope": "In-place LC_LOAD_DYLIB addition only. Universal Mach-O slices are supported only when each has zero-filled header padding. The tool never shifts file payloads, removes commands, downloads dependencies, or accepts generic options."
+}

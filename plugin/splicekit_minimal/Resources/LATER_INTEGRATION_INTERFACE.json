@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "runtime_bundle_resource": "FCPCommandConsoleLibraryManifest.json",
+  "project_configuration_source": "config/fcpcommandconsole-library-manifest.json",
+  "required_live_inputs": [
+    "canonical_path",
+    "expected_device",
+    "expected_inode",
+    "persistent_uid"
+  ],
+  "rule": "A later integration may replace the bundled resource only during a separately reviewed build. The runtime never reads repository files at runtime and does not infer missing values from a Final Cut library."
+}

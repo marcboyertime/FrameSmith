@@ -1,0 +1,215 @@
+#!/bin/zsh
+# Offline audits for the minimal runtime and isolated-copy patcher.
+
+set -euo pipefail
+
+script_dir="$(cd "$(/usr/bin/dirname "$0")" && /bin/pwd)"
+plugin_dir="$(/usr/bin/dirname "$script_dir")"
+repo_dir="$(/usr/bin/dirname "$plugin_dir")"
+runtime_source="$plugin_dir/splicekit_minimal/Sources"
+runtime_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
+injector="$plugin_dir/build/fcpcc-insert-dylib"
+entitlement_verifier="$plugin_dir/build/fcpcc-entitlement-verify"
+allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
+source_app="/Applications/Final Cut Pro.app"
+source_executable="$source_app/Contents/MacOS/Final Cut Pro"
+preferences_file="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
+test_dir="$(/usr/bin/mktemp -d /tmp/fcpcc-offline-tests.XXXXXX)"
+load_path="@rpath/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
+rg_bin="$(command -v rg || true)"
+
+fail() {
+    print -u2 -r -- "run-offline-tests: $1"
+    exit 1
+}
+
+require_absent() {
+    local expression="$1"
+    local scope="$2"
+    if "$rg_bin" -n -i --glob '*.[mh]' "$expression" "$scope" >/dev/null; then
+        fail "forbidden runtime surface matched: $expression"
+    fi
+}
+
+if [[ ! -x "$injector" || ! -x "$entitlement_verifier" || ! -f "$runtime_build" ]]; then
+    fail "run plugin/scripts/build-minimal-runtime successfully before tests"
+fi
+if [[ -z "$rg_bin" ]]; then
+    fail "rg is required for source audits"
+fi
+if [[ ! -d "$source_app" || ! -f "$source_executable" ]]; then
+    fail "required source app is missing"
+fi
+
+stock_main_before="$(/usr/bin/shasum -a 256 "$source_executable" | /usr/bin/awk '{print $1}')"
+stock_info_before="$(/usr/bin/shasum -a 256 "$source_app/Contents/Info.plist" | /usr/bin/awk '{print $1}')"
+if [[ -f "$preferences_file" ]]; then
+    /usr/bin/plutil -convert xml1 -o "$test_dir/preferences-before.xml" "$preferences_file"
+else
+    print -r -- "absent" > "$test_dir/preferences-before.xml"
+fi
+preferences_before="$(/usr/bin/shasum -a 256 "$test_dir/preferences-before.xml" | /usr/bin/awk '{print $1}')"
+
+for forbidden in \
+    'NSSelectorFromString' \
+    'performSelector' \
+    'objc_msgSend' \
+    'valueForKey:' \
+    'setValue:forKey:' \
+    'dlopen' \
+    'dlsym' \
+    'NSTask' \
+    'socket' \
+    'bind' \
+    'listen' \
+    'accept' \
+    'NSURLSession' \
+    'CFNetwork' \
+    'WKWebView' \
+    'ScreenCaptureKit' \
+    'CGWindowList' \
+    'sendAction:' \
+    'FCPXML' \
+    'NSUserDefaults' \
+    'Sentry' \
+    'telemetry' \
+    '\\bLua\\b' \
+    '\\bPython\\b' \
+    'breakpoint' \
+    'automation' \
+    'swizzle'; do
+    require_absent "$forbidden" "$runtime_source"
+done
+
+for required_identifier in \
+    'native.targeted_rotate_zoom' \
+    'look.old_television' \
+    'transition.natural_dissolve' \
+    'motion.living_still'; do
+    if ! "$rg_bin" -F -q "$required_identifier" "$runtime_source/FCPCommandConsoleRuntime.m"; then
+        fail "missing required fixed effect identifier: $required_identifier"
+    fi
+done
+if [[ "$("$rg_bin" -o '(native\.targeted_rotate_zoom|look\.old_television|transition\.natural_dissolve|motion\.living_still)' "$runtime_source/FCPCommandConsoleRuntime.m" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "4" ]]; then
+    fail "fixed effect identifier domain is not exactly four values"
+fi
+if ! "$rg_bin" -F -q '[self.applyButton setEnabled:NO];' "$runtime_source/FCPCommandConsoleRuntime.m"; then
+    fail "panel Apply is not explicitly disabled by default"
+fi
+if "$rg_bin" -F 'setEnabled:YES' "$runtime_source/FCPCommandConsoleRuntime.m" >/dev/null; then
+    fail "panel code can enable a mutation control"
+fi
+if [[ "$("$rg_bin" -F -o 'return FCPCCMutationResult.unsupportedUnverified;' "$runtime_source/FCPCommandConsoleRuntime.m" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" -lt 2 ]]; then
+    fail "mutation stubs do not fail closed"
+fi
+if ! "$rg_bin" -F -q 'enumerateCompleteOpenLibrarySet' "$runtime_source/FCPCommandConsoleRuntime.m"; then
+    fail "fixed open-library traversal seam is absent"
+fi
+if ! "$rg_bin" -F -q 'openLibrarySet.libraries.count != 1' "$runtime_source/FCPCommandConsoleRuntime.m"; then
+    fail "exactly-one-library gate is absent"
+fi
+for manifest_field in canonical_path expected_device expected_inode persistent_uid; do
+    if ! "$rg_bin" -F -q "$manifest_field" "$repo_dir/config/fcpcommandconsole-library-manifest.json"; then
+        fail "library manifest field missing: $manifest_field"
+    fi
+done
+
+for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp"; do
+    for forbidden_patcher_term in 'curl' 'git ' 'DYLD_' 'defaults' 'kill' 'osascript' 'xattr' 'rm -'; do
+        if "$rg_bin" -n -i -F "$forbidden_patcher_term" "$patcher_script" >/dev/null; then
+            fail "patcher safety audit matched: $forbidden_patcher_term"
+        fi
+    done
+done
+if ! "$rg_bin" -F -q 'forbidden_added_key in com.apple.security.cs.disable-library-validation com.apple.security.get-task-allow' "$plugin_dir/patcher/patch-copied-fcp"; then
+    fail "patcher does not explicitly reject prohibited signing entitlements"
+fi
+if ! "$rg_bin" -F -q 'com.apple.security.app-sandbox' "$allowlist"; then
+    fail "allowlist does not require the app sandbox"
+fi
+if ! "$rg_bin" -F -q '"added": []' "$allowlist" || ! "$rg_bin" -F -q '"changed": []' "$allowlist"; then
+    fail "allowlist permits additions or changed entitlement values"
+fi
+source_hash="$(/usr/bin/shasum -a 256 "$plugin_dir/tools/fcpcc-insert-dylib/src/main.c" | /usr/bin/awk '{print $1}')"
+if ! "$rg_bin" -F -q "$source_hash" "$plugin_dir/tools/fcpcc-insert-dylib/UPSTREAM.json"; then
+    fail "injector source hash does not match provenance metadata"
+fi
+
+/usr/bin/clang \
+  -arch arm64 \
+  -arch x86_64 \
+  -mmacosx-version-min=13.0 \
+  -Wall \
+  -Wextra \
+  -Werror \
+  -Wl,-headerpad,4096 \
+  "$script_dir/fixtures/injector-fixture.c" \
+  -o "$test_dir/injector-fixture"
+"$injector" "$test_dir/injector-fixture" "$load_path" > "$test_dir/injector-fixture-output.txt"
+for architecture in arm64 x86_64; do
+    count="$(/usr/bin/otool -arch "$architecture" -L "$test_dir/injector-fixture" | /usr/bin/grep -F -c "$load_path" || true)"
+    if [[ "$count" != "1" ]]; then
+        fail "injector did not add exactly one load command for $architecture"
+    fi
+done
+if "$injector" "$test_dir/injector-fixture" "$load_path" > "$test_dir/duplicate-injector-output.txt" 2>&1; then
+    fail "injector accepted a duplicate load command"
+fi
+
+/usr/bin/clang \
+  -arch arm64 \
+  -mmacosx-version-min=13.0 \
+  -fobjc-arc \
+  -fmodules \
+  -Wall \
+  -Wextra \
+  -Werror \
+  -framework Cocoa \
+  -I "$runtime_source" \
+  "$runtime_source/FCPCommandConsoleRuntime.m" \
+  "$script_dir/MutationStubTests.m" \
+  -o "$test_dir/mutation-stub-tests"
+"$test_dir/mutation-stub-tests"
+
+/usr/bin/codesign -d --entitlements :- "$source_app" > "$test_dir/stock-entitlements.plist" 2> "$test_dir/stock-entitlements.stderr"
+/bin/cp "$test_dir/stock-entitlements.plist" "$test_dir/expected-entitlements.plist"
+for entitlement_key in \
+    com.apple.application-identifier \
+    com.apple.developer.aps-environment \
+    com.apple.developer.icloud-container-environment \
+    com.apple.developer.icloud-container-identifiers \
+    com.apple.developer.icloud-services \
+    com.apple.developer.team-identifier \
+    com.apple.security.application-groups \
+    com.apple.security.automation.apple-events \
+    com.apple.security.scripting-targets \
+    com.apple.security.temporary-exception.apple-events \
+    keychain-access-groups; do
+    /usr/libexec/PlistBuddy -c "Delete :$entitlement_key" "$test_dir/expected-entitlements.plist" >/dev/null
+done
+/bin/cp "$test_dir/expected-entitlements.plist" "$test_dir/signed-entitlements.plist"
+"$entitlement_verifier" \
+    "$test_dir/stock-entitlements.plist" \
+    "$test_dir/expected-entitlements.plist" \
+    "$test_dir/signed-entitlements.plist" \
+    "$allowlist" > "$test_dir/entitlement-verifier.txt"
+/bin/cp "$test_dir/signed-entitlements.plist" "$test_dir/bad-signed-entitlements.plist"
+/usr/libexec/PlistBuddy -c 'Add :com.apple.security.get-task-allow bool true' "$test_dir/bad-signed-entitlements.plist" >/dev/null
+if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/expected-entitlements.plist" "$test_dir/bad-signed-entitlements.plist" "$allowlist" > "$test_dir/bad-entitlement-verifier.txt" 2>&1; then
+    fail "entitlement verifier accepted an unallowed entitlement"
+fi
+
+stock_main_after="$(/usr/bin/shasum -a 256 "$source_executable" | /usr/bin/awk '{print $1}')"
+stock_info_after="$(/usr/bin/shasum -a 256 "$source_app/Contents/Info.plist" | /usr/bin/awk '{print $1}')"
+if [[ -f "$preferences_file" ]]; then
+    /usr/bin/plutil -convert xml1 -o "$test_dir/preferences-after.xml" "$preferences_file"
+else
+    print -r -- "absent" > "$test_dir/preferences-after.xml"
+fi
+preferences_after="$(/usr/bin/shasum -a 256 "$test_dir/preferences-after.xml" | /usr/bin/awk '{print $1}')"
+if [[ "$stock_main_before" != "$stock_main_after" || "$stock_info_before" != "$stock_info_after" || "$preferences_before" != "$preferences_after" ]]; then
+    fail "offline tests changed a stock app fingerprint or exported preference fingerprint"
+fi
+
+print -r -- "offline_tests=pass"
+print -r -- "test_artifacts=$test_dir"
