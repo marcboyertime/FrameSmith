@@ -25,7 +25,8 @@ under the Movies runtime root.
 
 `request text -> deterministic parser -> registry lookup -> EffectPlan -> runtime policy validator -> (future) executor`
 
-The current executor boundary stops after validation. Path, budget,
+The current executor boundary stops after validation. Path, budget (with
+independent provider and operation-scoped media-upload approvals),
 provenance/idempotency, rollback records, and generated-overlay verification are
 available without touching FCP.
 

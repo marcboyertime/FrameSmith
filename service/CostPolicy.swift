@@ -4,6 +4,7 @@ public enum CostPolicyError: Error, LocalizedError, Equatable {
     case invalidEstimate
     case overCeiling(Double)
     case providerApprovalRequired(String)
+    case mediaUploadApprovalRequired(UUID?)
     case usageReadFailed(String)
 
     public var errorDescription: String? {
@@ -11,6 +12,7 @@ public enum CostPolicyError: Error, LocalizedError, Equatable {
         case .invalidEstimate: return "Cost estimate must be finite and non-negative"
         case .overCeiling(let value): return "Monthly provider budget exceeded: $\(String(format: "%.2f", value))"
         case .providerApprovalRequired(let provider): return "First use of provider requires explicit approval: \(provider)"
+        case .mediaUploadApprovalRequired(let operationID): return "Media upload requires separate approval\(operationID.map { " for \($0.uuidString)" } ?? "")"
         case .usageReadFailed(let reason): return "Could not read usage ledger: \(reason)"
         }
     }
@@ -32,19 +34,34 @@ public struct CostPolicy: Sendable {
     public let monthlyCeilingUSD: Double
     public let usageURL: URL
     private var approvedProviders: Set<String>
+    private var approvedMediaUploadOperations: Set<UUID>
 
-    public init(monthlyCeilingUSD: Double = 20, usageURL: URL = PathPolicy.defaultOutputRoot.appendingPathComponent("usage/cost.jsonl"), approvedProviders: Set<String> = []) {
+    public init(monthlyCeilingUSD: Double = 20, usageURL: URL = PathPolicy.defaultOutputRoot.appendingPathComponent("usage/cost.jsonl"), approvedProviders: Set<String> = [], approvedMediaUploadOperations: Set<UUID> = []) {
         self.monthlyCeilingUSD = monthlyCeilingUSD
         self.usageURL = usageURL
         self.approvedProviders = approvedProviders
+        self.approvedMediaUploadOperations = approvedMediaUploadOperations
     }
 
     public mutating func approveFirstProvider(_ provider: String) {
         approvedProviders.insert(provider)
     }
 
-    public func estimateAllowed(_ estimate: CostEstimate, now: Date = Date()) throws {
+    /// Media approval is deliberately a separate, operation-scoped state. A
+    /// provider approval never adds an operation to this set.
+    public mutating func approveMediaUpload(for operationID: UUID) {
+        approvedMediaUploadOperations.insert(operationID)
+    }
+
+    public func isMediaUploadApproved(for operationID: UUID) -> Bool {
+        approvedMediaUploadOperations.contains(operationID)
+    }
+
+    public func estimateAllowed(_ estimate: CostEstimate, operationID: UUID? = nil, now: Date = Date()) throws {
         guard estimate.usd.isFinite, estimate.usd >= 0, (!estimate.paid || !estimate.provider.isEmpty) else { throw CostPolicyError.invalidEstimate }
+        if estimate.requiresMediaUpload {
+            guard let operationID, approvedMediaUploadOperations.contains(operationID) else { throw CostPolicyError.mediaUploadApprovalRequired(operationID) }
+        }
         guard estimate.usd <= monthlyCeilingUSD else { throw CostPolicyError.overCeiling(estimate.usd) }
         guard estimate.paid else { return }
         guard approvedProviders.contains(estimate.provider) else { throw CostPolicyError.providerApprovalRequired(estimate.provider) }
@@ -53,7 +70,7 @@ public struct CostPolicy: Sendable {
     }
 
     public func enforce(_ estimate: CostEstimate, operationID: UUID? = nil, now: Date = Date()) throws {
-        try estimateAllowed(estimate, now: now)
+        try estimateAllowed(estimate, operationID: operationID, now: now)
         guard estimate.paid, estimate.usd > 0 else { return }
         let record = UsageRecord(timestamp: now, provider: estimate.provider, usd: estimate.usd, approved: true, operationID: operationID)
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; encoder.outputFormatting = [.sortedKeys]

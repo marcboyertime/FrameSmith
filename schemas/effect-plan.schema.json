@@ -37,6 +37,6 @@
     },
     "parameterValue": {"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"},{"type":"array","items":{"$ref":"#/$defs/parameterValue"}},{"type":"object","additionalProperties":{"$ref":"#/$defs/parameterValue"}}]},
     "editableProperty": {"type":"object","additionalProperties":false,"required":["name","valueType","keyframeable"],"properties":{"name":{"type":"string","minLength":1},"valueType":{"type":"string"},"minimum":{"type":"number"},"maximum":{"type":"number"},"defaultValue":{"$ref":"#/$defs/parameterValue"},"keyframeable":{"type":"boolean"}}},
-    "cost": {"type":"object","additionalProperties":false,"required":["paid","usd","provider"],"properties":{"paid":{"const":false},"usd":{"const":0},"provider":{"const":"local"},"estimatedUnits":{"type":"number","minimum":0}}}
+    "cost": {"type":"object","additionalProperties":false,"required":["paid","usd","provider","requiresMediaUpload"],"properties":{"paid":{"const":false},"usd":{"const":0},"provider":{"const":"local"},"estimatedUnits":{"type":"number","minimum":0},"requiresMediaUpload":{"const":false}}}
   }
 }

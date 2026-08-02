@@ -257,12 +257,24 @@ public struct CostEstimate: Codable, Equatable, Sendable {
     public var usd: Double
     public var provider: String
     public var estimatedUnits: Double?
+    public var requiresMediaUpload: Bool
 
-    public init(paid: Bool = false, usd: Double = 0, provider: String = "local", estimatedUnits: Double? = nil) {
+    public init(paid: Bool = false, usd: Double = 0, provider: String = "local", estimatedUnits: Double? = nil, requiresMediaUpload: Bool = false) {
         self.paid = paid
         self.usd = usd
         self.provider = provider
         self.estimatedUnits = estimatedUnits
+        self.requiresMediaUpload = requiresMediaUpload
+    }
+
+    private enum CodingKeys: String, CodingKey { case paid, usd, provider, estimatedUnits, requiresMediaUpload }
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        paid = try container.decode(Bool.self, forKey: .paid)
+        usd = try container.decode(Double.self, forKey: .usd)
+        provider = try container.decode(String.self, forKey: .provider)
+        estimatedUnits = try container.decodeIfPresent(Double.self, forKey: .estimatedUnits)
+        requiresMediaUpload = try container.decodeIfPresent(Bool.self, forKey: .requiresMediaUpload) ?? false
     }
 }
 

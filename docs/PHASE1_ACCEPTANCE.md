@@ -5,7 +5,8 @@ registry definitions (`native.targeted_rotate_zoom`, `look.old_television`,
 `transition.natural_dissolve`, `motion.living_still`); deterministic aliases and bounded parsing; fail-closed
 ambiguity handling; target finite/range policy; spatial anchor compensation;
 dissolve adjacency, frame, range, handle, and revision checks; canonical path
-policy; SHA-256 and source preservation; monthly cost ledger; provenance and
+policy; SHA-256 and source preservation; monthly cost ledger with independent,
+operation-scoped media-upload approval; provenance and
 idempotency records; closed FFmpeg overlay generation; CLI inspection; and
 source audits.
 

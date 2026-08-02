@@ -190,7 +190,7 @@ public struct PlanValidator: Sendable {
         guard plan.preconditionRevision == plan.selectionToken.revision else { throw PlanValidationError.staleRevision(expected: plan.preconditionRevision, actual: plan.selectionToken.revision) }
         if let currentRevision, currentRevision != plan.preconditionRevision { throw PlanValidationError.staleRevision(expected: currentRevision, actual: plan.preconditionRevision) }
         guard let definition = registry.definitions[plan.effectID] else { throw PlanValidationError.unknownEffect(plan.effectID) }
-        guard plan.cost.paid == false, plan.cost.usd == 0, plan.cost.provider == "local" else { throw PlanValidationError.paidCallNotAllowed }
+        guard plan.cost.paid == false, plan.cost.usd == 0, plan.cost.provider == "local", plan.cost.requiresMediaUpload == false else { throw PlanValidationError.paidCallNotAllowed }
         guard plan.cost.usd.isFinite, plan.cost.usd >= 0, plan.cost.estimatedUnits.map({ $0.isFinite && $0 >= 0 }) ?? true else { throw PlanValidationError.invalidCost }
 
         if let point = plan.normalizedPoint {
