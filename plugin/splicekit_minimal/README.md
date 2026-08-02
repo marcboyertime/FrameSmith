@@ -20,21 +20,20 @@ frameworks; sandboxing remains required, while task-port/get-task-allow,
 debugger, and DYLD-environment entitlements remain forbidden. That observation
 does not establish runtime behavior or authorize a Final Cut library mutation.
 
-The isolated-copy startup compatibility guard has exactly seven compile-time
-allowlisted CloudContent method contracts for Final Cut Pro 12.3. Its crash-path
-entry is the exact Objective-C
-DemoProjectDownloadHelper.fetchDefaultDemoProjectWithCompletionHandler:
-bridge—not the private Swift async function. After exact class, selector, and
-full type-encoding validation, it additionally requires the original arm64 or
-x86_64 implementation offset to match the inspected host slice. It completes
-only with (nil, local NSError), matching the bridge’s documented failure shape;
-it never fabricates a project, starts a Swift task, or invokes CloudKit. The
-policy also pins the inspected stock executable SHA-256 and both slice UUIDs.
-Installation remains limited to the exact copied-host containment gate, with
-three hard one-shot phases: constructor, will-finish-launching, and one
-main-queue block enqueued before menu setup. Fixed-shape local unified-log
-records report each phase and all seven dispositions once; no class or method
-enumeration is used.
+The isolated-copy startup compatibility is two reviewed current-application
+preference writes plus one constructor-time Objective-C caller gate. That gate
+can replace only `POFDesktopOnboardingCoordinator`
+`setQueryDemoProjectInfo:` with an argument-discarding no-op. Before doing so,
+it requires copied-host containment and active-slice UUID, the exact nested
+`ProOnboardingFlowModelOne` framework path, its whole-file SHA-256 and active
+slice UUID, instance-method placement, three Objective-C arguments, void
+return type, exact `v24@0:8@?16` encoding, and the inspected implementation
+offset in the active architecture. The static trace shows that a nil query
+closure follows the framework’s pre-existing cleanup branch before the demo
+fetch. This is neither a binary patch nor a CloudContent substitution, and it
+does not fabricate a project, invoke CloudKit, or start a retry. The copied
+artifact verifier records stock-versus-copied framework provenance before it
+can report the gate contract as present.
 
 The fixed CloudContent names and contracts were manually transcribed from the
 locked `reference/elliotttate/SpliceKit` snapshot at

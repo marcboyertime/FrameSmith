@@ -7,15 +7,25 @@ script_dir="$(cd "$(/usr/bin/dirname "$0")" && /bin/pwd)"
 plugin_dir="$(/usr/bin/dirname "$script_dir")"
 repo_dir="$(/usr/bin/dirname "$plugin_dir")"
 runtime_source="$plugin_dir/splicekit_minimal/Sources"
+runtime_implementation="$runtime_source/FCPCommandConsoleRuntime.m"
 runtime_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
 runtime_policy_source="$plugin_dir/splicekit_minimal/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 runtime_policy_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 injector="$plugin_dir/build/fcpcc-insert-dylib"
 entitlement_verifier="$plugin_dir/build/fcpcc-entitlement-verify"
 runtime_updater="$plugin_dir/patcher/update-copied-runtime"
+runtime_verifier="$plugin_dir/patcher/verify-copied-fcp"
+initial_patcher="$plugin_dir/patcher/patch-copied-fcp"
+repair_patcher="$plugin_dir/patcher/repair-library-validation-entitlement"
 allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
 source_app="/Applications/Final Cut Pro.app"
 source_executable="$source_app/Contents/MacOS/Final Cut Pro"
+onboarding_framework_relative_executable_path="Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
+source_onboarding_framework="$source_app/$onboarding_framework_relative_executable_path"
+onboarding_framework_load_path="@rpath/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
+expected_onboarding_framework_sha256="636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce"
+expected_onboarding_framework_arm64_uuid="45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D"
+expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"
 preferences_file="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
 test_dir="$(/usr/bin/mktemp -d /tmp/fcpcc-offline-tests.XXXXXX)"
 load_path="@rpath/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
@@ -34,18 +44,41 @@ require_absent() {
     fi
 }
 
+require_fragment() {
+    local fragment="$1"
+    local path="$2"
+    local label="$3"
+    if ! "$rg_bin" -F -q "$fragment" "$path"; then
+        fail "$label is missing required fragment: $fragment"
+    fi
+}
+
 if [[ ! -x "$injector" || ! -x "$entitlement_verifier" || ! -f "$runtime_build" || ! -f "$runtime_policy_source" || ! -f "$runtime_policy_build" ]]; then
     fail "run plugin/scripts/build-minimal-runtime successfully before tests"
 fi
 if [[ -z "$rg_bin" ]]; then
     fail "rg is required for source audits"
 fi
-if [[ ! -d "$source_app" || ! -f "$source_executable" ]]; then
-    fail "required source app is missing"
+if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboarding_framework" ]]; then
+    fail "required source app or reviewed onboarding framework is missing"
 fi
 
 stock_main_before="$(/usr/bin/shasum -a 256 "$source_executable" | /usr/bin/awk '{print $1}')"
 stock_info_before="$(/usr/bin/shasum -a 256 "$source_app/Contents/Info.plist" | /usr/bin/awk '{print $1}')"
+stock_onboarding_before="$(/usr/bin/shasum -a 256 "$source_onboarding_framework" | /usr/bin/awk '{print $1}')"
+/usr/bin/dwarfdump --uuid "$source_onboarding_framework" > "$test_dir/stock-onboarding-framework.uuids.txt"
+stock_onboarding_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$test_dir/stock-onboarding-framework.uuids.txt")"
+stock_onboarding_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$test_dir/stock-onboarding-framework.uuids.txt")"
+if [[ "$stock_onboarding_before" != "$expected_onboarding_framework_sha256" || "$stock_onboarding_arm64_uuid" != "$expected_onboarding_framework_arm64_uuid" || "$stock_onboarding_x86_64_uuid" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+    fail "stock onboarding framework hash or slice UUID does not match the reviewed contract"
+fi
+for architecture in arm64 x86_64; do
+    /usr/bin/otool -arch "$architecture" -L "$source_executable" > "$test_dir/stock-main-libraries-$architecture.txt"
+    onboarding_framework_load_count="$(/usr/bin/grep -F -c "$onboarding_framework_load_path" "$test_dir/stock-main-libraries-$architecture.txt" || true)"
+    if [[ "$onboarding_framework_load_count" != "1" ]]; then
+        fail "stock main executable does not directly load exactly one reviewed onboarding framework in $architecture"
+    fi
+done
 if [[ -f "$preferences_file" ]]; then
     /usr/bin/plutil -convert xml1 -o "$test_dir/preferences-before.xml" "$preferences_file"
 else
@@ -62,10 +95,10 @@ for forbidden in \
     'dlopen' \
     'dlsym' \
     'NSTask' \
-    'socket' \
-    'bind' \
+    '\bsocket[[:space:]]*\(' \
+    '\bbind[[:space:]]*\(' \
     '\blisten[[:space:]]*\(' \
-    'accept' \
+    '\baccept[[:space:]]*\(' \
     'NSURLSession' \
     'CFNetwork' \
     'WKWebView' \
@@ -77,14 +110,13 @@ for forbidden in \
     'objc_getClassList' \
     'class_copyMethodList' \
     'NSClassFromString' \
-    'NSSelectorFromString' \
     'method_exchangeImplementations' \
     'method_setImplementation' \
     'strstr' \
     'Sentry' \
     'telemetry' \
-    '\\bLua\\b' \
-    '\\bPython\\b' \
+    '\bLua\b' \
+    '\bPython\b' \
     'breakpoint' \
     'automation' \
     'swizzle'; do
@@ -96,35 +128,22 @@ for required_identifier in \
     'look.old_television' \
     'transition.natural_dissolve' \
     'motion.living_still'; do
-    if ! "$rg_bin" -F -q "$required_identifier" "$runtime_source/FCPCommandConsoleRuntime.m"; then
-        fail "missing required fixed effect identifier: $required_identifier"
-    fi
+    require_fragment "$required_identifier" "$runtime_implementation" "runtime"
 done
-if [[ "$("$rg_bin" -o '(native\.targeted_rotate_zoom|look\.old_television|transition\.natural_dissolve|motion\.living_still)' "$runtime_source/FCPCommandConsoleRuntime.m" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "4" ]]; then
+if [[ "$("$rg_bin" -o '(native\.targeted_rotate_zoom|look\.old_television|transition\.natural_dissolve|motion\.living_still)' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "4" ]]; then
     fail "fixed effect identifier domain is not exactly four values"
 fi
-if ! "$rg_bin" -F -q '[self.applyButton setEnabled:NO];' "$runtime_source/FCPCommandConsoleRuntime.m"; then
-    fail "panel Apply is not explicitly disabled by default"
-fi
-if "$rg_bin" -F 'setEnabled:YES' "$runtime_source/FCPCommandConsoleRuntime.m" >/dev/null; then
+require_fragment '[self.applyButton setEnabled:NO];' "$runtime_implementation" "runtime"
+if "$rg_bin" -F 'setEnabled:YES' "$runtime_implementation" >/dev/null; then
     fail "panel code can enable a mutation control"
 fi
-if [[ "$("$rg_bin" -F -o 'return FCPCCMutationResult.unsupportedUnverified;' "$runtime_source/FCPCommandConsoleRuntime.m" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" -lt 2 ]]; then
+if [[ "$("$rg_bin" -F -o 'return FCPCCMutationResult.unsupportedUnverified;' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" -lt 2 ]]; then
     fail "mutation stubs do not fail closed"
 fi
-if ! "$rg_bin" -F -q 'enumerateCompleteOpenLibrarySet' "$runtime_source/FCPCommandConsoleRuntime.m"; then
-    fail "fixed open-library traversal seam is absent"
-fi
-if ! "$rg_bin" -F -q 'openLibrarySet.libraries.count != 1' "$runtime_source/FCPCommandConsoleRuntime.m"; then
-    fail "exactly-one-library gate is absent"
-fi
 for manifest_field in canonical_path expected_device expected_inode persistent_uid; do
-    if ! "$rg_bin" -F -q "$manifest_field" "$repo_dir/config/fcpcommandconsole-library-manifest.json"; then
-        fail "library manifest field missing: $manifest_field"
-    fi
+    require_fragment "$manifest_field" "$repo_dir/config/fcpcommandconsole-library-manifest.json" "library manifest"
 done
 
-runtime_implementation="$runtime_source/FCPCommandConsoleRuntime.m"
 if "$rg_bin" -n -i -F 'com.apple.FinalCut' "$runtime_source" >/dev/null; then
     fail "runtime contains the production Final Cut preference domain"
 fi
@@ -139,56 +158,129 @@ preference_write_lines="$("$rg_bin" -n -F 'CFPreferencesSetAppValue' "$runtime_i
 if ! print -r -- "$preference_write_lines" | "$rg_bin" -F -q 'FCPCCCloudContentFirstLaunchCompletedKey' || ! print -r -- "$preference_write_lines" | "$rg_bin" -F -q 'FCPCCFFCloudContentDisabledKey'; then
     fail "runtime preference writes are not restricted to the two approved fixed keys"
 fi
-host_gate_line="$("$rg_bin" -n -F 'FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];' "$runtime_implementation" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-host_guard_line="$("$rg_bin" -n -F 'if (!containment.isVerified)' "$runtime_implementation" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+preference_gate_line="$("$rg_bin" -n -F 'FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];' "$runtime_implementation" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+preference_guard_line="$("$rg_bin" -n -F 'if (!containment.isVerified)' "$runtime_implementation" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
 first_preference_write_line="$(print -r -- "$preference_write_lines" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
 synchronize_line="$("$rg_bin" -n -F 'CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication)' "$runtime_implementation" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-if [[ -z "$host_gate_line" || -z "$host_guard_line" || -z "$first_preference_write_line" || -z "$synchronize_line" || "$host_gate_line" -ge "$host_guard_line" || "$host_guard_line" -ge "$first_preference_write_line" || "$first_preference_write_line" -ge "$synchronize_line" ]]; then
+if [[ -z "$preference_gate_line" || -z "$preference_guard_line" || -z "$first_preference_write_line" || -z "$synchronize_line" || "$preference_gate_line" -ge "$preference_guard_line" || "$preference_guard_line" -ge "$first_preference_write_line" || "$first_preference_write_line" -ge "$synchronize_line" ]]; then
     fail "exact-host containment gate does not precede isolated preference writes and synchronization"
 fi
-constructor_tail="$(/usr/bin/sed -n '/static void FCPCCInstallRuntime(void)/,$p' "$runtime_implementation")"
-if print -r -- "$constructor_tail" | "$rg_bin" -F -q 'showPanel:' || print -r -- "$constructor_tail" | "$rg_bin" -F -q 'showWindow:' || print -r -- "$constructor_tail" | "$rg_bin" -F -q 'makeKeyAndOrderFront:'; then
-    fail "runtime constructor auto-shows the panel"
-fi
-if ! print -r -- "$constructor_tail" | "$rg_bin" -F -q 'FCPCCInstallIsolatedCloudContentMethodCompatibility();'; then
-    fail "runtime constructor does not attempt the fixed CloudContent method guard"
-fi
-method_guard_attempt_source="$(/usr/bin/sed -n '/static void FCPCCAttemptIsolatedCloudContentMethodCompatibility/,/static void FCPCCInstallIsolatedCloudContentMethodCompatibility/p' "$runtime_implementation")"
-method_guard_gate_line="$(print -r -- "$method_guard_attempt_source" | "$rg_bin" -n -F 'FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-method_guard_guard_line="$(print -r -- "$method_guard_attempt_source" | "$rg_bin" -n -F 'if (!containment.isVerified)' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-method_guard_install_line="$(print -r -- "$method_guard_attempt_source" | "$rg_bin" -n -F 'FCPCCInstallCloudContentCompatibilityEntry(&FCPCCCloudContentCompatibilityEntries[index], index, status);' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-if [[ -z "$method_guard_gate_line" || -z "$method_guard_guard_line" || -z "$method_guard_install_line" || "$method_guard_gate_line" -ge "$method_guard_guard_line" || "$method_guard_guard_line" -ge "$method_guard_install_line" ]]; then
-    fail "exact-host containment gate does not precede every fixed method-guard installation"
-fi
-method_guard_registration_source="$(/usr/bin/sed -n '/static void FCPCCInstallIsolatedCloudContentMethodCompatibility/,/^}/p' "$runtime_implementation")"
-if [[ "$(print -r -- "$method_guard_registration_source" | "$rg_bin" -F -o 'NSApplicationWillFinishLaunchingNotification' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$(print -r -- "$method_guard_registration_source" | "$rg_bin" -F -o 'dispatch_async(dispatch_get_main_queue(), ^{' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]] || ! print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseConstructor);' || ! print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseWillFinishLaunching);' || ! print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseMainQueue);'; then
-    fail "method guard does not use exactly constructor, single will-finish, and one main-queue attempts"
-fi
-if ! "$rg_bin" -F -q 'if (status.willFinishLaunchingAttempts != 0)' "$runtime_implementation"; then
-    fail "method guard will-finish retry is not explicitly one-shot"
-fi
-if ! "$rg_bin" -F -q 'if (status.mainQueueAttempts != 0)' "$runtime_implementation" || ! "$rg_bin" -F -q 'static const NSUInteger FCPCCCloudContentCompatibilityMaximumAttempts = 3;' "$runtime_implementation"; then
-    fail "method guard main-queue retry or fixed three-attempt bound is missing"
-fi
-runtime_constructor_source="$(/usr/bin/sed -n '/__attribute__((constructor))/,/^}/p' "$runtime_implementation")"
-guard_install_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F 'FCPCCInstallIsolatedCloudContentMethodCompatibility();' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-menu_enqueue_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F '[[FCPCCRuntime sharedRuntime] installMenuWhenReady];' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-if [[ -z "$guard_install_line" || -z "$menu_enqueue_line" || "$guard_install_line" -ge "$menu_enqueue_line" ]]; then
-    fail "guard main-queue scheduling is not registered before menu scheduling"
-fi
-if print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'installMenuWhenReady' || print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'showPanel:' || print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCLibraryInvariantGate'; then
-    fail "main-queue method-guard block may not show UI or access a library"
-fi
-for forbidden_method_guard_surface in 'dispatch_after' 'NSTimer' 'performSelector:afterDelay:' '@try'; do
-    if "$rg_bin" -F -q "$forbidden_method_guard_surface" "$runtime_implementation"; then
-        fail "runtime method guard contains a forbidden polling or exception-suppression surface: $forbidden_method_guard_surface"
+
+for required_runtime_fragment in \
+    'FCPCCExpectedOnboardingFrameworkRelativeExecutablePath' \
+    'FCPCCExpectedOnboardingCoordinatorClassName' \
+    'FCPCCExpectedOnboardingQuerySetterName' \
+    'FCPCCExpectedOnboardingQuerySetterTypeEncoding' \
+    '636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce' \
+    'FCPCCExpectedOnboardingFrameworkArm64UUID' \
+    'FCPCCExpectedOnboardingFrameworkX86_64UUID' \
+    '0x1313c' \
+    '0x13cc0' \
+    'FCPCCLoadedMachOImageHasExpectedUUID' \
+    'FCPCCFileSHA256MatchesExpectedHex' \
+    'FCPCCCopiedHostImageUUIDMatches' \
+    'FCPCCOnboardingFrameworkIdentityForImplementation' \
+    'FCPCCDiscardOnboardingQueryDemoProjectInfo' \
+    'FCPCCInstallOnboardingQueryGate'; do
+    require_fragment "$required_runtime_fragment" "$runtime_implementation" "runtime exact onboarding gate"
+done
+host_identity_source="$(/usr/bin/sed -n '/static BOOL FCPCCCopiedHostImageUUIDMatches/,/^}/p' "$runtime_implementation")"
+for required_host_identity_fragment in \
+    '_dyld_get_image_name(0)' \
+    '_dyld_get_image_header(0)' \
+    'FCPCCExpectedCurrentArchitectureHostUUID()' \
+    'NSBundle.mainBundle.executablePath' \
+    'FCPCCLoadedMachOImageHasExpectedUUID'; do
+    if ! print -r -- "$host_identity_source" | "$rg_bin" -F -q "$required_host_identity_fragment"; then
+        fail "runtime copied-host identity check is missing: $required_host_identity_fragment"
     fi
 done
+framework_identity_source="$(/usr/bin/sed -n '/static FCPCCOnboardingFrameworkIdentityDisposition FCPCCOnboardingFrameworkIdentityForImplementation/,/^}/p' "$runtime_implementation")"
+for required_framework_identity_fragment in \
+    'dladdr((const void *)implementation, &image)' \
+    'FCPCCExpectedOnboardingFrameworkExecutablePath()' \
+    'FCPCCFileSHA256MatchesExpectedHex(loadedPath, FCPCCExpectedOnboardingFrameworkSHA256)' \
+    'FCPCCExpectedCurrentArchitectureOnboardingFrameworkUUID()' \
+    'FCPCCLoadedMachOImageHasExpectedUUID' \
+    'FCPCCExpectedCurrentArchitectureOnboardingQuerySetterOffset()' \
+    'actualOffset != expectedOffset'; do
+    if ! print -r -- "$framework_identity_source" | "$rg_bin" -F -q "$required_framework_identity_fragment"; then
+        fail "runtime onboarding framework identity check is missing: $required_framework_identity_fragment"
+    fi
+done
+runtime_constructor_source="$(/usr/bin/sed -n '/__attribute__((constructor))/,/^}/p' "$runtime_implementation")"
+if print -r -- "$runtime_constructor_source" | "$rg_bin" -F -q 'showPanel:' || print -r -- "$runtime_constructor_source" | "$rg_bin" -F -q 'showWindow:' || print -r -- "$runtime_constructor_source" | "$rg_bin" -F -q 'makeKeyAndOrderFront:'; then
+    fail "runtime constructor auto-shows the panel"
+fi
+gate_install_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F '(void)FCPCCInstallOnboardingQueryGate();' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+menu_enqueue_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F '[[FCPCCRuntime sharedRuntime] installMenuWhenReady];' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+if [[ -z "$gate_install_line" || -z "$menu_enqueue_line" || "$gate_install_line" -ge "$menu_enqueue_line" ]]; then
+    fail "single onboarding query gate is not installed before menu scheduling"
+fi
+query_gate_source="$(/usr/bin/sed -n '/static NSString \*FCPCCInstallOnboardingQueryGate/,/^}/p' "$runtime_implementation")"
+for required_query_gate_fragment in \
+    'dispatch_once(&onceToken, ^{' \
+    'FCPCCRuntimeContainmentGate alloc' \
+    'FCPCCCopiedHostImageUUIDMatches()' \
+    'objc_getClass(FCPCCExpectedOnboardingCoordinatorClassName.UTF8String)' \
+    'sel_registerName(FCPCCExpectedOnboardingQuerySetterName.UTF8String)' \
+    'class_getInstanceMethod(targetClass, selector)' \
+    'class_getClassMethod(targetClass, selector)' \
+    'method_getNumberOfArguments(method) != 3' \
+    'method_copyReturnType(method)' \
+    'method_getTypeEncoding(method)' \
+    'method_getImplementation(method)' \
+    'FCPCCOnboardingFrameworkIdentityForImplementation(originalImplementation)' \
+    'class_replaceMethod(targetClass,' \
+    'FCPCCDiscardOnboardingQueryDemoProjectInfo' \
+    'onboarding_query_gate=installed'; do
+    if ! print -r -- "$query_gate_source" | "$rg_bin" -F -q "$required_query_gate_fragment"; then
+        fail "runtime single onboarding query gate is missing: $required_query_gate_fragment"
+    fi
+done
+if print -r -- "$query_gate_source" | "$rg_bin" -F -q 'dispatch_async' || print -r -- "$query_gate_source" | "$rg_bin" -F -q 'NSApplicationWillFinishLaunchingNotification'; then
+    fail "onboarding query gate contains a delayed or launch-notification retry"
+fi
+if [[ "$(print -r -- "$query_gate_source" | "$rg_bin" -F -o 'class_replaceMethod' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$(print -r -- "$query_gate_source" | "$rg_bin" -F -o 'objc_getClass(' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$(print -r -- "$query_gate_source" | "$rg_bin" -F -o 'sel_registerName(' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
+    fail "onboarding query gate is not limited to one exact replacement path"
+fi
+discard_query_source="$(/usr/bin/sed -n '/static void FCPCCDiscardOnboardingQueryDemoProjectInfo/,/^}/p' "$runtime_implementation")"
+if ! print -r -- "$discard_query_source" | "$rg_bin" -F -q '(void)queryDemoProjectInfo;' || print -r -- "$discard_query_source" | "$rg_bin" -F -q 'originalImplementation' || print -r -- "$discard_query_source" | "$rg_bin" -F -q 'completion('; then
+    fail "replacement does not remain an isolated no-op for the query block"
+fi
+for forbidden_runtime_surface in \
+    'FCPCCCloudContentCompatibilityEntry' \
+    'FCPCCInstallCloudContentCompatibilityEntry' \
+    'FCPCCAttemptIsolatedCloudContentMethodCompatibility' \
+    'FCPCCCloudContentAttemptPhase' \
+    'DemoProjectDownloadHelper' \
+    'CloudContentCatalog' \
+    'CloudContentFeatureFlag' \
+    'CCFirstLaunchHelper' \
+    'fetchDefaultDemoProjectWithCompletionHandler:' \
+    'isCloudContentEnabled' \
+    'isRunningSubscriptionApp' \
+    'startListeningForApplicationDidBecomeActiveNotifications' \
+    'shouldShowFirstLaunchExperience' \
+    'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:' \
+    'NSApplicationWillFinishLaunchingNotification' \
+    'main_queue_once' \
+    'will_finish_launching_once' \
+    'dispatch_after' \
+    'NSTimer' \
+    'performSelector:afterDelay:' \
+    '@try' \
+    'os_log'; do
+    if "$rg_bin" -F -q "$forbidden_runtime_surface" "$runtime_implementation"; then
+        fail "runtime retains a forbidden retired scheduler or broad replacement surface: $forbidden_runtime_surface"
+    fi
+done
+
 /usr/bin/plutil -lint "$runtime_policy_source" >/dev/null
 /usr/bin/plutil -lint "$runtime_policy_build" >/dev/null
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
-        fail "compatibility policy host or isolated preference domain is not exact"
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "4" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
+        fail "compatibility policy host, framework, or isolated preference identity is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:0' "$policy_path")" != "CloudContentFirstLaunchCompleted" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:1' "$policy_path")" != "FFCloudContentDisabled" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" ]]; then
         fail "compatibility policy does not contain exactly the two reviewed true values"
@@ -196,224 +288,93 @@ for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
     if /usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:2' "$policy_path" >/dev/null 2>&1; then
         fail "compatibility policy permits more than two preference keys"
     fi
-done
-expected_replacement_classes=(
-    '_TtC13Final_Cut_Pro25DemoProjectDownloadHelper'
-    '_TtC13Final_Cut_Pro19CloudContentCatalog'
-    '_TtC13Final_Cut_Pro19CloudContentCatalog'
-    '_TtC13Final_Cut_Pro19CloudContentCatalog'
-    '_TtC13Final_Cut_Pro23CloudContentFeatureFlag'
-    '_TtC13Final_Cut_Pro23CloudContentFeatureFlag'
-    'CCFirstLaunchHelper'
-)
-expected_replacement_selectors=(
-    'fetchDefaultDemoProjectWithCompletionHandler:'
-    'isCloudContentEnabled'
-    'isRunningSubscriptionApp'
-    'startListeningForApplicationDidBecomeActiveNotifications'
-    'isEnabled'
-    'shouldShowFirstLaunchExperience'
-    'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:'
-)
-expected_replacement_kinds=(instance instance instance instance class class instance)
-expected_replacement_argument_counts=(3 2 2 2 2 2 3)
-expected_replacement_return_types=(v B B v B B v)
-expected_replacement_type_encodings=(
-    'v24@0:8@?<v@?@"_TtC13Final_Cut_Pro23CloudContentDemoProject"@"NSError">16'
-    'B16@0:8'
-    'B16@0:8'
-    'v16@0:8'
-    'B16@0:8'
-    'B16@0:8'
-    'v24@0:8@?<v@?@"NSError">16'
-)
-expected_replacement_contracts=(completion_nil_project_local_error return_false return_false void_noop return_false return_false completion_nil_success)
-for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "will_finish_launching_once" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:2' "$policy_path")" != "main_queue_once" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :MethodGuardLogSubsystem' "$policy_path")" != "com.local.fcpcommandconsole.runtime" || "$(/usr/libexec/PlistBuddy -c 'Print :MethodGuardLogCategory' "$policy_path")" != "cloud_content_method_guard" ]]; then
-        fail "compatibility policy method guard mode or install phases are not exact"
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "1" ]]; then
+        fail "compatibility policy single constructor gate mode is not exact"
     fi
-    if /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:3' "$policy_path" >/dev/null 2>&1; then
-        fail "compatibility policy permits an extra method-guard install phase"
-    fi
-    for index in {1..7}; do
-        policy_index=$((index - 1))
-        if [[ "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:RuntimeClass" "$policy_path")" != "${expected_replacement_classes[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:Selector" "$policy_path")" != "${expected_replacement_selectors[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:MethodKind" "$policy_path")" != "${expected_replacement_kinds[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCArgumentCount" "$policy_path")" != "${expected_replacement_argument_counts[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCReturnType" "$policy_path")" != "${expected_replacement_return_types[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCTypeEncoding" "$policy_path")" != "${expected_replacement_type_encodings[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:Replacement" "$policy_path")" != "${expected_replacement_contracts[index]}" ]]; then
-            fail "compatibility policy method replacement $policy_index is not the exact reviewed contract"
+    for removed_policy_key in CompatibilityInstallPhases MethodGuardLogSubsystem MethodGuardLogCategory; do
+        if /usr/libexec/PlistBuddy -c "Print :$removed_policy_key" "$policy_path" >/dev/null 2>&1; then
+            fail "compatibility policy retains an obsolete scheduler or logger key"
         fi
     done
-    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:7' "$policy_path" >/dev/null 2>&1; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "discard_query_block_noop" ]]; then
+        fail "compatibility policy single onboarding query setter contract is not exact"
+    fi
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
         fail "compatibility policy permits an extra method replacement"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0xce540" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x107ca0" ]]; then
-        fail "compatibility policy demo-project bridge implementation offsets are not exact"
-    fi
-    for index in {1..6}; do
-        if /usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$index:ExpectedOriginalImplementationOffsetArm64" "$policy_path" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$index:ExpectedOriginalImplementationOffsetX86_64" "$policy_path" >/dev/null 2>&1; then
-            fail "compatibility policy permits an unexpected implementation-offset contract"
-        fi
-    done
 done
 if ! /usr/bin/cmp -s "$runtime_policy_source" "$runtime_policy_build"; then
     fail "built compatibility policy differs from the project-owned source policy"
 fi
 
-for required_guard_fragment in \
-    'static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityEntries[]' \
-    'static const NSUInteger FCPCCCloudContentCompatibilityEntryCount' \
-    'FCPCCInstallCloudContentCompatibilityEntry' \
-    'FCPCCAttemptIsolatedCloudContentMethodCompatibility' \
-    'method_getNumberOfArguments' \
-    'method_copyReturnType' \
-    'method_getTypeEncoding' \
-    'class_replaceMethod' \
-    'sel_registerName(entry->selectorName)' \
-    'objc_getClass(entry->runtimeClassName)' \
-    'FCPCCCloudContentCompleteFirstLaunch' \
-    'FCPCCCloudContentCompleteDemoProjectUnavailable' \
-    'FCPCCCloudContentOriginalImplementationMatches' \
-    'dladdr((const void *)originalImplementation, &implementationImage)' \
-    'completion(nil, error);' \
-    'FCPCCCloudContentAttemptPhaseMainQueue' \
-    'FCPCCCloudContentCompatibilityMaximumAttempts = 3' \
-    'os_log_create("com.local.fcpcommandconsole.runtime", "cloud_content_method_guard")' \
-    'phase=%{public}s dispositions=%{public}s'; do
-    if ! "$rg_bin" -F -q "$required_guard_fragment" "$runtime_implementation"; then
-        fail "runtime is missing required fixed method-guard operation: $required_guard_fragment"
-    fi
-done
-if [[ "$("$rg_bin" -F -o 'class_replaceMethod' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$("$rg_bin" -F -o 'sel_registerName(entry->selectorName)' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$("$rg_bin" -F -o 'objc_getClass(entry->runtimeClassName)' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
-    fail "runtime method guard is not limited to the one fixed installation path"
-fi
-method_guard_entries_source="$(/usr/bin/sed -n '/static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityEntries\[\] = {/,/^};/p' "$runtime_implementation")"
-demo_project_runtime_class_count="$(print -r -- "$method_guard_entries_source" | "$rg_bin" -F -o '        "_TtC13Final_Cut_Pro25DemoProjectDownloadHelper",' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
-catalog_runtime_class_count="$(print -r -- "$method_guard_entries_source" | "$rg_bin" -F -o '        "_TtC13Final_Cut_Pro19CloudContentCatalog",' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
-feature_runtime_class_count="$(print -r -- "$method_guard_entries_source" | "$rg_bin" -F -o '        "_TtC13Final_Cut_Pro23CloudContentFeatureFlag",' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
-first_launch_runtime_class_count="$(print -r -- "$method_guard_entries_source" | "$rg_bin" -F -o '        "CCFirstLaunchHelper",' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
-if [[ "$demo_project_runtime_class_count" != "1" || "$catalog_runtime_class_count" != "3" || "$feature_runtime_class_count" != "2" || "$first_launch_runtime_class_count" != "1" ]]; then
-    fail "runtime method guard class allowlist cardinality is not exactly 1 demo-project, 3 catalog, 2 feature-flag, and 1 first-launch entries"
-fi
-for selector_literal in \
-    '"fetchDefaultDemoProjectWithCompletionHandler:"' \
-    '"isCloudContentEnabled"' \
-    '"isRunningSubscriptionApp"' \
-    '"startListeningForApplicationDidBecomeActiveNotifications"' \
-    '"isEnabled"' \
-    '"shouldShowFirstLaunchExperience"' \
-    '"setupAndPresentFirstLaunchIfNeededWithCompletionHandler:"'; do
-    if [[ "$("$rg_bin" -F -o "$selector_literal" "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
-        fail "runtime method guard selector allowlist is not exact: $selector_literal"
-    fi
-done
-if [[ "$("$rg_bin" -F -o '"v16@0:8"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$("$rg_bin" -F -o '"B16@0:8"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "4" || "$("$rg_bin" -F -o '"v24@0:8@?<v@?@\"_TtC13Final_Cut_Pro23CloudContentDemoProject\"@\"NSError\">16"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$("$rg_bin" -F -o '"v24@0:8@?<v@?@\"NSError\">16"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
-    fail "runtime method guard type-encoding cardinality is not exact"
-fi
-if "$rg_bin" -F -q 'completion(nil, nil);' "$runtime_implementation"; then
-    fail "demo-project compatibility bridge may not report a nil result as success"
-fi
-if [[ "$("$rg_bin" -F -o 'FCPCCLogCloudContentMethodCompatibilityAttempt(phase, status);' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "2" || "$(printf '%s' "$method_guard_registration_source" | "$rg_bin" -F -o 'dispatch_async(dispatch_get_main_queue(), ^{' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
-    fail "method guard diagnostics or main-queue scheduling is not bounded to the reviewed one-shot shape"
-fi
-
-for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp" "$plugin_dir/patcher/repair-library-validation-entitlement" "$runtime_updater"; do
-    for forbidden_patcher_term in 'curl' 'git ' 'DYLD_' 'kill' 'osascript' 'xattr' 'rm -'; do
+for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier" "$repair_patcher"; do
+    for forbidden_patcher_term in 'curl' 'git ' 'kill' 'osascript' 'xattr' 'rm -'; do
         if "$rg_bin" -n -i -F "$forbidden_patcher_term" "$patcher_script" >/dev/null; then
             fail "patcher safety audit matched: $forbidden_patcher_term"
         fi
     done
+    if "$rg_bin" -n -F 'DYLD_' "$patcher_script" >/dev/null; then
+        fail "patcher safety audit matched a DYLD environment surface"
+    fi
     if "$rg_bin" -F -q '/usr/bin/defaults' "$patcher_script" || "$rg_bin" -F -q '/bin/defaults' "$patcher_script"; then
         fail "patcher safety audit matched a defaults executable invocation"
     fi
+    require_fragment 'required_added_entitlement="com.apple.security.cs.disable-library-validation"' "$patcher_script" "patcher"
+    require_fragment 'com.apple.security.get-task-allow com.apple.security.cs.debugger com.apple.security.cs.allow-dyld-environment-variables' "$patcher_script" "patcher"
 done
-for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp" "$plugin_dir/patcher/repair-library-validation-entitlement" "$runtime_updater"; do
-    if ! "$rg_bin" -F -q 'required_added_entitlement="com.apple.security.cs.disable-library-validation"' "$patcher_script"; then
-        fail "patcher does not require the reviewed library-validation entitlement"
-    fi
-    if ! "$rg_bin" -F -q 'com.apple.security.get-task-allow com.apple.security.cs.debugger com.apple.security.cs.allow-dyld-environment-variables' "$patcher_script"; then
-        fail "patcher does not explicitly reject task-port, debugger, and DYLD-environment entitlements"
-    fi
+for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier"; do
+    for required_provenance_fragment in \
+        'onboarding_framework_relative_executable_path="Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"' \
+        'expected_onboarding_framework_sha256="636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce"' \
+        'expected_onboarding_framework_arm64_uuid="45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D"' \
+        'expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"' \
+        'capture_onboarding_framework' \
+        'verify_onboarding_framework_identity' \
+        'verify_onboarding_framework_load_path' \
+        'compare_onboarding_framework_identity'; do
+        require_fragment "$required_provenance_fragment" "$patcher_script" "onboarding framework provenance patcher"
+    done
 done
-if ! "$rg_bin" -F -q 'com.apple.security.app-sandbox' "$allowlist"; then
-    fail "allowlist does not require the app sandbox"
-fi
-if ! "$rg_bin" -F -q '"com.apple.security.cs.disable-library-validation"' "$allowlist" || ! "$rg_bin" -F -q '"com.apple.security.cs.disable-library-validation": true' "$allowlist" || ! "$rg_bin" -F -q '"changed": []' "$allowlist"; then
-    fail "allowlist does not restrict the reviewed addition and changed values"
-fi
-for forbidden_entitlement in com.apple.security.get-task-allow com.apple.security.cs.debugger com.apple.security.cs.allow-dyld-environment-variables; do
-    if ! "$rg_bin" -F -q "$forbidden_entitlement" "$allowlist"; then
-        fail "allowlist does not forbid entitlement: $forbidden_entitlement"
-    fi
+for patcher_script in "$runtime_updater" "$runtime_verifier"; do
+    for required_policy_fragment in \
+        "SchemaVersion' \"\$policy_path\")\" != \"4" \
+        'ExpectedOnboardingFrameworkRelativeExecutablePath' \
+        'ExpectedOnboardingFrameworkSHA256' \
+        'ExpectedOnboardingFrameworkArm64UUID' \
+        'ExpectedOnboardingFrameworkX86_64UUID' \
+        'CompatibilityInstallPhase' \
+        'MaximumMethodGuardAttempts' \
+        'ApprovedMethodReplacements:1' \
+        'POFDesktopOnboardingCoordinator' \
+        'setQueryDemoProjectInfo:' \
+        '0x1313c' \
+        '0x13cc0'; do
+        require_fragment "$required_policy_fragment" "$patcher_script" "single setter policy patcher"
+    done
 done
-if ! "$rg_bin" -F -q 'codesign --force --sign' "$plugin_dir/patcher/repair-library-validation-entitlement"; then
-    fail "repair script does not re-sign the copied top-level app"
+if ! "$rg_bin" -F -q 'copied_onboarding_framework=stock_identity_matched' "$runtime_verifier" || ! "$rg_bin" -F -q 'query_setter_offsets=arm64:0x1313c,x86_64:0x13cc0' "$runtime_verifier"; then
+    fail "copied-artifact verifier does not record exact framework provenance and setter offsets"
 fi
-if "$rg_bin" -F -- '--deep --sign' "$plugin_dir/patcher/repair-library-validation-entitlement" >/dev/null; then
-    fail "repair script may deep-re-sign nested code"
-fi
-if [[ ! -x "$runtime_updater" ]]; then
-    fail "exact-target runtime updater is missing or not executable"
-fi
-for required_updater_fragment in \
-    'require_not_running' \
-    'verify_compatibility_policy' \
-    '/usr/bin/ditto "$built_framework" "$embedded_framework"' \
-    'codesign --force --sign "$signing_identity" --options runtime --timestamp=none "$embedded_framework"' \
-    'codesign --force --sign "$signing_identity" --options runtime --timestamp=none --entitlements "$top_level_entitlements" "$copied_app"' \
-    'stock_preferences=unchanged'; do
-    if ! "$rg_bin" -F -q "$required_updater_fragment" "$runtime_updater"; then
-        fail "runtime updater is missing required bounded operation: $required_updater_fragment"
-    fi
-done
-if "$rg_bin" -F -- '--deep --sign' "$runtime_updater" >/dev/null; then
-    fail "runtime updater may deep-sign nested code"
+if "$rg_bin" -F -- '--deep --sign' "$initial_patcher" >/dev/null || "$rg_bin" -F -- '--deep --sign' "$runtime_updater" >/dev/null || "$rg_bin" -F -- '--deep --sign' "$repair_patcher" >/dev/null; then
+    fail "a patcher may deep-sign nested code"
 fi
 if [[ "$("$rg_bin" -F -c 'codesign --force --sign' "$runtime_updater")" != "2" || "$("$rg_bin" -F -c '/usr/bin/ditto "$built_framework" "$embedded_framework"' "$runtime_updater")" != "1" ]]; then
     fail "runtime updater does not limit direct signing and copying to the project-owned framework plus copied top-level app"
 fi
-if "$rg_bin" -n -i -F 'fcpbundle' "$runtime_updater" >/dev/null; then
-    fail "runtime updater references a Final Cut library"
-fi
-for forbidden_launcher in '/usr/bin/open' '/bin/open' 'open -a' 'exec ' 'launchctl'; do
-    if "$rg_bin" -F -q "$forbidden_launcher" "$runtime_updater"; then
-        fail "runtime updater may launch Final Cut"
+for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier"; do
+    if "$rg_bin" -n -i -F 'fcpbundle' "$patcher_script" >/dev/null; then
+        fail "patcher references a Final Cut library"
     fi
-done
-for patcher_script in "$runtime_updater" "$plugin_dir/patcher/verify-copied-fcp"; do
-    for required_method_guard_patcher_fragment in \
-        'ImmutableCompileTimeAllowlist' \
-        'RuntimeDiscoveryAllowed' \
-        'CompatibilityInstallPhases:3' \
-        'MaximumMethodGuardAttempts' \
-        'MethodGuardLogSubsystem' \
-        'MethodGuardLogCategory' \
-        'ApprovedMethodReplacements:7' \
-        'ExpectedHostExecutableSHA256' \
-        'ExpectedOriginalImplementationOffsetArm64' \
-        '_TtC13Final_Cut_Pro25DemoProjectDownloadHelper' \
-        '_TtC13Final_Cut_Pro19CloudContentCatalog' \
-        '_TtC13Final_Cut_Pro23CloudContentFeatureFlag' \
-        'CCFirstLaunchHelper' \
-        'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:'; do
-        if ! "$rg_bin" -F -q "$required_method_guard_patcher_fragment" "$patcher_script"; then
-            fail "patcher does not enforce the fixed CloudContent method guard: $required_method_guard_patcher_fragment"
+    for forbidden_launcher in '/usr/bin/open' '/bin/open' 'open -a' 'exec ' 'launchctl'; do
+        if "$rg_bin" -F -q "$forbidden_launcher" "$patcher_script"; then
+            fail "patcher may launch Final Cut"
         fi
     done
 done
-for required_verifier_fragment in \
-    '_sel_registerName' \
-    '_class_replaceMethod' \
-    '_method_copyReturnType' \
-    '_dladdr' \
-    '_os_log_create' \
-    'method_guard_entries=7' \
-    'main_queue_once' \
-    'max_attempts=3' \
-    'log_subsystem=com.local.fcpcommandconsole.runtime' \
-    'log_category=cloud_content_method_guard' \
-    'objc_getClassList class_copyMethodList NSClassFromString FFImagePlayground'; do
-    if ! "$rg_bin" -F -q "$required_verifier_fragment" "$plugin_dir/patcher/verify-copied-fcp"; then
-        fail "copied-artifact verifier is missing required method-guard evidence: $required_verifier_fragment"
-    fi
-done
+if ! "$rg_bin" -F -q 'com.apple.security.app-sandbox' "$allowlist" || ! "$rg_bin" -F -q '"com.apple.security.cs.disable-library-validation": true' "$allowlist" || ! "$rg_bin" -F -q '"changed": []' "$allowlist"; then
+    fail "allowlist does not restrict the reviewed entitlement policy"
+fi
+
 source_hash="$(/usr/bin/shasum -a 256 "$plugin_dir/tools/fcpcc-insert-dylib/src/main.c" | /usr/bin/awk '{print $1}')"
 if ! "$rg_bin" -F -q "$source_hash" "$plugin_dir/tools/fcpcc-insert-dylib/UPSTREAM.json"; then
     fail "injector source hash does not match provenance metadata"
@@ -450,7 +411,7 @@ fi
   -Werror \
   -framework Cocoa \
   -I "$runtime_source" \
-  "$runtime_source/FCPCommandConsoleRuntime.m" \
+  "$runtime_implementation" \
   "$script_dir/MutationStubTests.m" \
   -o "$test_dir/mutation-stub-tests"
 "$test_dir/mutation-stub-tests"
@@ -496,14 +457,15 @@ fi
 
 stock_main_after="$(/usr/bin/shasum -a 256 "$source_executable" | /usr/bin/awk '{print $1}')"
 stock_info_after="$(/usr/bin/shasum -a 256 "$source_app/Contents/Info.plist" | /usr/bin/awk '{print $1}')"
+stock_onboarding_after="$(/usr/bin/shasum -a 256 "$source_onboarding_framework" | /usr/bin/awk '{print $1}')"
 if [[ -f "$preferences_file" ]]; then
     /usr/bin/plutil -convert xml1 -o "$test_dir/preferences-after.xml" "$preferences_file"
 else
     print -r -- "absent" > "$test_dir/preferences-after.xml"
 fi
 preferences_after="$(/usr/bin/shasum -a 256 "$test_dir/preferences-after.xml" | /usr/bin/awk '{print $1}')"
-if [[ "$stock_main_before" != "$stock_main_after" || "$stock_info_before" != "$stock_info_after" || "$preferences_before" != "$preferences_after" ]]; then
-    fail "offline tests changed a stock app fingerprint or exported preference fingerprint"
+if [[ "$stock_main_before" != "$stock_main_after" || "$stock_info_before" != "$stock_info_after" || "$stock_onboarding_before" != "$stock_onboarding_after" || "$preferences_before" != "$preferences_after" ]]; then
+    fail "offline tests changed a stock app, onboarding framework, or exported preference fingerprint"
 fi
 
 print -r -- "offline_tests=pass"

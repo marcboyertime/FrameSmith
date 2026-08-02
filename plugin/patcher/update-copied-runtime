@@ -12,6 +12,13 @@ source_executable="$source_app/Contents/MacOS/Final Cut Pro"
 destination_root="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole"
 copied_app="$destination_root/Final Cut Pro - FCPCommandConsole.app"
 copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
+onboarding_framework_relative_executable_path="Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
+source_onboarding_framework="$source_app/$onboarding_framework_relative_executable_path"
+copied_onboarding_framework="$copied_app/$onboarding_framework_relative_executable_path"
+onboarding_framework_load_path="@rpath/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
+expected_onboarding_framework_sha256="636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce"
+expected_onboarding_framework_arm64_uuid="45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D"
+expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"
 framework_name="FCPCommandConsoleRuntime.framework"
 built_framework="$plugin_dir/build/$framework_name"
 built_runtime="$built_framework/Versions/A/FCPCommandConsoleRuntime"
@@ -72,6 +79,53 @@ capture_bundle() {
     /usr/bin/dwarfdump --uuid "$executable_path" > "$output_dir/main-executable.uuids.txt"
 }
 
+capture_onboarding_framework() {
+    local framework_path="$1"
+    local output_dir="$2"
+    /usr/bin/shasum -a 256 "$framework_path" | /usr/bin/awk '{print $1}' > "$output_dir/onboarding-framework.sha256"
+    /usr/bin/dwarfdump --uuid "$framework_path" > "$output_dir/onboarding-framework.uuids.txt"
+    local framework_sha256="$(/usr/bin/awk '{print $1}' "$output_dir/onboarding-framework.sha256")"
+    local framework_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$output_dir/onboarding-framework.uuids.txt")"
+    local framework_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$output_dir/onboarding-framework.uuids.txt")"
+    print -r -- "sha256=$framework_sha256" > "$output_dir/onboarding-framework.identity.txt"
+    print -r -- "arm64_uuid=$framework_arm64_uuid" >> "$output_dir/onboarding-framework.identity.txt"
+    print -r -- "x86_64_uuid=$framework_x86_64_uuid" >> "$output_dir/onboarding-framework.identity.txt"
+}
+
+verify_onboarding_framework_identity() {
+    local output_dir="$1"
+    local label="$2"
+    local framework_sha256="$(/usr/bin/awk -F= '/^sha256=/{print $2; exit}' "$output_dir/onboarding-framework.identity.txt")"
+    local framework_arm64_uuid="$(/usr/bin/awk -F= '/^arm64_uuid=/{print $2; exit}' "$output_dir/onboarding-framework.identity.txt")"
+    local framework_x86_64_uuid="$(/usr/bin/awk -F= '/^x86_64_uuid=/{print $2; exit}' "$output_dir/onboarding-framework.identity.txt")"
+    if [[ "$framework_sha256" != "$expected_onboarding_framework_sha256" || "$framework_arm64_uuid" != "$expected_onboarding_framework_arm64_uuid" || "$framework_x86_64_uuid" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+        fail "$label onboarding framework does not match the reviewed hash and slice UUIDs"
+    fi
+}
+
+verify_onboarding_framework_load_path() {
+    local executable_path="$1"
+    local output_dir="$2"
+    local label="$3"
+    local architecture
+    for architecture in arm64 x86_64; do
+        /usr/bin/otool -arch "$architecture" -L "$executable_path" > "$output_dir/onboarding-framework-load-commands-$architecture.txt"
+        local count="$(/usr/bin/grep -F -c "$onboarding_framework_load_path" "$output_dir/onboarding-framework-load-commands-$architecture.txt" || true)"
+        if [[ "$count" != "1" ]]; then
+            fail "$label main executable does not directly load exactly one reviewed onboarding framework in $architecture"
+        fi
+    done
+}
+
+compare_onboarding_framework_identity() {
+    local first_output_dir="$1"
+    local second_output_dir="$2"
+    local label="$3"
+    if ! /usr/bin/cmp -s "$first_output_dir/onboarding-framework.identity.txt" "$second_output_dir/onboarding-framework.identity.txt"; then
+        fail "$label onboarding framework identity differs from stock provenance"
+    fi
+}
+
 require_not_running() {
     local audit_file="$1"
     if /usr/bin/pgrep -fl 'Final Cut Pro' > "$audit_file"; then
@@ -111,53 +165,13 @@ verify_load_commands() {
 verify_compatibility_policy() {
     local policy_path="$1"
     local label="$2"
-    local -a expected_classes
-    local -a expected_selectors
-    local -a expected_kinds
-    local -a expected_argument_counts
-    local -a expected_return_types
-    local -a expected_type_encodings
-    local -a expected_replacements
-
-    expected_classes=(
-        '_TtC13Final_Cut_Pro25DemoProjectDownloadHelper'
-        '_TtC13Final_Cut_Pro19CloudContentCatalog'
-        '_TtC13Final_Cut_Pro19CloudContentCatalog'
-        '_TtC13Final_Cut_Pro19CloudContentCatalog'
-        '_TtC13Final_Cut_Pro23CloudContentFeatureFlag'
-        '_TtC13Final_Cut_Pro23CloudContentFeatureFlag'
-        'CCFirstLaunchHelper'
-    )
-    expected_selectors=(
-        'fetchDefaultDemoProjectWithCompletionHandler:'
-        'isCloudContentEnabled'
-        'isRunningSubscriptionApp'
-        'startListeningForApplicationDidBecomeActiveNotifications'
-        'isEnabled'
-        'shouldShowFirstLaunchExperience'
-        'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:'
-    )
-    expected_kinds=(instance instance instance instance class class instance)
-    expected_argument_counts=(3 2 2 2 2 2 3)
-    expected_return_types=(v B B v B B v)
-    expected_type_encodings=(
-        'v24@0:8@?<v@?@"_TtC13Final_Cut_Pro23CloudContentDemoProject"@"NSError">16'
-        'B16@0:8'
-        'B16@0:8'
-        'v16@0:8'
-        'B16@0:8'
-        'B16@0:8'
-        'v24@0:8@?<v@?@"NSError">16'
-    )
-    expected_replacements=(completion_nil_project_local_error return_false return_false void_noop return_false return_false completion_nil_success)
-
     if ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
         fail "$label compatibility policy is invalid"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "4" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" ]]; then
         fail "$label compatibility policy host bundle identifier is not exact"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7" ]]; then
         fail "$label compatibility policy host version/build or exact binary identity is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
@@ -172,37 +186,30 @@ verify_compatibility_policy() {
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" ]]; then
         fail "$label compatibility policy does not require the reviewed true values and synchronization"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "will_finish_launching_once" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:2' "$policy_path")" != "main_queue_once" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :MethodGuardLogSubsystem' "$policy_path")" != "com.local.fcpcommandconsole.runtime" || "$(/usr/libexec/PlistBuddy -c 'Print :MethodGuardLogCategory' "$policy_path")" != "cloud_content_method_guard" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "1" ]]; then
         fail "$label compatibility policy method guard mode or phases are not exact"
     fi
-    if /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:3' "$policy_path" >/dev/null 2>&1; then
-        fail "$label compatibility policy permits an extra install phase"
-    fi
-
-    local index
-    for index in {1..7}; do
-        local policy_index=$((index - 1))
-        if [[ "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:RuntimeClass" "$policy_path")" != "${expected_classes[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:Selector" "$policy_path")" != "${expected_selectors[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:MethodKind" "$policy_path")" != "${expected_kinds[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCArgumentCount" "$policy_path")" != "${expected_argument_counts[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCReturnType" "$policy_path")" != "${expected_return_types[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:ObjectiveCTypeEncoding" "$policy_path")" != "${expected_type_encodings[index]}" || "$(/usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$policy_index:Replacement" "$policy_path")" != "${expected_replacements[index]}" ]]; then
-            fail "$label compatibility policy replacement $policy_index is not the fixed reviewed contract"
+    for removed_policy_key in CompatibilityInstallPhases MethodGuardLogSubsystem MethodGuardLogCategory; do
+        if /usr/libexec/PlistBuddy -c "Print :$removed_policy_key" "$policy_path" >/dev/null 2>&1; then
+            fail "$label compatibility policy retains an obsolete scheduler or logger key"
         fi
     done
-    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:7' "$policy_path" >/dev/null 2>&1; then
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:2' "$policy_path" >/dev/null 2>&1; then
+        fail "$label compatibility policy permits more than two preference keys"
+    fi
+
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "discard_query_block_noop" ]]; then
+        fail "$label compatibility policy single onboarding query setter contract is not exact"
+    fi
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
         fail "$label compatibility policy permits an extra method replacement"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0xce540" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x107ca0" ]]; then
-        fail "$label compatibility policy demo-project bridge implementation offsets are not exact"
-    fi
-    for index in {1..6}; do
-        if /usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$index:ExpectedOriginalImplementationOffsetArm64" "$policy_path" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$index:ExpectedOriginalImplementationOffsetX86_64" "$policy_path" >/dev/null 2>&1; then
-            fail "$label compatibility policy permits an unexpected implementation-offset contract"
-        fi
-    done
 }
 
-if [[ ! -d "$source_app" || ! -f "$source_executable" ]]; then
+if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboarding_framework" ]]; then
     fail "required stock app is missing"
 fi
-if [[ ! -d "$copied_app" || -L "$copied_app" || ! -f "$copied_executable" || ! -d "$embedded_framework" || ! -f "$embedded_runtime" ]]; then
+if [[ ! -d "$copied_app" || -L "$copied_app" || ! -f "$copied_executable" || ! -f "$copied_onboarding_framework" || ! -d "$embedded_framework" || ! -f "$embedded_runtime" ]]; then
     fail "approved copied-app path or current embedded runtime baseline is missing"
 fi
 if [[ ! -d "$built_framework" || ! -f "$built_runtime" || ! -f "$built_compatibility_policy" || ! -f "$allowlist" || ! -x "$entitlement_verifier" ]]; then
@@ -241,6 +248,13 @@ require_not_running "$update_dir/process-before-update.txt"
 capture_bundle "$source_app" "$source_executable" "$update_dir/stock-before"
 capture_preferences "$update_dir/stock-before"
 capture_bundle "$copied_app" "$copied_executable" "$update_dir/copied-before"
+capture_onboarding_framework "$source_onboarding_framework" "$update_dir/stock-before"
+capture_onboarding_framework "$copied_onboarding_framework" "$update_dir/copied-before"
+verify_onboarding_framework_identity "$update_dir/stock-before" "stock-before"
+verify_onboarding_framework_identity "$update_dir/copied-before" "copied-before"
+compare_onboarding_framework_identity "$update_dir/stock-before" "$update_dir/copied-before" "copied-before"
+verify_onboarding_framework_load_path "$source_executable" "$update_dir/stock-before" "stock-before"
+verify_onboarding_framework_load_path "$copied_executable" "$update_dir/copied-before" "copied-before"
 /usr/bin/shasum -a 256 "$embedded_runtime" | /usr/bin/awk '{print $1}' > "$update_dir/embedded-runtime-before.sha256"
 source_executable_sha256="$(/usr/bin/awk '{print $1}' "$update_dir/stock-before/main-executable.sha256")"
 source_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$update_dir/stock-before/main-executable.uuids.txt")"
@@ -327,6 +341,11 @@ fi
 /usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$update_dir/codesign-verify-after.txt" 2>&1
 /usr/bin/codesign --verify --strict --verbose=4 "$embedded_framework" > "$update_dir/runtime-codesign-verify-after.txt" 2>&1
 capture_bundle "$copied_app" "$copied_executable" "$update_dir/copied-after"
+capture_onboarding_framework "$copied_onboarding_framework" "$update_dir/copied-after"
+verify_onboarding_framework_identity "$update_dir/copied-after" "copied-after"
+compare_onboarding_framework_identity "$update_dir/stock-before" "$update_dir/copied-after" "copied-after"
+compare_onboarding_framework_identity "$update_dir/copied-before" "$update_dir/copied-after" "copied-after"
+verify_onboarding_framework_load_path "$copied_executable" "$update_dir/copied-after" "copied-after"
 verify_load_commands "after"
 if ! /usr/bin/cmp -s "$update_dir/copied-before/main-executable.uuids.txt" "$update_dir/copied-after/main-executable.uuids.txt"; then
     fail "copied executable slice UUID changed during the runtime-only update"
@@ -341,6 +360,9 @@ fi
 
 capture_bundle "$source_app" "$source_executable" "$update_dir/stock-after"
 capture_preferences "$update_dir/stock-after"
+capture_onboarding_framework "$source_onboarding_framework" "$update_dir/stock-after"
+verify_onboarding_framework_identity "$update_dir/stock-after" "stock-after"
+compare_onboarding_framework_identity "$update_dir/stock-before" "$update_dir/stock-after" "stock-after"
 require_not_running "$update_dir/process-after-update.txt"
 if ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.sha256" "$update_dir/stock-after/main-executable.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.uuids.txt" "$update_dir/stock-after/main-executable.uuids.txt" || ! /usr/bin/cmp -s "$update_dir/stock-before/Info.plist.sha256" "$update_dir/stock-after/Info.plist.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/stock-preferences.sha256" "$update_dir/stock-after/stock-preferences.sha256"; then
     fail "stock app or production preference fingerprint changed"

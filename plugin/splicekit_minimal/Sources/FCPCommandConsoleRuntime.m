@@ -1,18 +1,22 @@
 // FCPCommandConsole minimal runtime.
 //
-// The only factual candidate strings below were manually transcribed from the
-// locked SpliceKit symbol snapshot at f4f6618121309a69b66272b441f34cf8ad57f306.
-// They are constants only: this framework does not turn input into selectors
-// and does not invoke those candidates.
+// The candidate strings below were manually transcribed from the locked
+// SpliceKit symbol snapshot at f4f6618121309a69b66272b441f34cf8ad57f306.
+// Candidate strings remain constants only; the separately documented exact
+// onboarding gate below uses one fixed selector after its image and ABI checks.
 
 #import "FCPCommandConsoleRuntime.h"
 
+#import <CommonCrypto/CommonDigest.h>
 #import <dlfcn.h>
+#import <fcntl.h>
+#import <mach-o/dyld.h>
+#import <mach-o/loader.h>
 #import <objc/runtime.h>
-#import <os/log.h>
 #import <stdint.h>
 #import <stdlib.h>
 #import <string.h>
+#import <unistd.h>
 
 NSString * const FCPCCMutationErrorUnsupportedUnverifiedFCP123 = @"unsupported_unverified_fcp_12_3";
 
@@ -22,8 +26,33 @@ static NSString * const FCPCCExpectedHostBuild = @"450152";
 static NSString * const FCPCCExpectedRuntimeFrameworkName = @"FCPCommandConsoleRuntime.framework";
 static NSString * const FCPCCCloudContentFirstLaunchCompletedKey = @"CloudContentFirstLaunchCompleted";
 static NSString * const FCPCCFFCloudContentDisabledKey = @"FFCloudContentDisabled";
-static NSString * const FCPCCCloudContentUnavailableErrorDomain = @"com.local.fcpcommandconsole.cloud-content";
-static const NSInteger FCPCCCloudContentUnavailableErrorCode = 1;
+static NSString * const FCPCCExpectedOnboardingFrameworkRelativeExecutablePath = @"Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne";
+static NSString * const FCPCCExpectedOnboardingCoordinatorClassName = @"POFDesktopOnboardingCoordinator";
+static NSString * const FCPCCExpectedOnboardingQuerySetterName = @"setQueryDemoProjectInfo:";
+static const char * const FCPCCExpectedOnboardingQuerySetterTypeEncoding = "v24@0:8@?16";
+static const char * const FCPCCExpectedOnboardingFrameworkSHA256 = "636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce";
+
+// The copied executable intentionally has one additional LC_LOAD_DYLIB and a
+// new signature, so its whole-file hash cannot equal the stock executable
+// hash. The patcher binds that stock hash before each deployment; the runtime
+// independently verifies the copied host's preserved active-slice UUID and the
+// untouched nested framework's whole-file hash and UUID.
+static const uint8_t FCPCCExpectedHostArm64UUID[16] __attribute__((unused)) = {
+    0xAD, 0x02, 0x40, 0x67, 0xE1, 0x45, 0x39, 0x88,
+    0xAF, 0xF9, 0xBD, 0x33, 0x39, 0x1C, 0x41, 0x6D,
+};
+static const uint8_t FCPCCExpectedHostX86_64UUID[16] __attribute__((unused)) = {
+    0x2A, 0xCC, 0xBD, 0x11, 0x69, 0x65, 0x3D, 0x09,
+    0xBD, 0x87, 0x9A, 0x90, 0x0F, 0xDC, 0x74, 0x0E,
+};
+static const uint8_t FCPCCExpectedOnboardingFrameworkArm64UUID[16] __attribute__((unused)) = {
+    0x45, 0xD8, 0xAC, 0x9D, 0xD5, 0x44, 0x3C, 0xD1,
+    0x90, 0xDB, 0x53, 0x2D, 0xFA, 0xAA, 0x0E, 0x0D,
+};
+static const uint8_t FCPCCExpectedOnboardingFrameworkX86_64UUID[16] __attribute__((unused)) = {
+    0xFC, 0xAA, 0x9A, 0x11, 0xC6, 0xA5, 0x3E, 0xC9,
+    0x9E, 0x65, 0xAD, 0xCA, 0x14, 0xF0, 0x86, 0xF7,
+};
 
 // Offline-inspected candidates. These values are intentionally fixed and have
 // no execution path in this build.
@@ -329,494 +358,276 @@ static FCPCCCloudContentCompatibilityStatus *FCPCCInitializeIsolatedCloudContent
     return status;
 }
 
-// FCP 12.3 exposes these exact Objective-C runtime names and method contracts.
-// The entries are compile-time constants, not resource-driven configuration: the
-// bundled policy is an auditable statement of this fixed implementation, never
-// input to it. No class or method discovery is performed.
-typedef NS_ENUM(NSUInteger, FCPCCCloudContentMethodKind) {
-    FCPCCCloudContentMethodKindInstance = 0,
-    FCPCCCloudContentMethodKindClass = 1,
+// This is one fixed ObjC caller gate, not a general CloudContent hook. The
+// runtime never derives a selector or class name from input or a bundled
+// resource. It simply discards the reviewed optional query block after every
+// image, ABI, and implementation check below has passed.
+typedef NS_ENUM(NSUInteger, FCPCCOnboardingFrameworkIdentityDisposition) {
+    FCPCCOnboardingFrameworkIdentityDispositionMatches = 0,
+    FCPCCOnboardingFrameworkIdentityDispositionImageUnavailable = 1,
+    FCPCCOnboardingFrameworkIdentityDispositionPathMismatch = 2,
+    FCPCCOnboardingFrameworkIdentityDispositionHashMismatch = 3,
+    FCPCCOnboardingFrameworkIdentityDispositionUUIDMismatch = 4,
+    FCPCCOnboardingFrameworkIdentityDispositionImplementationMismatch = 5,
 };
 
-typedef NS_ENUM(NSUInteger, FCPCCCloudContentReplacementDisposition) {
-    FCPCCCloudContentReplacementDispositionPending = 0,
-    FCPCCCloudContentReplacementDispositionInstalled = 1,
-    FCPCCCloudContentReplacementDispositionClassUnavailable = 2,
-    FCPCCCloudContentReplacementDispositionMethodUnavailable = 3,
-    FCPCCCloudContentReplacementDispositionMethodPlacementMismatch = 4,
-    FCPCCCloudContentReplacementDispositionArgumentCountMismatch = 5,
-    FCPCCCloudContentReplacementDispositionReturnTypeMismatch = 6,
-    FCPCCCloudContentReplacementDispositionTypeEncodingMismatch = 7,
-    FCPCCCloudContentReplacementDispositionOriginalImplementationMismatch = 8,
-    FCPCCCloudContentReplacementDispositionVerificationFailed = 9,
-};
-
-typedef NS_ENUM(NSUInteger, FCPCCCloudContentAttemptPhase) {
-    FCPCCCloudContentAttemptPhaseConstructor = 0,
-    FCPCCCloudContentAttemptPhaseWillFinishLaunching = 1,
-    FCPCCCloudContentAttemptPhaseMainQueue = 2,
-};
-
-static const NSUInteger FCPCCCloudContentCompatibilityMaximumAttempts = 3;
-
-typedef struct {
-    const char *runtimeClassName;
-    const char *selectorName;
-    FCPCCCloudContentMethodKind methodKind;
-    NSUInteger argumentCount;
-    const char *returnType;
-    const char *typeEncoding;
-    uintptr_t expectedArm64OriginalImplementationOffset;
-    uintptr_t expectedX86_64OriginalImplementationOffset;
-    IMP replacement;
-    const char *auditLabel;
-} FCPCCCloudContentCompatibilityEntry;
-
-static void FCPCCCloudContentReturnVoid(id self, SEL command) {
-    (void)self;
-    (void)command;
-}
-
-static BOOL FCPCCCloudContentReturnFalse(id self, SEL command) {
-    (void)self;
-    (void)command;
-    return NO;
-}
-
-// This IMP is reachable only after the exact three-argument completion-handler
-// encoding has been confirmed. A nonnull completion receives the documented
-// successful no-error result; no exception suppression or fallback invocation is used.
-static void FCPCCCloudContentCompleteFirstLaunch(id self, SEL command, void (^completion)(NSError *)) {
-    (void)self;
-    (void)command;
-    if (completion != nil) {
-        completion(nil);
-    }
-}
-
-// The exact FCP 12.3 Objective-C bridge has the reviewed type encoding
-// v24@0:8@?<v@?@"_TtC13Final_Cut_Pro23CloudContentDemoProject"@"NSError">16.
-// Its generated Swift bridge reports its own failure path as (nil, NSError *).
-// This replacement preserves that Objective-C result contract without creating a
-// Swift task, fabricating a demo project, invoking CloudKit, or retaining work
-// that would need cancellation.
-static void FCPCCCloudContentCompleteDemoProjectUnavailable(id self,
-                                                            SEL command,
-                                                            void (^completion)(id, NSError *)) {
-    (void)self;
-    (void)command;
-    if (completion != nil) {
-        NSError *error = [NSError errorWithDomain:FCPCCCloudContentUnavailableErrorDomain
-                                             code:FCPCCCloudContentUnavailableErrorCode
-                                         userInfo:nil];
-        completion(nil, error);
-    }
-}
-
-static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityEntries[] = {
-    {
-        "_TtC13Final_Cut_Pro25DemoProjectDownloadHelper",
-        "fetchDefaultDemoProjectWithCompletionHandler:",
-        FCPCCCloudContentMethodKindInstance,
-        3,
-        "v",
-        "v24@0:8@?<v@?@\"_TtC13Final_Cut_Pro23CloudContentDemoProject\"@\"NSError\">16",
-        0xce540,
-        0x107ca0,
-        (IMP)FCPCCCloudContentCompleteDemoProjectUnavailable,
-        "demo_project.fetch_default_completion"
-    },
-    {
-        "_TtC13Final_Cut_Pro19CloudContentCatalog",
-        "isCloudContentEnabled",
-        FCPCCCloudContentMethodKindInstance,
-        2,
-        "B",
-        "B16@0:8",
-        0,
-        0,
-        (IMP)FCPCCCloudContentReturnFalse,
-        "catalog.enabled"
-    },
-    {
-        "_TtC13Final_Cut_Pro19CloudContentCatalog",
-        "isRunningSubscriptionApp",
-        FCPCCCloudContentMethodKindInstance,
-        2,
-        "B",
-        "B16@0:8",
-        0,
-        0,
-        (IMP)FCPCCCloudContentReturnFalse,
-        "catalog.subscription"
-    },
-    {
-        "_TtC13Final_Cut_Pro19CloudContentCatalog",
-        "startListeningForApplicationDidBecomeActiveNotifications",
-        FCPCCCloudContentMethodKindInstance,
-        2,
-        "v",
-        "v16@0:8",
-        0,
-        0,
-        (IMP)FCPCCCloudContentReturnVoid,
-        "catalog.listener"
-    },
-    {
-        "_TtC13Final_Cut_Pro23CloudContentFeatureFlag",
-        "isEnabled",
-        FCPCCCloudContentMethodKindClass,
-        2,
-        "B",
-        "B16@0:8",
-        0,
-        0,
-        (IMP)FCPCCCloudContentReturnFalse,
-        "feature.enabled"
-    },
-    {
-        "_TtC13Final_Cut_Pro23CloudContentFeatureFlag",
-        "shouldShowFirstLaunchExperience",
-        FCPCCCloudContentMethodKindClass,
-        2,
-        "B",
-        "B16@0:8",
-        0,
-        0,
-        (IMP)FCPCCCloudContentReturnFalse,
-        "feature.first_launch"
-    },
-    {
-        "CCFirstLaunchHelper",
-        "setupAndPresentFirstLaunchIfNeededWithCompletionHandler:",
-        FCPCCCloudContentMethodKindInstance,
-        3,
-        "v",
-        "v24@0:8@?<v@?@\"NSError\">16",
-        0,
-        0,
-        (IMP)FCPCCCloudContentCompleteFirstLaunch,
-        "first_launch.setup_completion"
-    },
-};
-
-static const NSUInteger FCPCCCloudContentCompatibilityEntryCount = sizeof(FCPCCCloudContentCompatibilityEntries) / sizeof(FCPCCCloudContentCompatibilityEntries[0]);
-
-static NSString *FCPCCCloudContentReplacementDispositionSummary(FCPCCCloudContentReplacementDisposition disposition) {
-    switch (disposition) {
-        case FCPCCCloudContentReplacementDispositionPending:
-            return @"pending";
-        case FCPCCCloudContentReplacementDispositionInstalled:
-            return @"installed";
-        case FCPCCCloudContentReplacementDispositionClassUnavailable:
-            return @"class_unavailable";
-        case FCPCCCloudContentReplacementDispositionMethodUnavailable:
-            return @"method_unavailable";
-        case FCPCCCloudContentReplacementDispositionMethodPlacementMismatch:
-            return @"method_kind_mismatch";
-        case FCPCCCloudContentReplacementDispositionArgumentCountMismatch:
-            return @"argument_count_mismatch";
-        case FCPCCCloudContentReplacementDispositionReturnTypeMismatch:
-            return @"return_type_mismatch";
-        case FCPCCCloudContentReplacementDispositionTypeEncodingMismatch:
-            return @"type_encoding_mismatch";
-        case FCPCCCloudContentReplacementDispositionOriginalImplementationMismatch:
-            return @"pre_replacement_imp_mismatch";
-        case FCPCCCloudContentReplacementDispositionVerificationFailed:
-            return @"replacement_verification_failed";
-    }
-    return @"unknown";
-}
-
-@interface FCPCCCloudContentMethodCompatibilityStatus : NSObject
-@property (nonatomic, strong) NSMutableArray<NSNumber *> *entryDispositions;
-@property (nonatomic) NSUInteger constructorAttempts;
-@property (nonatomic) NSUInteger willFinishLaunchingAttempts;
-@property (nonatomic) NSUInteger mainQueueAttempts;
-@property (nonatomic) BOOL hostVerified;
-- (void)recordDisposition:(FCPCCCloudContentReplacementDisposition)disposition atIndex:(NSUInteger)index;
-- (NSString *)summary;
-- (NSArray<NSString *> *)entryAuditSummaries;
-@end
-
-@implementation FCPCCCloudContentMethodCompatibilityStatus
-
-- (instancetype)init {
-    self = [super init];
-    if (self != nil) {
-        _entryDispositions = [[NSMutableArray alloc] initWithCapacity:FCPCCCloudContentCompatibilityEntryCount];
-        for (NSUInteger index = 0; index < FCPCCCloudContentCompatibilityEntryCount; index += 1) {
-            [_entryDispositions addObject:@(FCPCCCloudContentReplacementDispositionPending)];
-        }
-    }
-    return self;
-}
-
-- (void)recordDisposition:(FCPCCCloudContentReplacementDisposition)disposition atIndex:(NSUInteger)index {
-    if (index < self.entryDispositions.count) {
-        self.entryDispositions[index] = @(disposition);
-    }
-}
-
-- (NSString *)summary {
-    if (!self.hostVerified) {
-        return @"method_guard_host_unverified";
-    }
-
-    NSUInteger installed = 0;
-    for (NSNumber *number in self.entryDispositions) {
-        if (number.unsignedIntegerValue == FCPCCCloudContentReplacementDispositionInstalled) {
-            installed += 1;
-        }
-    }
-    NSUInteger attempts = self.constructorAttempts + self.willFinishLaunchingAttempts + self.mainQueueAttempts;
-    return [NSString stringWithFormat:@"method_guard=%lu/%lu attempts=%lu",
-            (unsigned long)installed,
-            (unsigned long)FCPCCCloudContentCompatibilityEntryCount,
-            (unsigned long)attempts];
-}
-
-- (NSArray<NSString *> *)entryAuditSummaries {
-    NSMutableArray<NSString *> *summaries = [[NSMutableArray alloc] initWithCapacity:FCPCCCloudContentCompatibilityEntryCount];
-    for (NSUInteger index = 0; index < FCPCCCloudContentCompatibilityEntryCount; index += 1) {
-        FCPCCCloudContentReplacementDisposition disposition = self.entryDispositions[index].unsignedIntegerValue;
-        NSString *label = [NSString stringWithUTF8String:FCPCCCloudContentCompatibilityEntries[index].auditLabel];
-        [summaries addObject:[label stringByAppendingFormat:@"=%@", FCPCCCloudContentReplacementDispositionSummary(disposition)]];
-    }
-    return summaries;
-}
-
-@end
-
-static FCPCCCloudContentMethodCompatibilityStatus *FCPCCCloudContentMethodCompatibilityStatusShared(void) {
-    static FCPCCCloudContentMethodCompatibilityStatus *status;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        status = [[FCPCCCloudContentMethodCompatibilityStatus alloc] init];
-    });
-    return status;
-}
-
-static const char *FCPCCCloudContentAttemptPhaseName(FCPCCCloudContentAttemptPhase phase) {
-    switch (phase) {
-        case FCPCCCloudContentAttemptPhaseConstructor:
-            return "constructor";
-        case FCPCCCloudContentAttemptPhaseWillFinishLaunching:
-            return "will_finish_launching_once";
-        case FCPCCCloudContentAttemptPhaseMainQueue:
-            return "main_queue_once";
-    }
-    return "unknown";
-}
-
-static os_log_t FCPCCCloudContentMethodCompatibilityLog(void) {
-    static os_log_t log;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        log = os_log_create("com.local.fcpcommandconsole.runtime", "cloud_content_method_guard");
-    });
-    return log;
-}
-
-// Each phase is hard one-shot, so this produces at most three fixed-shape
-// unified-log records. The audit labels and dispositions come only from the
-// compile-time descriptor array and contain no caller-controlled data.
-static void FCPCCLogCloudContentMethodCompatibilityAttempt(FCPCCCloudContentAttemptPhase phase,
-                                                            FCPCCCloudContentMethodCompatibilityStatus *status) {
-    NSString *dispositions = [[status entryAuditSummaries] componentsJoinedByString:@","];
-    const char *dispositionCString = dispositions.UTF8String;
-    if (dispositionCString == NULL) {
-        dispositionCString = "unavailable";
-    }
-    os_log_info(FCPCCCloudContentMethodCompatibilityLog(),
-                "phase=%{public}s dispositions=%{public}s",
-                FCPCCCloudContentAttemptPhaseName(phase),
-                dispositionCString);
-}
-
-// This evaluates only the predeclared method selected by one fixed descriptor.
-// It does not discover classes, selectors, methods, or images. The relative
-// implementation offset is ASLR-stable and ties the crash-path replacement to
-// the exact inspected FCP 12.3 executable slice.
-static BOOL FCPCCCloudContentOriginalImplementationMatches(const FCPCCCloudContentCompatibilityEntry *entry,
-                                                            Method method) {
+static const uint8_t *FCPCCExpectedCurrentArchitectureHostUUID(void) {
 #if defined(__arm64__)
-    uintptr_t expectedOffset = entry->expectedArm64OriginalImplementationOffset;
+    return FCPCCExpectedHostArm64UUID;
 #elif defined(__x86_64__)
-    uintptr_t expectedOffset = entry->expectedX86_64OriginalImplementationOffset;
+    return FCPCCExpectedHostX86_64UUID;
 #else
-    return NO;
+    return NULL;
 #endif
-    if (expectedOffset == 0) {
-        return YES;
-    }
+}
 
-    IMP originalImplementation = method_getImplementation(method);
-    Dl_info implementationImage = {0};
-    if (originalImplementation == NULL
-        || dladdr((const void *)originalImplementation, &implementationImage) == 0
-        || implementationImage.dli_fbase == NULL
-        || implementationImage.dli_fname == NULL) {
+static const uint8_t *FCPCCExpectedCurrentArchitectureOnboardingFrameworkUUID(void) {
+#if defined(__arm64__)
+    return FCPCCExpectedOnboardingFrameworkArm64UUID;
+#elif defined(__x86_64__)
+    return FCPCCExpectedOnboardingFrameworkX86_64UUID;
+#else
+    return NULL;
+#endif
+}
+
+static uintptr_t FCPCCExpectedCurrentArchitectureOnboardingQuerySetterOffset(void) {
+#if defined(__arm64__)
+    return 0x1313c;
+#elif defined(__x86_64__)
+    return 0x13cc0;
+#else
+    return 0;
+#endif
+}
+
+static BOOL FCPCCLoadedMachOImageHasExpectedUUID(const struct mach_header *header,
+                                                  const uint8_t expectedUUID[16]) {
+    if (header == NULL || expectedUUID == NULL || header->magic != MH_MAGIC_64) {
         return NO;
     }
 
-    NSString *hostExecutablePath = [NSBundle.mainBundle.executablePath stringByStandardizingPath];
-    NSString *implementationImagePath = [[NSString alloc] initWithUTF8String:implementationImage.dli_fname];
-    if (hostExecutablePath.length == 0
-        || implementationImagePath == nil
-        || ![[implementationImagePath stringByStandardizingPath] isEqualToString:hostExecutablePath]) {
+    const struct mach_header_64 *header64 = (const struct mach_header_64 *)header;
+    const uint8_t *cursor = (const uint8_t *)(header64 + 1);
+    uint32_t remainingBytes = header64->sizeofcmds;
+    for (uint32_t index = 0; index < header64->ncmds; index += 1) {
+        if (remainingBytes < sizeof(struct load_command)) {
+            return NO;
+        }
+        const struct load_command *command = (const struct load_command *)cursor;
+        if (command->cmdsize < sizeof(struct load_command) || command->cmdsize > remainingBytes) {
+            return NO;
+        }
+        if (command->cmd == LC_UUID) {
+            if (command->cmdsize != sizeof(struct uuid_command)) {
+                return NO;
+            }
+            const struct uuid_command *uuidCommand = (const struct uuid_command *)command;
+            return memcmp(uuidCommand->uuid, expectedUUID, sizeof(uuidCommand->uuid)) == 0;
+        }
+        cursor += command->cmdsize;
+        remainingBytes -= command->cmdsize;
+    }
+    return NO;
+}
+
+static BOOL FCPCCSHA256DigestMatchesExpectedHex(const uint8_t digest[CC_SHA256_DIGEST_LENGTH],
+                                                 const char *expectedHex) {
+    static const char hexadecimal[] = "0123456789abcdef";
+    if (digest == NULL || expectedHex == NULL || strlen(expectedHex) != CC_SHA256_DIGEST_LENGTH * 2) {
         return NO;
     }
 
-    uintptr_t actualOffset = (uintptr_t)originalImplementation - (uintptr_t)implementationImage.dli_fbase;
-    return actualOffset == expectedOffset;
+    char actualHex[CC_SHA256_DIGEST_LENGTH * 2];
+    for (NSUInteger index = 0; index < CC_SHA256_DIGEST_LENGTH; index += 1) {
+        actualHex[index * 2] = hexadecimal[(digest[index] >> 4) & 0x0F];
+        actualHex[index * 2 + 1] = hexadecimal[digest[index] & 0x0F];
+    }
+    return memcmp(actualHex, expectedHex, sizeof(actualHex)) == 0;
 }
 
-static void FCPCCInstallCloudContentCompatibilityEntry(const FCPCCCloudContentCompatibilityEntry *entry,
-                                                        NSUInteger index,
-                                                        FCPCCCloudContentMethodCompatibilityStatus *status) {
-    // runtimeClassName originates only from the fixed array above; it is never
-    // supplied by a caller, resource, environment, or notification payload.
-    Class targetClass = objc_getClass(entry->runtimeClassName);
-    if (targetClass == Nil) {
-        [status recordDisposition:FCPCCCloudContentReplacementDispositionClassUnavailable atIndex:index];
-        return;
+static BOOL FCPCCFileSHA256MatchesExpectedHex(NSString *path, const char *expectedHex) {
+    const char *fileSystemPath = path.fileSystemRepresentation;
+    if (path.length == 0 || fileSystemPath == NULL) {
+        return NO;
     }
 
-    SEL selector = sel_registerName(entry->selectorName);
-    if (selector == NULL) {
-        [status recordDisposition:FCPCCCloudContentReplacementDispositionMethodUnavailable atIndex:index];
-        return;
+    int descriptor = open(fileSystemPath, O_RDONLY | O_CLOEXEC);
+    if (descriptor < 0) {
+        return NO;
     }
 
-    Method expectedMethod = entry->methodKind == FCPCCCloudContentMethodKindInstance
-        ? class_getInstanceMethod(targetClass, selector)
-        : class_getClassMethod(targetClass, selector);
-    if (expectedMethod == NULL) {
-        Method oppositePlacement = entry->methodKind == FCPCCCloudContentMethodKindInstance
-            ? class_getClassMethod(targetClass, selector)
-            : class_getInstanceMethod(targetClass, selector);
-        [status recordDisposition:oppositePlacement == NULL
-                                      ? FCPCCCloudContentReplacementDispositionMethodUnavailable
-                                      : FCPCCCloudContentReplacementDispositionMethodPlacementMismatch
-                           atIndex:index];
-        return;
+    CC_SHA256_CTX context;
+    CC_SHA256_Init(&context);
+    BOOL readSucceeded = YES;
+    uint8_t buffer[32768];
+    for (;;) {
+        ssize_t bytesRead = read(descriptor, buffer, sizeof(buffer));
+        if (bytesRead < 0) {
+            readSucceeded = NO;
+            break;
+        }
+        if (bytesRead == 0) {
+            break;
+        }
+        CC_SHA256_Update(&context, buffer, (CC_LONG)bytesRead);
+    }
+    if (close(descriptor) != 0 || !readSucceeded) {
+        return NO;
     }
 
-    if (method_getNumberOfArguments(expectedMethod) != entry->argumentCount) {
-        [status recordDisposition:FCPCCCloudContentReplacementDispositionArgumentCountMismatch atIndex:index];
-        return;
-    }
-
-    char *actualReturnType = method_copyReturnType(expectedMethod);
-    BOOL returnTypeMatches = actualReturnType != NULL && strcmp(actualReturnType, entry->returnType) == 0;
-    if (actualReturnType != NULL) {
-        free(actualReturnType);
-    }
-    if (!returnTypeMatches) {
-        [status recordDisposition:FCPCCCloudContentReplacementDispositionReturnTypeMismatch atIndex:index];
-        return;
-    }
-
-    const char *actualTypeEncoding = method_getTypeEncoding(expectedMethod);
-    if (actualTypeEncoding == NULL || strcmp(actualTypeEncoding, entry->typeEncoding) != 0) {
-        [status recordDisposition:FCPCCCloudContentReplacementDispositionTypeEncodingMismatch atIndex:index];
-        return;
-    }
-
-    if (method_getImplementation(expectedMethod) == entry->replacement) {
-        [status recordDisposition:FCPCCCloudContentReplacementDispositionInstalled atIndex:index];
-        return;
-    }
-
-    if (!FCPCCCloudContentOriginalImplementationMatches(entry, expectedMethod)) {
-        [status recordDisposition:FCPCCCloudContentReplacementDispositionOriginalImplementationMismatch atIndex:index];
-        return;
-    }
-
-    Class replacementTarget = entry->methodKind == FCPCCCloudContentMethodKindInstance
-        ? targetClass
-        : object_getClass(targetClass);
-    if (replacementTarget == Nil) {
-        [status recordDisposition:FCPCCCloudContentReplacementDispositionMethodPlacementMismatch atIndex:index];
-        return;
-    }
-    class_replaceMethod(replacementTarget, selector, entry->replacement, entry->typeEncoding);
-
-    Method installedMethod = entry->methodKind == FCPCCCloudContentMethodKindInstance
-        ? class_getInstanceMethod(targetClass, selector)
-        : class_getClassMethod(targetClass, selector);
-    if (installedMethod == NULL || method_getImplementation(installedMethod) != entry->replacement) {
-        [status recordDisposition:FCPCCCloudContentReplacementDispositionVerificationFailed atIndex:index];
-        return;
-    }
-    [status recordDisposition:FCPCCCloudContentReplacementDispositionInstalled atIndex:index];
+    uint8_t digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256_Final(digest, &context);
+    return FCPCCSHA256DigestMatchesExpectedHex(digest, expectedHex);
 }
 
-static void FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhase phase) {
-    FCPCCCloudContentMethodCompatibilityStatus *status = FCPCCCloudContentMethodCompatibilityStatusShared();
-    @synchronized (status) {
-        NSUInteger attempts = status.constructorAttempts + status.willFinishLaunchingAttempts + status.mainQueueAttempts;
-        if (attempts >= FCPCCCloudContentCompatibilityMaximumAttempts) {
-            return;
-        }
-        switch (phase) {
-            case FCPCCCloudContentAttemptPhaseConstructor:
-                if (status.constructorAttempts != 0) {
-                    return;
-                }
-                status.constructorAttempts = 1;
-                break;
-            case FCPCCCloudContentAttemptPhaseWillFinishLaunching:
-                if (status.willFinishLaunchingAttempts != 0) {
-                    return;
-                }
-                status.willFinishLaunchingAttempts = 1;
-                break;
-            case FCPCCCloudContentAttemptPhaseMainQueue:
-                if (status.mainQueueAttempts != 0) {
-                    return;
-                }
-                status.mainQueueAttempts = 1;
-                break;
-        }
-
-        FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
-        if (!containment.isVerified) {
-            status.hostVerified = NO;
-            FCPCCLogCloudContentMethodCompatibilityAttempt(phase, status);
-            return;
-        }
-        status.hostVerified = YES;
-
-        for (NSUInteger index = 0; index < FCPCCCloudContentCompatibilityEntryCount; index += 1) {
-            FCPCCInstallCloudContentCompatibilityEntry(&FCPCCCloudContentCompatibilityEntries[index], index, status);
-        }
-        FCPCCLogCloudContentMethodCompatibilityAttempt(phase, status);
+static NSString *FCPCCExpectedOnboardingFrameworkExecutablePath(void) {
+    NSString *hostBundlePath = [NSBundle.mainBundle.bundlePath stringByStandardizingPath];
+    if (hostBundlePath.length == 0) {
+        return nil;
     }
+    return [[hostBundlePath stringByAppendingPathComponent:FCPCCExpectedOnboardingFrameworkRelativeExecutablePath] stringByStandardizingPath];
 }
 
-static void FCPCCInstallIsolatedCloudContentMethodCompatibility(void) {
+static BOOL FCPCCCopiedHostImageUUIDMatches(void) {
+    const char *mainImageName = _dyld_get_image_name(0);
+    const struct mach_header *mainImageHeader = _dyld_get_image_header(0);
+    const uint8_t *expectedUUID = FCPCCExpectedCurrentArchitectureHostUUID();
+    NSString *expectedPath = [NSBundle.mainBundle.executablePath stringByStandardizingPath];
+    NSString *loadedPath = mainImageName == NULL ? nil : [[NSString alloc] initWithUTF8String:mainImageName];
+    if (expectedUUID == NULL || expectedPath.length == 0 || loadedPath == nil
+        || ![[loadedPath stringByStandardizingPath] isEqualToString:expectedPath]) {
+        return NO;
+    }
+    return FCPCCLoadedMachOImageHasExpectedUUID(mainImageHeader, expectedUUID);
+}
+
+static FCPCCOnboardingFrameworkIdentityDisposition FCPCCOnboardingFrameworkIdentityForImplementation(IMP implementation) {
+    Dl_info image = {0};
+    if (implementation == NULL
+        || dladdr((const void *)implementation, &image) == 0
+        || image.dli_fbase == NULL
+        || image.dli_fname == NULL) {
+        return FCPCCOnboardingFrameworkIdentityDispositionImageUnavailable;
+    }
+
+    NSString *expectedPath = FCPCCExpectedOnboardingFrameworkExecutablePath();
+    NSString *loadedPath = [[NSString alloc] initWithUTF8String:image.dli_fname];
+    if (expectedPath == nil || loadedPath == nil
+        || ![[loadedPath stringByStandardizingPath] isEqualToString:expectedPath]) {
+        return FCPCCOnboardingFrameworkIdentityDispositionPathMismatch;
+    }
+    if (!FCPCCFileSHA256MatchesExpectedHex(loadedPath, FCPCCExpectedOnboardingFrameworkSHA256)) {
+        return FCPCCOnboardingFrameworkIdentityDispositionHashMismatch;
+    }
+    const uint8_t *expectedUUID = FCPCCExpectedCurrentArchitectureOnboardingFrameworkUUID();
+    if (expectedUUID == NULL
+        || !FCPCCLoadedMachOImageHasExpectedUUID((const struct mach_header *)image.dli_fbase, expectedUUID)) {
+        return FCPCCOnboardingFrameworkIdentityDispositionUUIDMismatch;
+    }
+    uintptr_t expectedOffset = FCPCCExpectedCurrentArchitectureOnboardingQuerySetterOffset();
+    uintptr_t actualOffset = (uintptr_t)implementation - (uintptr_t)image.dli_fbase;
+    if (expectedOffset == 0 || actualOffset != expectedOffset) {
+        return FCPCCOnboardingFrameworkIdentityDispositionImplementationMismatch;
+    }
+    return FCPCCOnboardingFrameworkIdentityDispositionMatches;
+}
+
+static void FCPCCDiscardOnboardingQueryDemoProjectInfo(id self, SEL command, id queryDemoProjectInfo) {
+    (void)self;
+    (void)command;
+    (void)queryDemoProjectInfo;
+}
+
+static NSString *FCPCCInstallOnboardingQueryGate(void) {
+    static NSString *summary;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
         if (!containment.isVerified) {
+            summary = @"onboarding_query_gate=host_containment_unverified";
             return;
         }
-        FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseConstructor);
-        [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationWillFinishLaunchingNotification
-                                                          object:nil
-                                                           queue:nil
-                                                      usingBlock:^(__unused NSNotification *note) {
-            FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseWillFinishLaunching);
-        }];
-        // This is enqueued before FCPCCInstallRuntime enqueues menu installation.
-        // It only attempts the fixed compatibility guard; it performs no UI or
-        // library operation and cannot reschedule itself.
-        dispatch_async(dispatch_get_main_queue(), ^{
-            FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseMainQueue);
-        });
+        if (!FCPCCCopiedHostImageUUIDMatches()) {
+            summary = @"onboarding_query_gate=host_uuid_unverified";
+            return;
+        }
+
+        Class targetClass = objc_getClass(FCPCCExpectedOnboardingCoordinatorClassName.UTF8String);
+        if (targetClass == Nil) {
+            summary = @"onboarding_query_gate=class_unavailable";
+            return;
+        }
+        SEL selector = sel_registerName(FCPCCExpectedOnboardingQuerySetterName.UTF8String);
+        if (selector == NULL) {
+            summary = @"onboarding_query_gate=selector_unavailable";
+            return;
+        }
+
+        Method method = class_getInstanceMethod(targetClass, selector);
+        if (method == NULL) {
+            summary = class_getClassMethod(targetClass, selector) == NULL
+                ? @"onboarding_query_gate=method_unavailable"
+                : @"onboarding_query_gate=method_placement_mismatch";
+            return;
+        }
+        if (method_getNumberOfArguments(method) != 3) {
+            summary = @"onboarding_query_gate=argument_count_mismatch";
+            return;
+        }
+        char *returnType = method_copyReturnType(method);
+        BOOL returnTypeMatches = returnType != NULL && strcmp(returnType, "v") == 0;
+        if (returnType != NULL) {
+            free(returnType);
+        }
+        if (!returnTypeMatches) {
+            summary = @"onboarding_query_gate=return_type_mismatch";
+            return;
+        }
+        const char *typeEncoding = method_getTypeEncoding(method);
+        if (typeEncoding == NULL || strcmp(typeEncoding, FCPCCExpectedOnboardingQuerySetterTypeEncoding) != 0) {
+            summary = @"onboarding_query_gate=type_encoding_mismatch";
+            return;
+        }
+
+        IMP originalImplementation = method_getImplementation(method);
+        switch (FCPCCOnboardingFrameworkIdentityForImplementation(originalImplementation)) {
+            case FCPCCOnboardingFrameworkIdentityDispositionMatches:
+                break;
+            case FCPCCOnboardingFrameworkIdentityDispositionImageUnavailable:
+                summary = @"onboarding_query_gate=framework_image_unavailable";
+                return;
+            case FCPCCOnboardingFrameworkIdentityDispositionPathMismatch:
+                summary = @"onboarding_query_gate=framework_path_mismatch";
+                return;
+            case FCPCCOnboardingFrameworkIdentityDispositionHashMismatch:
+                summary = @"onboarding_query_gate=framework_hash_mismatch";
+                return;
+            case FCPCCOnboardingFrameworkIdentityDispositionUUIDMismatch:
+                summary = @"onboarding_query_gate=framework_uuid_mismatch";
+                return;
+            case FCPCCOnboardingFrameworkIdentityDispositionImplementationMismatch:
+                summary = @"onboarding_query_gate=original_imp_mismatch";
+                return;
+        }
+
+        class_replaceMethod(targetClass,
+                            selector,
+                            (IMP)FCPCCDiscardOnboardingQueryDemoProjectInfo,
+                            FCPCCExpectedOnboardingQuerySetterTypeEncoding);
+        Method installedMethod = class_getInstanceMethod(targetClass, selector);
+        const char *installedTypeEncoding = installedMethod == NULL ? NULL : method_getTypeEncoding(installedMethod);
+        if (installedMethod == NULL
+            || method_getImplementation(installedMethod) != (IMP)FCPCCDiscardOnboardingQueryDemoProjectInfo
+            || method_getNumberOfArguments(installedMethod) != 3
+            || installedTypeEncoding == NULL
+            || strcmp(installedTypeEncoding, FCPCCExpectedOnboardingQuerySetterTypeEncoding) != 0) {
+            summary = @"onboarding_query_gate=post_replacement_verification_failed";
+            return;
+        }
+        summary = @"onboarding_query_gate=installed";
     });
+    return summary ?: @"onboarding_query_gate=unavailable";
 }
 
 @interface FCPCCCapabilityStatus : NSObject
@@ -922,11 +733,11 @@ static void FCPCCInstallIsolatedCloudContentMethodCompatibility(void) {
 
     FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
     FCPCCCloudContentCompatibilityStatus *compatibility = FCPCCInitializeIsolatedCloudContentCompatibility();
-    FCPCCCloudContentMethodCompatibilityStatus *methodCompatibility = FCPCCCloudContentMethodCompatibilityStatusShared();
+    NSString *onboardingQueryGate = FCPCCInstallOnboardingQueryGate();
     FCPCCGateStatus *library = [[[FCPCCLibraryInvariantGate alloc] init] evaluate];
     FCPCCCapabilityStatus *capabilities = FCPCCCapabilityStatus.unverifiedPlaceholder;
     self.containmentField = [self label:[@"Copied app/runtime: " stringByAppendingString:containment.summary] frame:NSMakeRect(20, 462, width - 40, 30) weight:NSFontWeightRegular];
-    self.compatibilityField = [self label:[NSString stringWithFormat:@"Isolated cloud compatibility: %@; %@", compatibility.summary, methodCompatibility.summary] frame:NSMakeRect(20, 426, width - 40, 30) weight:NSFontWeightRegular];
+    self.compatibilityField = [self label:[NSString stringWithFormat:@"Isolated cloud compatibility: %@; %@", compatibility.summary, onboardingQueryGate] frame:NSMakeRect(20, 426, width - 40, 30) weight:NSFontWeightRegular];
     self.libraryField = [self label:[@"Library invariant: " stringByAppendingString:library.summary] frame:NSMakeRect(20, 390, width - 40, 30) weight:NSFontWeightRegular];
     self.capabilityField = [self label:[capabilities.selectionSummary stringByAppendingFormat:@"\n%@", capabilities.capabilitySummary] frame:NSMakeRect(20, 346, width - 40, 38) weight:NSFontWeightRegular];
     [content addSubview:self.containmentField];
@@ -1049,7 +860,7 @@ static void FCPCCInstallIsolatedCloudContentMethodCompatibility(void) {
 __attribute__((constructor))
 static void FCPCCInstallRuntime(void) {
     (void)FCPCCInitializeIsolatedCloudContentCompatibility();
-    FCPCCInstallIsolatedCloudContentMethodCompatibility();
+    (void)FCPCCInstallOnboardingQueryGate();
     dispatch_async(dispatch_get_main_queue(), ^{
         [[FCPCCRuntime sharedRuntime] installMenuWhenReady];
     });

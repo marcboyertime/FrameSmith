@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>3</integer>
+    <integer>4</integer>
     <key>ExpectedHostBundleIdentifier</key>
     <string>com.local.fcpcommandconsole.FinalCut</string>
     <key>ExpectedHostVersion</key>
@@ -16,6 +16,14 @@
     <string>AD024067-E145-3988-AFF9-BD33391C416D</string>
     <key>ExpectedHostX86_64UUID</key>
     <string>2ACCBD11-6965-3D09-BD87-9A900FDC740E</string>
+    <key>ExpectedOnboardingFrameworkRelativeExecutablePath</key>
+    <string>Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne</string>
+    <key>ExpectedOnboardingFrameworkSHA256</key>
+    <string>636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce</string>
+    <key>ExpectedOnboardingFrameworkArm64UUID</key>
+    <string>45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D</string>
+    <key>ExpectedOnboardingFrameworkX86_64UUID</key>
+    <string>FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7</string>
     <key>PreferenceDomain</key>
     <string>kCFPreferencesCurrentApplication</string>
     <key>ApprovedPreferenceKeys</key>
@@ -32,18 +40,10 @@
     </dict>
     <key>SynchronizeDeterministically</key>
     <true/>
-    <key>CompatibilityInstallPhases</key>
-    <array>
-        <string>constructor</string>
-        <string>will_finish_launching_once</string>
-        <string>main_queue_once</string>
-    </array>
+    <key>CompatibilityInstallPhase</key>
+    <string>constructor</string>
     <key>MaximumMethodGuardAttempts</key>
-    <integer>3</integer>
-    <key>MethodGuardLogSubsystem</key>
-    <string>com.local.fcpcommandconsole.runtime</string>
-    <key>MethodGuardLogCategory</key>
-    <string>cloud_content_method_guard</string>
+    <integer>1</integer>
     <key>ImmutableCompileTimeAllowlist</key>
     <true/>
     <key>RuntimeDiscoveryAllowed</key>
@@ -52,9 +52,9 @@
     <array>
         <dict>
             <key>RuntimeClass</key>
-            <string>_TtC13Final_Cut_Pro25DemoProjectDownloadHelper</string>
+            <string>POFDesktopOnboardingCoordinator</string>
             <key>Selector</key>
-            <string>fetchDefaultDemoProjectWithCompletionHandler:</string>
+            <string>setQueryDemoProjectInfo:</string>
             <key>MethodKind</key>
             <string>instance</string>
             <key>ObjectiveCArgumentCount</key>
@@ -62,114 +62,18 @@
             <key>ObjectiveCReturnType</key>
             <string>v</string>
             <key>ObjectiveCTypeEncoding</key>
-            <string>v24@0:8@?&lt;v@?@"_TtC13Final_Cut_Pro23CloudContentDemoProject"@"NSError"&gt;16</string>
+            <string>v24@0:8@?16</string>
             <key>ExpectedOriginalImplementationOffsetArm64</key>
-            <string>0xce540</string>
+            <string>0x1313c</string>
             <key>ExpectedOriginalImplementationOffsetX86_64</key>
-            <string>0x107ca0</string>
+            <string>0x13cc0</string>
             <key>Replacement</key>
-            <string>completion_nil_project_local_error</string>
-        </dict>
-        <dict>
-            <key>RuntimeClass</key>
-            <string>_TtC13Final_Cut_Pro19CloudContentCatalog</string>
-            <key>Selector</key>
-            <string>isCloudContentEnabled</string>
-            <key>MethodKind</key>
-            <string>instance</string>
-            <key>ObjectiveCArgumentCount</key>
-            <integer>2</integer>
-            <key>ObjectiveCReturnType</key>
-            <string>B</string>
-            <key>ObjectiveCTypeEncoding</key>
-            <string>B16@0:8</string>
-            <key>Replacement</key>
-            <string>return_false</string>
-        </dict>
-        <dict>
-            <key>RuntimeClass</key>
-            <string>_TtC13Final_Cut_Pro19CloudContentCatalog</string>
-            <key>Selector</key>
-            <string>isRunningSubscriptionApp</string>
-            <key>MethodKind</key>
-            <string>instance</string>
-            <key>ObjectiveCArgumentCount</key>
-            <integer>2</integer>
-            <key>ObjectiveCReturnType</key>
-            <string>B</string>
-            <key>ObjectiveCTypeEncoding</key>
-            <string>B16@0:8</string>
-            <key>Replacement</key>
-            <string>return_false</string>
-        </dict>
-        <dict>
-            <key>RuntimeClass</key>
-            <string>_TtC13Final_Cut_Pro19CloudContentCatalog</string>
-            <key>Selector</key>
-            <string>startListeningForApplicationDidBecomeActiveNotifications</string>
-            <key>MethodKind</key>
-            <string>instance</string>
-            <key>ObjectiveCArgumentCount</key>
-            <integer>2</integer>
-            <key>ObjectiveCReturnType</key>
-            <string>v</string>
-            <key>ObjectiveCTypeEncoding</key>
-            <string>v16@0:8</string>
-            <key>Replacement</key>
-            <string>void_noop</string>
-        </dict>
-        <dict>
-            <key>RuntimeClass</key>
-            <string>_TtC13Final_Cut_Pro23CloudContentFeatureFlag</string>
-            <key>Selector</key>
-            <string>isEnabled</string>
-            <key>MethodKind</key>
-            <string>class</string>
-            <key>ObjectiveCArgumentCount</key>
-            <integer>2</integer>
-            <key>ObjectiveCReturnType</key>
-            <string>B</string>
-            <key>ObjectiveCTypeEncoding</key>
-            <string>B16@0:8</string>
-            <key>Replacement</key>
-            <string>return_false</string>
-        </dict>
-        <dict>
-            <key>RuntimeClass</key>
-            <string>_TtC13Final_Cut_Pro23CloudContentFeatureFlag</string>
-            <key>Selector</key>
-            <string>shouldShowFirstLaunchExperience</string>
-            <key>MethodKind</key>
-            <string>class</string>
-            <key>ObjectiveCArgumentCount</key>
-            <integer>2</integer>
-            <key>ObjectiveCReturnType</key>
-            <string>B</string>
-            <key>ObjectiveCTypeEncoding</key>
-            <string>B16@0:8</string>
-            <key>Replacement</key>
-            <string>return_false</string>
-        </dict>
-        <dict>
-            <key>RuntimeClass</key>
-            <string>CCFirstLaunchHelper</string>
-            <key>Selector</key>
-            <string>setupAndPresentFirstLaunchIfNeededWithCompletionHandler:</string>
-            <key>MethodKind</key>
-            <string>instance</string>
-            <key>ObjectiveCArgumentCount</key>
-            <integer>3</integer>
-            <key>ObjectiveCReturnType</key>
-            <string>v</string>
-            <key>ObjectiveCTypeEncoding</key>
-            <string>v24@0:8@?&lt;v@?@"NSError"&gt;16</string>
-            <key>Replacement</key>
-            <string>completion_nil_success</string>
+            <string>discard_query_block_noop</string>
         </dict>
     </array>
     <key>SourceSnapshotCommit</key>
     <string>f4f6618121309a69b66272b441f34cf8ad57f306</string>
     <key>SourceAttribution</key>
-    <string>Manually transcribed bounded flags and exact FCP 12.3 CloudContent runtime contracts from the locked SpliceKit reference documentation and static host inspection, including the stock executable SHA-256, both slice UUIDs, and the DemoProjectDownloadHelper Objective-C bridge IMP offsets; no upstream runtime code is used.</string>
+    <string>Exact Final Cut Pro 12.3 static inspection. The patcher records stock-versus-copied SHA-256 and both UUID slices; the copied runtime independently verifies its active host UUID and the nested ProOnboardingFlowModelOne framework path, SHA-256, active-slice UUID, Objective-C type, and original setter IMP before installing one no-op query-block setter.</string>
 </dict>
 </plist>

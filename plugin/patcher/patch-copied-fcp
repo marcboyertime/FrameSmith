@@ -12,6 +12,13 @@ destination_parent="/Users/marcboyer/Applications/SpliceKit"
 destination_root="$destination_parent/FCPCommandConsole"
 copied_app="$destination_root/Final Cut Pro - FCPCommandConsole.app"
 copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
+onboarding_framework_relative_executable_path="Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
+source_onboarding_framework="$source_app/$onboarding_framework_relative_executable_path"
+copied_onboarding_framework="$copied_app/$onboarding_framework_relative_executable_path"
+onboarding_framework_load_path="@rpath/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
+expected_onboarding_framework_sha256="636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce"
+expected_onboarding_framework_arm64_uuid="45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D"
+expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"
 framework_name="FCPCommandConsoleRuntime.framework"
 built_framework="$plugin_dir/build/$framework_name"
 embedded_framework="$copied_app/Contents/Frameworks/$framework_name"
@@ -67,6 +74,53 @@ capture_bundle() {
     /usr/bin/codesign -d --entitlements :- "$app_path" > "$output_dir/entitlements.plist" 2> "$output_dir/entitlements.stderr"
     /usr/bin/otool -arch arm64 -L "$executable_path" > "$output_dir/main-libraries-arm64.txt"
     /usr/bin/otool -arch x86_64 -L "$executable_path" > "$output_dir/main-libraries-x86_64.txt"
+}
+
+capture_onboarding_framework() {
+    local framework_path="$1"
+    local output_dir="$2"
+    /usr/bin/shasum -a 256 "$framework_path" | /usr/bin/awk '{print $1}' > "$output_dir/onboarding-framework.sha256"
+    /usr/bin/dwarfdump --uuid "$framework_path" > "$output_dir/onboarding-framework.uuids.txt"
+    local framework_sha256="$(/usr/bin/awk '{print $1}' "$output_dir/onboarding-framework.sha256")"
+    local framework_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$output_dir/onboarding-framework.uuids.txt")"
+    local framework_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$output_dir/onboarding-framework.uuids.txt")"
+    print -r -- "sha256=$framework_sha256" > "$output_dir/onboarding-framework.identity.txt"
+    print -r -- "arm64_uuid=$framework_arm64_uuid" >> "$output_dir/onboarding-framework.identity.txt"
+    print -r -- "x86_64_uuid=$framework_x86_64_uuid" >> "$output_dir/onboarding-framework.identity.txt"
+}
+
+verify_onboarding_framework_identity() {
+    local output_dir="$1"
+    local label="$2"
+    local framework_sha256="$(/usr/bin/awk -F= '/^sha256=/{print $2; exit}' "$output_dir/onboarding-framework.identity.txt")"
+    local framework_arm64_uuid="$(/usr/bin/awk -F= '/^arm64_uuid=/{print $2; exit}' "$output_dir/onboarding-framework.identity.txt")"
+    local framework_x86_64_uuid="$(/usr/bin/awk -F= '/^x86_64_uuid=/{print $2; exit}' "$output_dir/onboarding-framework.identity.txt")"
+    if [[ "$framework_sha256" != "$expected_onboarding_framework_sha256" || "$framework_arm64_uuid" != "$expected_onboarding_framework_arm64_uuid" || "$framework_x86_64_uuid" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+        fail "$label onboarding framework does not match the reviewed hash and slice UUIDs"
+    fi
+}
+
+verify_onboarding_framework_load_path() {
+    local executable_path="$1"
+    local output_dir="$2"
+    local label="$3"
+    local architecture
+    for architecture in arm64 x86_64; do
+        /usr/bin/otool -arch "$architecture" -L "$executable_path" > "$output_dir/onboarding-framework-load-commands-$architecture.txt"
+        local count="$(/usr/bin/grep -F -c "$onboarding_framework_load_path" "$output_dir/onboarding-framework-load-commands-$architecture.txt" || true)"
+        if [[ "$count" != "1" ]]; then
+            fail "$label main executable does not directly load exactly one reviewed onboarding framework in $architecture"
+        fi
+    done
+}
+
+compare_onboarding_framework_identity() {
+    local first_output_dir="$1"
+    local second_output_dir="$2"
+    local label="$3"
+    if ! /usr/bin/cmp -s "$first_output_dir/onboarding-framework.identity.txt" "$second_output_dir/onboarding-framework.identity.txt"; then
+        fail "$label onboarding framework identity differs from stock provenance"
+    fi
 }
 
 require_not_running() {
@@ -125,7 +179,7 @@ verify_entitlement_allowlist() {
     /usr/bin/shasum -a 256 "$allowlist" | /usr/bin/awk '{print $1}' > "$output_dir/patch-entitlement-allowlist-config.sha256"
 }
 
-if [[ ! -d "$source_app" || ! -f "$source_executable" ]]; then
+if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboarding_framework" ]]; then
     fail "required source app is missing"
 fi
 if [[ -e "$destination_parent" || -e "$destination_root" || -e "$copied_app" ]]; then
@@ -151,10 +205,21 @@ print -r -- "source_build=$source_build" >> "$patch_dir/source-version-build.txt
 require_not_running "$patch_dir/process-before-copy.txt"
 capture_bundle "$source_app" "$source_executable" "$patch_dir/stock-before"
 capture_preferences "$patch_dir/stock-before"
+capture_onboarding_framework "$source_onboarding_framework" "$patch_dir/stock-before"
+verify_onboarding_framework_identity "$patch_dir/stock-before" "stock"
+verify_onboarding_framework_load_path "$source_executable" "$patch_dir/stock-before" "stock"
 
 /bin/mkdir -p "$destination_root"
 /usr/bin/ditto --rsrc --extattr "$source_app" "$copied_app"
 require_not_running "$patch_dir/process-before-patch.txt"
+
+if [[ ! -f "$copied_onboarding_framework" ]]; then
+    fail "copied onboarding framework is missing before the isolated runtime is added"
+fi
+capture_onboarding_framework "$copied_onboarding_framework" "$patch_dir/copied-before"
+verify_onboarding_framework_identity "$patch_dir/copied-before" "copied-before"
+compare_onboarding_framework_identity "$patch_dir/stock-before" "$patch_dir/copied-before" "copied-before"
+verify_onboarding_framework_load_path "$copied_executable" "$patch_dir/copied-before" "copied-before"
 
 /usr/bin/ditto "$copied_executable" "$patch_dir/copied-main-executable.pre-injection"
 /usr/bin/shasum -a 256 "$patch_dir/copied-main-executable.pre-injection" | /usr/bin/awk '{print $1}' > "$patch_dir/copied-main-executable.pre-injection.sha256"
@@ -229,6 +294,10 @@ fi
 /usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$patch_dir/codesign-verify.txt" 2>&1
 /usr/bin/codesign --verify --strict --verbose=4 "$embedded_framework" > "$patch_dir/runtime-codesign-verify.txt" 2>&1
 capture_bundle "$copied_app" "$copied_executable" "$patch_dir/copied-after"
+capture_onboarding_framework "$copied_onboarding_framework" "$patch_dir/copied-after"
+verify_onboarding_framework_identity "$patch_dir/copied-after" "copied-after"
+compare_onboarding_framework_identity "$patch_dir/stock-before" "$patch_dir/copied-after" "copied-after"
+verify_onboarding_framework_load_path "$copied_executable" "$patch_dir/copied-after" "copied-after"
 verify_entitlement_allowlist \
     "$patch_dir/stock-before/entitlements.plist" \
     "$local_entitlements" \
@@ -236,6 +305,9 @@ verify_entitlement_allowlist \
     "$patch_dir"
 capture_bundle "$source_app" "$source_executable" "$patch_dir/stock-after"
 capture_preferences "$patch_dir/stock-after"
+capture_onboarding_framework "$source_onboarding_framework" "$patch_dir/stock-after"
+verify_onboarding_framework_identity "$patch_dir/stock-after" "stock-after"
+compare_onboarding_framework_identity "$patch_dir/stock-before" "$patch_dir/stock-after" "stock-after"
 require_not_running "$patch_dir/process-after-patch.txt"
 
 if ! /usr/bin/cmp -s "$patch_dir/stock-before/main-executable.sha256" "$patch_dir/stock-after/main-executable.sha256"; then
