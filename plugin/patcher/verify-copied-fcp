@@ -379,7 +379,6 @@ for required_runtime_string in \
     '450152' \
     'CloudContentFirstLaunchCompleted' \
     'FFCloudContentDisabled' \
-    'constructor' \
     'Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne' \
     'POFDesktopOnboardingCoordinator' \
     'setQueryDemoProjectInfo:' \

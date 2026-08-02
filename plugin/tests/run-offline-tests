@@ -307,6 +307,24 @@ if ! /usr/bin/cmp -s "$runtime_policy_source" "$runtime_policy_build"; then
     fail "built compatibility policy differs from the project-owned source policy"
 fi
 
+/usr/bin/strings "$runtime_build" > "$test_dir/runtime-binary-strings.txt"
+for required_runtime_binary_string in \
+    'com.local.fcpcommandconsole.FinalCut' \
+    '12.3' \
+    '450152' \
+    'CloudContentFirstLaunchCompleted' \
+    'FFCloudContentDisabled' \
+    'Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne' \
+    'POFDesktopOnboardingCoordinator' \
+    'setQueryDemoProjectInfo:' \
+    'v24@0:8@?16' \
+    '636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce' \
+    'onboarding_query_gate=installed'; do
+    if ! /usr/bin/grep -F -x -q "$required_runtime_binary_string" "$test_dir/runtime-binary-strings.txt"; then
+        fail "built runtime is missing required exact binary string: $required_runtime_binary_string"
+    fi
+done
+
 for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier" "$repair_patcher"; do
     for forbidden_patcher_term in 'curl' 'git ' 'kill' 'osascript' 'xattr' 'rm -'; do
         if "$rg_bin" -n -i -F "$forbidden_patcher_term" "$patcher_script" >/dev/null; then
@@ -359,6 +377,25 @@ runtime_string_loop_source="$(/usr/bin/sed -n '/for required_runtime_string in/,
 if ! print -r -- "$runtime_string_loop_source" | "$rg_bin" -F -q "'v24@0:8@?16'"; then
     fail "copied-artifact verifier leaves the block type encoding exposed to zsh glob expansion"
 fi
+if print -r -- "$runtime_string_loop_source" | "$rg_bin" -F -q "'constructor'"; then
+    fail "copied-artifact verifier incorrectly treats the policy-only constructor phase as a runtime binary string"
+fi
+for required_runtime_binary_string in \
+    'com.local.fcpcommandconsole.FinalCut' \
+    '12.3' \
+    '450152' \
+    'CloudContentFirstLaunchCompleted' \
+    'FFCloudContentDisabled' \
+    'Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne' \
+    'POFDesktopOnboardingCoordinator' \
+    'setQueryDemoProjectInfo:' \
+    'v24@0:8@?16' \
+    '636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce' \
+    'onboarding_query_gate=installed'; do
+    if ! print -r -- "$runtime_string_loop_source" | "$rg_bin" -F -q "'$required_runtime_binary_string'"; then
+        fail "copied-artifact verifier is missing required literalized runtime binary string: $required_runtime_binary_string"
+    fi
+done
 if ! /bin/zsh -f -c 'set -o nomatch; for expected in '"'"'v24@0:8@?16'"'"'; do [[ "$expected" == "v24@0:8@?16" ]] || exit 1; done'; then
     fail "quoted block type encoding is not executable under zsh nomatch"
 fi
