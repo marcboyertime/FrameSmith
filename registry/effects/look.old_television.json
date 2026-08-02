@@ -19,6 +19,7 @@
     {"name":"overlayTransform","type":"string","defaultValue":"identity"},
     {"name":"overlayEnabled","type":"boolean","defaultValue":true},
     {"name":"flickerEnabled","type":"boolean","defaultValue":true},
+    {"name":"instabilityEnabled","type":"boolean","defaultValue":true},
     {"name":"wholeLookEnabled","type":"boolean","defaultValue":true},
     {"name":"vignetteEnabled","type":"boolean","defaultValue":false},
     {"name":"vignetteStrength","type":"number","defaultValue":0.15,"minimum":0.0,"maximum":1.0},
@@ -44,6 +45,7 @@
     {"name":"overlayTransform","valueType":"string","defaultValue":"identity","keyframeable":true},
     {"name":"overlayEnabled","valueType":"boolean","defaultValue":true,"keyframeable":false},
     {"name":"flickerEnabled","valueType":"boolean","defaultValue":true,"keyframeable":false},
+    {"name":"instabilityEnabled","valueType":"boolean","defaultValue":true,"keyframeable":false},
     {"name":"wholeLookEnabled","valueType":"boolean","defaultValue":true,"keyframeable":false},
     {"name":"vignetteEnabled","valueType":"boolean","defaultValue":false,"keyframeable":false},
     {"name":"vignetteStrength","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":0.15,"keyframeable":true}
