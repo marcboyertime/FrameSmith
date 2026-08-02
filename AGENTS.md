@@ -7,6 +7,12 @@ change:
   `/Applications/Final Cut Pro.app`, any Final Cut Pro library, or user media.
 - Never use AppleScript, Accessibility APIs, keyboard/mouse simulation, or
   coordinate-based UI automation.
+- A programmatic launch of the exact copied Final Cut Pro app is allowed only
+  after a read-only preflight proves stock Final Cut Pro is closed and a
+  reviewed isolation mechanism prevents automatic access to any production
+  Final Cut Pro library. A direct process or `open` launch is permitted only
+  after those guards pass; bare launch while the copy shares
+  `com.apple.FinalCut` preference or library identity remains forbidden.
 - Never interact with, stop, disable, unload, weaken, or bypass SafeSight.
 - Do not configure or use remote Git repositories, pushes, paid calls, media
   uploads, or secrets. Keep credentials out of source, logs, shell history, and
