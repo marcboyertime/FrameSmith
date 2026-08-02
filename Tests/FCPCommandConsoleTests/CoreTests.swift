@@ -2,21 +2,121 @@ import XCTest
 @testable import FCPCommandConsoleCore
 
 final class CoreTests: XCTestCase {
+    private var sourceA: URL!
+    private var sourceB: URL!
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        sourceA = root.appendingPathComponent("fcpcc-core-source-a-\(UUID().uuidString).mov")
+        sourceB = root.appendingPathComponent("fcpcc-core-source-b-\(UUID().uuidString).mov")
+        try Data("synthetic-source-a".utf8).write(to: sourceA)
+        try Data("synthetic-source-b".utf8).write(to: sourceB)
+    }
+
+    override func tearDownWithError() throws {
+        if let sourceA { try? FileManager.default.removeItem(at: sourceA) }
+        if let sourceB { try? FileManager.default.removeItem(at: sourceB) }
+        sourceA = nil
+        sourceB = nil
+        try super.tearDownWithError()
+    }
+
     private func registry() throws -> EffectRegistry {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         return try EffectRegistry.load(from: root.appendingPathComponent("registry/effects"))
     }
 
     private func selection(_ type: SelectionType = .singleClip, clips: [String] = ["clip-a"], revision: String = "r1") -> SelectionToken {
-        SelectionToken(selectionType: type, timelineID: "timeline", clipIDs: clips, revision: revision, startFrame: type == .twoAdjacentClips ? 100 : 0, endFrame: type == .twoAdjacentClips ? 112 : 24, sourceDurationFrames: type == .twoAdjacentClips ? 1000 : 240, sourceRangeStartFrame: type == .twoAdjacentClips ? 0 : nil, sourceRangeEndFrame: type == .twoAdjacentClips ? 500 : nil, boundaryFrame: type == .twoAdjacentClips ? 100 : nil, frameRate: type == .twoAdjacentClips ? 24 : nil, handleBeforeFrames: type == .twoAdjacentClips ? 12 : 0, handleAfterFrames: type == .twoAdjacentClips ? 12 : 0)
+        let urls = [sourceA!, sourceB!]
+        let identities = clips.enumerated().map { index, clip in
+            SourceIdentity(itemID: clip, canonicalPath: urls[min(index, urls.count - 1)].standardizedFileURL.path, sha256: (try! ContentHasher.sha256File(urls[min(index, urls.count - 1)])).lowercased())
+        }
+        return SelectionToken(selectionType: type, timelineID: "timeline", clipIDs: clips, sourceIdentities: identities, revision: revision, startFrame: type == .twoAdjacentClips ? 100 : 0, endFrame: type == .twoAdjacentClips ? 112 : 24, sourceDurationFrames: type == .twoAdjacentClips ? 1000 : 240, sourceRangeStartFrame: type == .twoAdjacentClips ? 0 : nil, sourceRangeEndFrame: type == .twoAdjacentClips ? 500 : nil, boundaryFrame: type == .twoAdjacentClips ? 100 : nil, frameRate: type == .twoAdjacentClips ? 24 : nil, handleBeforeFrames: type == .twoAdjacentClips ? 12 : 0, handleAfterFrames: type == .twoAdjacentClips ? 12 : 0)
     }
 
     func testRegistryHasExactlyFourDefinitionsAndAliases() throws {
         let registry = try registry()
         XCTAssertEqual(registry.all.count, 4)
+        XCTAssertEqual(try registry.definition(for: .targetedRotateZoom).representation.rawValue, "fcp_native")
+        XCTAssertEqual(try registry.definition(for: .oldTelevision).representation.rawValue, "generated_asset_plus_fcp_native")
+        XCTAssertEqual(try registry.definition(for: .naturalDissolve).representation.rawValue, "fcp_native")
+        XCTAssertEqual(try registry.definition(for: .livingStill).representation.rawValue, "fcp_native")
         XCTAssertEqual(registry.resolve("VHS"), .oldTelevision)
         XCTAssertEqual(registry.resolve("crossfade"), .naturalDissolve)
         XCTAssertEqual(registry.resolve("parallax"), .livingStill)
+        XCTAssertNil(RepresentationClass(identifier: "native"))
+        XCTAssertNil(RepresentationClass(identifier: "unknown"))
+    }
+
+    func testExactWorkflowSentencesParseWithNoAmbiguity() throws {
+        let planner = DeterministicPlanner(registry: try registry())
+        let targeted = try planner.plan(request: "Give this image a slow clockwise rotation while zooming toward the point I select.", selection: selection(), target: Target.confirmed(x: 0.6, y: 0.4))
+        XCTAssertEqual(targeted.effectID, .targetedRotateZoom)
+        XCTAssertEqual(targeted.confidence, 0.98, accuracy: 0.0001)
+        XCTAssertTrue(targeted.ambiguities.isEmpty)
+        XCTAssertEqual(targeted.parameters["durationSeconds"]?.numberValue, 4)
+        XCTAssertEqual(targeted.parameters["scaleStart"]?.numberValue, 1)
+        XCTAssertEqual(targeted.parameters["scaleEnd"]?.numberValue, 1.3)
+        XCTAssertEqual(targeted.parameters["rotationStartDegrees"]?.numberValue, 0)
+        XCTAssertEqual(targeted.parameters["rotationEndDegrees"]?.numberValue, 12)
+        XCTAssertEqual(targeted.parameters["easing"]?.stringValue, "ease_in_out")
+        XCTAssertEqual(targeted.parameters["direction"]?.stringValue, "clockwise")
+
+        let oldTV = try planner.plan(request: "Make this look like old black-and-white television footage with static, grain, scanlines, and subtle image instability.", selection: selection())
+        XCTAssertEqual(oldTV.effectID, .oldTelevision)
+        XCTAssertEqual(oldTV.confidence, 0.98, accuracy: 0.0001)
+        XCTAssertTrue(oldTV.ambiguities.isEmpty)
+        XCTAssertEqual(oldTV.parameters["monochromeEnabled"], .boolean(true))
+        XCTAssertEqual(oldTV.generatedAssets.count, 2)
+
+        let dissolve = try planner.plan(request: "Make this clip dissolve naturally into the next clip.", selection: selection(.twoAdjacentClips, clips: ["clip-a", "clip-b"]))
+        XCTAssertEqual(dissolve.effectID, .naturalDissolve)
+        XCTAssertEqual(dissolve.confidence, 0.98, accuracy: 0.0001)
+        XCTAssertTrue(dissolve.ambiguities.isEmpty)
+        XCTAssertEqual(dissolve.selectionToken.sourceIdentities.map(\.itemID), ["clip-a", "clip-b"])
+
+        let living = try planner.plan(request: "Make this still image feel gently alive for four seconds, then fade quickly to black.", selection: selection())
+        XCTAssertEqual(living.effectID, .livingStill)
+        XCTAssertEqual(living.confidence, 0.98, accuracy: 0.0001)
+        XCTAssertTrue(living.ambiguities.isEmpty)
+        XCTAssertEqual(living.parameters["durationSeconds"]?.numberValue, 4)
+        XCTAssertEqual(living.parameters["preserveOriginal"], .boolean(true))
+        let enriched = try planner.plan(request: "Make this still image feel gently alive for four seconds, slightly enrich the colors, then fade quickly to black.", selection: selection())
+        XCTAssertEqual(enriched.effectID, .livingStill)
+        XCTAssertTrue(enriched.ambiguities.isEmpty)
+    }
+
+    func testSelectionSourceIdentityValidationFailsClosed() throws {
+        let registry = try registry()
+        let planner = DeterministicPlanner(registry: registry)
+        let plan = try planner.plan(request: "crop", selection: selection(), target: Target.confirmed(x: 0.5, y: 0.5))
+        var missing = plan
+        missing.selectionToken.sourceIdentities = []
+        XCTAssertThrowsError(try PlanValidator(registry: registry).validate(missing))
+        var uppercase = plan
+        uppercase.selectionToken.sourceIdentities[0].sha256 = uppercase.selectionToken.sourceIdentities[0].sha256.uppercased()
+        XCTAssertThrowsError(try PlanValidator(registry: registry).validate(uppercase))
+        var nonCanonical = plan
+        nonCanonical.selectionToken.sourceIdentities[0].canonicalPath += "/../source.mov"
+        XCTAssertThrowsError(try PlanValidator(registry: registry).validate(nonCanonical))
+        var duplicate = try planner.plan(request: "cross dissolve", selection: selection(.twoAdjacentClips, clips: ["clip-a", "clip-b"]))
+        duplicate.selectionToken.sourceIdentities[1] = duplicate.selectionToken.sourceIdentities[0]
+        XCTAssertThrowsError(try PlanValidator(registry: registry).validate(duplicate))
+    }
+
+    func testPlanSchemaIncludesWireAndTypedIdentityContract() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let schema = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("schemas/effect-plan.schema.json"))) as! [String: Any]
+        let properties = schema["properties"] as! [String: Any]
+        XCTAssertEqual((properties["representation"] as! [String: Any])["enum"] as? [String], ["fcp_native", "generated_asset_plus_fcp_native", "external_render_required"])
+        XCTAssertNotNil(properties["generatedAssets"])
+        XCTAssertNotNil(properties["previewStrategy"])
+        XCTAssertNotNil(properties["verification"])
+        let defs = schema["$defs"] as! [String: Any]
+        let token = defs["selectionToken"] as! [String: Any]
+        XCTAssertNotNil((token["properties"] as! [String: Any])["sourceIdentities"])
+        XCTAssertNotNil(defs["sourceIdentity"])
     }
 
     func testParserAndPlannerAreDeterministicAndLocal() throws {

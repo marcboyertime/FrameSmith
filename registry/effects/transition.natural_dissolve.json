@@ -4,18 +4,22 @@
   "aliases": ["natural dissolve", "cross dissolve", "crossfade", "cross fade", "dissolve transition"],
   "requiredSelection": "two-adjacent-clips",
   "inputCount": 2,
-  "representation": "native",
+  "representation": "fcp_native",
   "parameters": [
     {"name":"durationFrames","type":"integer","defaultValue":12,"minimum":1,"maximum":120,"description":"frame-quantized transition duration"},
-    {"name":"easing","type":"string","defaultValue":"linear","allowedValues":["linear","ease-in","ease-out","ease-in-out"]}
+    {"name":"easing","type":"string","defaultValue":"linear","allowedValues":["linear","ease_in","ease_out","ease_in_out"]},
+    {"name":"preserveAudio","type":"boolean","defaultValue":true},
+    {"name":"edgeBehavior","type":"string","defaultValue":"preserve-source-edges","allowedValues":["preserve-source-edges"]}
   ],
   "backend": "native",
   "editableProperties": [
     {"name":"durationFrames","valueType":"integer","minimum":1,"maximum":120,"defaultValue":12,"keyframeable":false},
-    {"name":"easing","valueType":"string","defaultValue":"linear","keyframeable":false}
+    {"name":"easing","valueType":"string","defaultValue":"linear","keyframeable":false},
+    {"name":"preserveAudio","valueType":"boolean","defaultValue":true,"keyframeable":false},
+    {"name":"edgeBehavior","valueType":"string","defaultValue":"preserve-source-edges","keyframeable":false}
   ],
   "generatedAssets": [],
   "preview": "native-dissolve-preview",
-  "verification": ["exactly two adjacent spine clips", "frame-quantized boundary", "source ranges and handles are sufficient", "revision is current"],
+  "verification": ["exactly two ordered adjacent spine clips", "frame-quantized boundary and explicit handles", "native transition backend declaration", "revision and source identities are current"],
   "fallback": "native-natural-dissolve-only"
 }

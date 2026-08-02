@@ -34,17 +34,16 @@ public enum EffectID: String, Codable, CaseIterable, Sendable {
 }
 
 public enum RepresentationClass: String, Codable, CaseIterable, Sendable {
-    case native
-    case generatedOverlay = "generated-overlay"
-    case externalStub = "external-stub"
-    case hybrid
+    case fcpNative = "fcp_native"
+    case generatedAssetPlusFCPNative = "generated_asset_plus_fcp_native"
+    case externalRenderRequired = "external_render_required"
 
-    public init(identifier: String) {
-        switch identifier.lowercased().replacingOccurrences(of: "_", with: "-") {
-        case "generated-overlay", "overlay": self = .generatedOverlay
-        case "external-stub", "stub": self = .externalStub
-        case "hybrid": self = .hybrid
-        default: self = .native
+    public init?(identifier: String) {
+        switch identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "fcp_native": self = .fcpNative
+        case "generated_asset_plus_fcp_native": self = .generatedAssetPlusFCPNative
+        case "external_render_required": self = .externalRenderRequired
+        default: return nil
         }
     }
 }
@@ -76,9 +75,9 @@ public enum Backend: String, Codable, CaseIterable, Sendable {
 
 public enum Easing: String, Codable, CaseIterable, Sendable {
     case linear
-    case easeIn = "ease-in"
-    case easeOut = "ease-out"
-    case easeInOut = "ease-in-out"
+    case easeIn = "ease_in"
+    case easeOut = "ease_out"
+    case easeInOut = "ease_in_out"
 }
 
 /// A JSON-compatible, typed value used for effect parameters. It deliberately
@@ -154,11 +153,29 @@ public struct Target: Codable, Equatable, Sendable {
     public var isInNormalizedBounds: Bool { isFinite && (0...1).contains(x) && (0...1).contains(y) }
 }
 
+/// Stable source identity captured with a selection token. A source identity
+/// is deliberately content-addressed so a later executor can refuse a stale
+/// or substituted media item before any mutation.
+public struct SourceIdentity: Codable, Equatable, Sendable {
+    public var itemID: String
+    public var canonicalPath: String
+    public var sha256: String
+
+    public init(itemID: String, canonicalPath: String, sha256: String) {
+        self.itemID = itemID
+        self.canonicalPath = canonicalPath
+        self.sha256 = sha256
+    }
+}
+
+public typealias SelectionSource = SourceIdentity
+
 public struct SelectionToken: Codable, Equatable, Sendable {
     public var tokenID: String
     public var selectionType: SelectionType
     public var timelineID: String
     public var clipIDs: [String]
+    public var sourceIdentities: [SourceIdentity]
     public var revision: String
     public var startFrame: Int?
     public var endFrame: Int?
@@ -185,6 +202,7 @@ public struct SelectionToken: Codable, Equatable, Sendable {
         selectionType: SelectionType,
         timelineID: String = "timeline",
         clipIDs: [String],
+        sourceIdentities: [SourceIdentity] = [],
         revision: String,
         startFrame: Int? = nil,
         endFrame: Int? = nil,
@@ -210,6 +228,7 @@ public struct SelectionToken: Codable, Equatable, Sendable {
         self.selectionType = selectionType
         self.timelineID = timelineID
         self.clipIDs = clipIDs
+        self.sourceIdentities = sourceIdentities
         self.revision = revision
         self.startFrame = startFrame
         self.endFrame = endFrame
@@ -235,6 +254,11 @@ public struct SelectionToken: Codable, Equatable, Sendable {
     public var frameCount: Int? {
         guard let startFrame, let endFrame else { return nil }
         return endFrame - startFrame
+    }
+
+    public var sourceItems: [SourceIdentity] {
+        get { sourceIdentities }
+        set { sourceIdentities = newValue }
     }
 }
 
@@ -308,6 +332,9 @@ public struct EffectPlan: Codable, Equatable, Sendable {
     public var parameters: [String: ParameterValue]
     public var representation: RepresentationClass
     public var editableProperties: [EditableProperty]
+    public var generatedAssets: [GeneratedAssetDefinition]
+    public var previewStrategy: String
+    public var verification: [String]
     public var fallback: String
     public var cost: CostEstimate
     public var preconditionRevision: String
@@ -324,6 +351,9 @@ public struct EffectPlan: Codable, Equatable, Sendable {
         parameters: [String: ParameterValue] = [:],
         representation: RepresentationClass,
         editableProperties: [EditableProperty] = [],
+        generatedAssets: [GeneratedAssetDefinition] = [],
+        previewStrategy: String = "",
+        verification: [String] = [],
         fallback: String,
         cost: CostEstimate = CostEstimate(),
         preconditionRevision: String
@@ -339,6 +369,9 @@ public struct EffectPlan: Codable, Equatable, Sendable {
         self.parameters = parameters
         self.representation = representation
         self.editableProperties = editableProperties
+        self.generatedAssets = generatedAssets
+        self.previewStrategy = previewStrategy
+        self.verification = verification
         self.fallback = fallback
         self.cost = cost
         self.preconditionRevision = preconditionRevision
@@ -346,6 +379,54 @@ public struct EffectPlan: Codable, Equatable, Sendable {
 
     public var interpretation: RequestInterpretation {
         RequestInterpretation(originalRequest: originalRequest, confidence: confidence, ambiguities: ambiguities, effectID: effectID)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, operationID, originalRequest, confidence, ambiguities, effectID,
+             selectionToken, normalizedPoint, parameters, representation, editableProperties,
+             generatedAssets, previewStrategy, verification, fallback, cost, preconditionRevision
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(String.self, forKey: .schemaVersion)
+        operationID = try container.decode(UUID.self, forKey: .operationID)
+        originalRequest = try container.decode(String.self, forKey: .originalRequest)
+        confidence = try container.decode(Double.self, forKey: .confidence)
+        ambiguities = try container.decode([String].self, forKey: .ambiguities)
+        effectID = try container.decode(EffectID.self, forKey: .effectID)
+        selectionToken = try container.decode(SelectionToken.self, forKey: .selectionToken)
+        normalizedPoint = try container.decodeIfPresent(Target.self, forKey: .normalizedPoint)
+        parameters = try container.decode([String: ParameterValue].self, forKey: .parameters)
+        representation = try container.decode(RepresentationClass.self, forKey: .representation)
+        editableProperties = try container.decode([EditableProperty].self, forKey: .editableProperties)
+        generatedAssets = try container.decodeIfPresent([GeneratedAssetDefinition].self, forKey: .generatedAssets) ?? []
+        previewStrategy = try container.decodeIfPresent(String.self, forKey: .previewStrategy) ?? ""
+        verification = try container.decodeIfPresent([String].self, forKey: .verification) ?? []
+        fallback = try container.decode(String.self, forKey: .fallback)
+        cost = try container.decode(CostEstimate.self, forKey: .cost)
+        preconditionRevision = try container.decode(String.self, forKey: .preconditionRevision)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(operationID, forKey: .operationID)
+        try container.encode(originalRequest, forKey: .originalRequest)
+        try container.encode(confidence, forKey: .confidence)
+        try container.encode(ambiguities, forKey: .ambiguities)
+        try container.encode(effectID, forKey: .effectID)
+        try container.encode(selectionToken, forKey: .selectionToken)
+        try container.encodeIfPresent(normalizedPoint, forKey: .normalizedPoint)
+        try container.encode(parameters, forKey: .parameters)
+        try container.encode(representation, forKey: .representation)
+        try container.encode(editableProperties, forKey: .editableProperties)
+        try container.encode(generatedAssets, forKey: .generatedAssets)
+        try container.encode(previewStrategy, forKey: .previewStrategy)
+        try container.encode(verification, forKey: .verification)
+        try container.encode(fallback, forKey: .fallback)
+        try container.encode(cost, forKey: .cost)
+        try container.encode(preconditionRevision, forKey: .preconditionRevision)
     }
 }
 

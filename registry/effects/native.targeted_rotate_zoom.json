@@ -4,28 +4,30 @@
   "aliases": ["targeted rotate zoom", "rotate and zoom", "targeted pan zoom", "spatial conform", "crop and rotate"],
   "requiredSelection": "single-clip",
   "inputCount": 1,
-  "representation": "native",
+  "representation": "fcp_native",
   "parameters": [
-    {"name":"durationSeconds","type":"number","defaultValue":1.0,"minimum":0.1,"maximum":30.0,"description":"bounded keyframe duration"},
+    {"name":"durationSeconds","type":"number","defaultValue":4.0,"minimum":0.1,"maximum":30.0,"description":"bounded keyframe duration"},
     {"name":"scaleStart","type":"number","defaultValue":1.0,"minimum":0.1,"maximum":4.0},
-    {"name":"scaleEnd","type":"number","defaultValue":1.12,"minimum":0.1,"maximum":4.0},
+    {"name":"scaleEnd","type":"number","defaultValue":1.3,"minimum":0.1,"maximum":4.0},
     {"name":"rotationStartDegrees","type":"number","defaultValue":0.0,"minimum":-180.0,"maximum":180.0},
-    {"name":"rotationEndDegrees","type":"number","defaultValue":0.0,"minimum":-180.0,"maximum":180.0},
+    {"name":"rotationEndDegrees","type":"number","defaultValue":12.0,"minimum":-180.0,"maximum":180.0},
     {"name":"direction","type":"string","defaultValue":"clockwise","allowedValues":["clockwise","counterclockwise"]},
-    {"name":"easing","type":"string","defaultValue":"ease-in-out","allowedValues":["linear","ease-in","ease-out","ease-in-out"]}
+    {"name":"easing","type":"string","defaultValue":"ease_in_out","allowedValues":["linear","ease_in","ease_out","ease_in_out"]}
   ],
   "backend": "native",
   "editableProperties": [
-    {"name":"durationSeconds","valueType":"number","minimum":0.1,"maximum":30.0,"defaultValue":1.0,"keyframeable":false},
+    {"name":"durationSeconds","valueType":"number","minimum":0.1,"maximum":30.0,"defaultValue":4.0,"keyframeable":false},
     {"name":"scaleStart","valueType":"number","minimum":0.1,"maximum":4.0,"defaultValue":1.0,"keyframeable":true},
-    {"name":"scaleEnd","valueType":"number","minimum":0.1,"maximum":4.0,"defaultValue":1.12,"keyframeable":true},
+    {"name":"scaleEnd","valueType":"number","minimum":0.1,"maximum":4.0,"defaultValue":1.3,"keyframeable":true},
     {"name":"rotationStartDegrees","valueType":"number","minimum":-180.0,"maximum":180.0,"defaultValue":0.0,"keyframeable":true},
-    {"name":"rotationEndDegrees","valueType":"number","minimum":-180.0,"maximum":180.0,"defaultValue":0.0,"keyframeable":true},
+    {"name":"rotationEndDegrees","valueType":"number","minimum":-180.0,"maximum":180.0,"defaultValue":12.0,"keyframeable":true},
+    {"name":"direction","valueType":"string","defaultValue":"clockwise","keyframeable":false},
+    {"name":"easing","valueType":"string","defaultValue":"ease_in_out","keyframeable":false},
     {"name":"anchorX","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":0.5,"keyframeable":false},
     {"name":"anchorY","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":0.5,"keyframeable":false}
   ],
   "generatedAssets": [],
   "preview": "native-transform-preview",
-  "verification": ["selection-token revision matches", "target is finite and normalized", "project-space anchor compensation is deterministic"],
+  "verification": ["selection-token revision and source identity match", "confirmed normalized point is finite and in [0,1]", "project-space anchor compensation is deterministic"],
   "fallback": "native-targeted-rotate-zoom"
 }

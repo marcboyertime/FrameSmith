@@ -44,7 +44,7 @@ public struct DeterministicRequestParser: Sendable {
         if lower.contains("rotate") || lower.contains("zoom") || lower.contains("target") || lower.contains("conform") || lower.contains("crop") { matches.append(.targetedRotateZoom) }
         if lower.contains("dissolve") || lower.contains("cross fade") || lower.contains("crossfade") { matches.append(.naturalDissolve) }
         if lower.contains("old tv") || lower.contains("vhs") || lower.contains("scanline") || lower.contains("scan line") || lower.contains("television") { matches.append(.oldTelevision) }
-        if lower.contains("living still") || lower.contains("bring this still to life") || lower.contains("make this still move") || lower.contains("animate still") || lower.contains("depthflow") || lower.contains("depth flow") || lower.contains("parallax") { matches.append(.livingStill) }
+        if lower.contains("living still") || lower.contains("bring this still to life") || lower.contains("make this still move") || lower.contains("animate still") || lower.contains("gently alive") || lower.contains("depthflow") || lower.contains("depth flow") || lower.contains("parallax") { matches.append(.livingStill) }
         matches = Array(Set(matches))
         guard !matches.isEmpty else { throw PlannerError.noMatch }
         guard matches.count == 1, let id = matches.first else { throw PlannerError.ambiguous(matches.sorted { $0.rawValue < $1.rawValue }) }
@@ -52,8 +52,19 @@ public struct DeterministicRequestParser: Sendable {
         // Confidence is deterministic and intentionally conservative. Any
         // unsupported modifiers are retained as an ambiguity, not interpreted.
         var ambiguities: [String] = []
-        let supportedWords = ["targeted", "target", "rotate", "rotation", "zoom", "conform", "crop", "dissolve", "natural", "cross", "fade", "old", "tv", "television", "vhs", "scanline", "scan", "static", "grain", "overlay", "living", "still", "bring", "this", "life", "move", "animate", "depthflow", "depth", "flow", "parallax", "seconds", "second", "secs", "duration", "fps", "frames", "frame", "degrees", "degree", "deg", "by", "for", "toward", "towards", "slight", "ease", "linear", "in", "out", "clockwise", "counterclockwise", "counter", "with", "to", "at", "the", "a", "an", "on", "and", "clip", "clips", "selection", "please", "make", "apply", "add", "use"]
-        for token in lower.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "." }) where !supportedWords.contains(String(token)) && Double(token) == nil {
+        let supportedWords = [
+            "targeted", "target", "rotate", "rotation", "zoom", "zooming", "conform", "crop", "slow", "select",
+            "dissolve", "natural", "naturally", "cross", "fade", "quickly", "old", "tv", "television",
+            "footage", "black", "white", "vhs", "scanline", "scanlines", "scan", "static", "grain",
+            "overlay", "subtle", "instability", "flicker", "desaturate", "desaturation", "monochrome", "living", "still", "image", "feel", "gently", "alive", "look", "like",
+            "bring", "this", "life", "move", "animate", "depthflow", "depth", "flow", "parallax",
+            "seconds", "second", "secs", "duration", "fps", "frames", "frame", "degrees", "degree", "deg",
+            "by", "for", "four", "toward", "towards", "point", "i", "select", "slight", "slightly", "enrich", "colors",
+            "ease", "linear", "in", "out", "clockwise", "counterclockwise", "counter", "while", "with", "to",
+            "at", "the", "a", "an", "on", "and", "into", "next", "clip", "clips", "selection", "please", "make",
+            "give", "apply", "add", "use", "then"
+        ]
+        for token in lower.split(whereSeparator: { !$0.isLetter && !$0.isNumber }) where !supportedWords.contains(String(token)) && Double(token) == nil {
             ambiguities.append(String(token))
         }
         let confidence = ambiguities.isEmpty ? 0.98 : 0.75
@@ -96,6 +107,9 @@ public struct DeterministicPlanner: Sendable {
             parameters: parameters,
             representation: definition.representation,
             editableProperties: definition.editableProperties,
+            generatedAssets: definition.generatedAssets,
+            previewStrategy: definition.preview,
+            verification: definition.verification,
             fallback: fallback,
             cost: CostEstimate(paid: false, usd: 0, provider: "local"),
             preconditionRevision: selection.revision
@@ -136,6 +150,14 @@ public struct DeterministicPlanner: Sendable {
             if lower.contains("clockwise") && !lower.contains("counterclockwise") { parameters["direction"] = .string("clockwise") }
         }
         if definition.identifier == .oldTelevision && (lower.contains("scanline") || lower.contains("scan line")) { parameters["kind"] = .string("scanline") }
+        if definition.identifier == .livingStill {
+            if let seconds = firstNumber(in: lower, pattern: #"([0-9]+(?:\.[0-9]+)?)\s*(?:seconds?|secs?|s)\b"#) {
+                let bounded = min(30, max(0.1, seconds))
+                parameters["durationSeconds"] = .number(bounded)
+            } else if lower.contains("four seconds") {
+                parameters["durationSeconds"] = .number(4)
+            }
+        }
     }
 
     private func firstNumber(in text: String, pattern: String) -> Double? {
@@ -159,6 +181,8 @@ public enum PlanValidationError: Error, LocalizedError, Equatable {
     case paidCallNotAllowed
     case invalidCost
     case duplicateUnsafeField(String)
+    case representationMismatch(expected: RepresentationClass, actual: RepresentationClass)
+    case invalidPlanMetadata(String)
 
     public var errorDescription: String? {
         switch self {
@@ -174,6 +198,8 @@ public enum PlanValidationError: Error, LocalizedError, Equatable {
         case .paidCallNotAllowed: return "Phase 1 plans cannot make paid provider calls"
         case .invalidCost: return "Invalid cost estimate"
         case .duplicateUnsafeField(let field): return "Unsafe/arbitrary field is not permitted: \(field)"
+        case .representationMismatch(let expected, let actual): return "Representation mismatch (expected \(expected.rawValue), got \(actual.rawValue))"
+        case .invalidPlanMetadata(let reason): return "Invalid registry-derived plan metadata: \(reason)"
         }
     }
 }
@@ -190,6 +216,12 @@ public struct PlanValidator: Sendable {
         guard plan.preconditionRevision == plan.selectionToken.revision else { throw PlanValidationError.staleRevision(expected: plan.preconditionRevision, actual: plan.selectionToken.revision) }
         if let currentRevision, currentRevision != plan.preconditionRevision { throw PlanValidationError.staleRevision(expected: currentRevision, actual: plan.preconditionRevision) }
         guard let definition = registry.definitions[plan.effectID] else { throw PlanValidationError.unknownEffect(plan.effectID) }
+        guard plan.representation == definition.representation else { throw PlanValidationError.representationMismatch(expected: definition.representation, actual: plan.representation) }
+        guard plan.editableProperties == definition.editableProperties else { throw PlanValidationError.invalidPlanMetadata("editable properties must come from the effect registry") }
+        guard plan.generatedAssets == definition.generatedAssets else { throw PlanValidationError.invalidPlanMetadata("generated assets must come from the effect registry") }
+        guard plan.previewStrategy == definition.preview, !plan.previewStrategy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw PlanValidationError.invalidPlanMetadata("preview strategy must be declared by the registry") }
+        guard plan.verification == definition.verification, !plan.verification.isEmpty else { throw PlanValidationError.invalidPlanMetadata("verification requirements must be declared by the registry") }
+        guard plan.fallback == definition.fallback else { throw PlanValidationError.invalidPlanMetadata("fallback must be the registry fallback") }
         guard plan.cost.paid == false, plan.cost.usd == 0, plan.cost.provider == "local", plan.cost.requiresMediaUpload == false else { throw PlanValidationError.paidCallNotAllowed }
         guard plan.cost.usd.isFinite, plan.cost.usd >= 0, plan.cost.estimatedUnits.map({ $0.isFinite && $0 >= 0 }) ?? true else { throw PlanValidationError.invalidCost }
 
@@ -234,12 +266,16 @@ public struct PlanValidator: Sendable {
     private func validateSelection(_ token: SelectionToken, for definition: EffectDefinition, parameters: [String: ParameterValue]) throws {
         guard !token.tokenID.isEmpty, !token.revision.isEmpty else { throw PlanValidationError.invalidSelection("token id and revision are required") }
         guard token.clipIDs.allSatisfy({ !$0.isEmpty }) else { throw PlanValidationError.invalidSelection("empty clip id") }
+        guard Set(token.clipIDs).count == token.clipIDs.count else { throw PlanValidationError.invalidSelection("duplicate clip id") }
         guard token.isSpine else { throw PlanValidationError.invalidSelection("selection must be on the spine") }
         let nonNegativeFrames: [Int?] = [token.startFrame, token.endFrame, token.sourceDurationFrames, token.sourceRangeStartFrame, token.sourceRangeEndFrame, token.leftSourceDurationFrames, token.rightSourceDurationFrames, token.leftSourceRangeStartFrame, token.leftSourceRangeEndFrame, token.rightSourceRangeStartFrame, token.rightSourceRangeEndFrame, token.boundaryFrame, token.leftClipEndFrame, token.rightClipStartFrame]
         guard nonNegativeFrames.compactMap({ $0 }).allSatisfy({ $0 >= 0 }) else { throw PlanValidationError.invalidSelection("negative frame value") }
         guard token.handleBeforeFrames >= 0, token.handleAfterFrames >= 0 else { throw PlanValidationError.invalidSelection("negative handle") }
         if let frameRate = token.frameRate { guard (1...240).contains(frameRate) else { throw PlanValidationError.invalidSelection("invalid frame rate") } }
         if let start = token.startFrame, let end = token.endFrame { guard end > start else { throw PlanValidationError.invalidSelection("invalid range") } }
+        guard token.sourceIdentities.count == definition.inputCount else { throw PlanValidationError.invalidSelection("exactly \(definition.inputCount) typed source identities are required") }
+        guard token.sourceIdentities.count == token.clipIDs.count else { throw PlanValidationError.invalidSelection("source identity and clip counts differ") }
+        try validateSourceIdentities(token.sourceIdentities, matching: token.clipIDs)
         switch definition.identifier {
         case .naturalDissolve:
             guard token.selectionType == .twoAdjacentClips, token.clipIDs.count == 2 else { throw PlanValidationError.invalidSelection("dissolve requires exactly two clips") }
@@ -265,6 +301,35 @@ public struct PlanValidator: Sendable {
         case .targetedRotateZoom, .oldTelevision, .livingStill:
             guard token.selectionType == definition.requiredSelection, token.clipIDs.count == definition.inputCount else { throw PlanValidationError.invalidSelection("selection cardinality mismatch") }
             if let duration = token.sourceDurationFrames { guard duration > 0 else { throw PlanValidationError.invalidSelection("source duration must be positive") } }
+        }
+    }
+
+    private func validateSourceIdentities(_ identities: [SourceIdentity], matching clipIDs: [String]) throws {
+        var itemIDs = Set<String>()
+        var paths = Set<String>()
+        for (index, identity) in identities.enumerated() {
+            guard identity.itemID == clipIDs[index], !identity.itemID.isEmpty else {
+                throw PlanValidationError.invalidSelection("source identity order or item id does not match the selected clip")
+            }
+            guard itemIDs.insert(identity.itemID).inserted else { throw PlanValidationError.invalidSelection("duplicate source item id") }
+
+            let path = identity.canonicalPath
+            guard path.hasPrefix("/"), !path.isEmpty else { throw PlanValidationError.invalidSelection("source path must be absolute") }
+            guard !path.split(separator: "/").contains("..") else { throw PlanValidationError.invalidSelection("source path traversal is not allowed") }
+            guard !path.unicodeScalars.contains(where: { ";&|`$()<>*?{}\n\r".unicodeScalars.contains($0) }) else {
+                throw PlanValidationError.invalidSelection("source path contains shell metacharacters")
+            }
+            let url = URL(fileURLWithPath: path)
+            guard url.standardizedFileURL.path == path else { throw PlanValidationError.invalidSelection("source path is not canonical") }
+            guard url.resolvingSymlinksInPath().standardizedFileURL.path == path else { throw PlanValidationError.invalidSelection("source path must not be a symlink") }
+            let forbiddenFinalCutPath = path == "/Applications/Final Cut Pro.app" || path.hasPrefix("/Applications/Final Cut Pro.app/") || path.contains(".fcpbundle") || path.contains("/Final Cut Pro Libraries/")
+            guard !forbiddenFinalCutPath else { throw PlanValidationError.invalidSelection("Final Cut application/library paths are forbidden") }
+            guard paths.insert(path).inserted else { throw PlanValidationError.invalidSelection("duplicate canonical source path") }
+
+            let digest = identity.sha256
+            guard digest.count == 64, digest.unicodeScalars.allSatisfy({ scalar in
+                (scalar.value >= 48 && scalar.value <= 57) || (scalar.value >= 97 && scalar.value <= 102)
+            }) else { throw PlanValidationError.invalidSelection("source SHA-256 must be 64 lowercase hexadecimal characters") }
         }
     }
 }
