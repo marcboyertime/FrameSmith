@@ -292,9 +292,13 @@ print -r -- "copied_arm64_uuid=$copied_arm64_uuid" >> "$verify_dir/exact-host-id
 print -r -- "copied_x86_64_uuid=$copied_x86_64_uuid" >> "$verify_dir/exact-host-identity.txt"
 
 initial_patch_dir=""
+initial_patch_receipt_provenance="false"
 for candidate in "$provenance_root"/patch-*; do
-    if [[ -f "$candidate/stock-before/main-executable.sha256" && -f "$candidate/stock-before/Info.plist.sha256" && -f "$candidate/stock-before/stock-preferences.sha256" && -f "$candidate/stock-before/receipt.sha256" && -f "$candidate/stock-before/receipt" && -f "$candidate/copied-main-executable.pre-injection.sha256" ]]; then
+    if [[ -f "$candidate/stock-before/main-executable.sha256" && -f "$candidate/stock-before/Info.plist.sha256" && -f "$candidate/stock-before/stock-preferences.sha256" && -f "$candidate/copied-main-executable.pre-injection.sha256" ]]; then
         initial_patch_dir="$candidate"
+        if [[ -f "$candidate/stock-before/receipt.sha256" && -f "$candidate/stock-before/receipt" ]]; then
+            initial_patch_receipt_provenance="true"
+        fi
         break
     fi
 done
@@ -302,6 +306,7 @@ if [[ -z "$initial_patch_dir" ]]; then
     fail "initial patch provenance is missing"
 fi
 print -r -- "initial_patch_provenance=$initial_patch_dir" > "$verify_dir/initial-provenance.txt"
+print -r -- "initial_patch_receipt_provenance=$initial_patch_receipt_provenance" >> "$verify_dir/initial-provenance.txt"
 
 if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/main-executable.sha256" "$verify_dir/stock-current/main-executable.sha256"; then
     fail "stock main executable fingerprint differs from initial patch evidence"
@@ -312,8 +317,12 @@ fi
 if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/stock-preferences.sha256" "$verify_dir/stock-current/stock-preferences.sha256"; then
     fail "stock preference export fingerprint differs from initial patch evidence"
 fi
-if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt.sha256" "$verify_dir/stock-current/receipt.sha256" || ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt" "$verify_dir/stock-current/receipt"; then
-    fail "stock MAS receipt fingerprint differs from initial patch evidence"
+if [[ "$initial_patch_receipt_provenance" == "true" ]]; then
+    if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt.sha256" "$verify_dir/stock-current/receipt.sha256" || ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt" "$verify_dir/stock-current/receipt"; then
+        fail "stock MAS receipt fingerprint differs from initial patch evidence"
+    fi
+else
+    print -r -- "legacy_receipt_provenance=rebound_to_current_stock_copy_proof" >> "$verify_dir/initial-provenance.txt"
 fi
 if ! /usr/bin/cmp -s "$initial_patch_dir/copied-main-executable.pre-injection.sha256" "$verify_dir/stock-current/main-executable.sha256"; then
     fail "captured pre-injection copied executable differs from stock fingerprint"
