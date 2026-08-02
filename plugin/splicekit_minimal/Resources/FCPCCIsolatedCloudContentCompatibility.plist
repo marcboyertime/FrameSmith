@@ -3,13 +3,19 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>1</integer>
+    <integer>2</integer>
     <key>ExpectedHostBundleIdentifier</key>
     <string>com.local.fcpcommandconsole.FinalCut</string>
     <key>ExpectedHostVersion</key>
     <string>12.3</string>
     <key>ExpectedHostBuild</key>
     <string>450152</string>
+    <key>ExpectedHostExecutableSHA256</key>
+    <string>6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390</string>
+    <key>ExpectedHostArm64UUID</key>
+    <string>AD024067-E145-3988-AFF9-BD33391C416D</string>
+    <key>ExpectedHostX86_64UUID</key>
+    <string>2ACCBD11-6965-3D09-BD87-9A900FDC740E</string>
     <key>PreferenceDomain</key>
     <string>kCFPreferencesCurrentApplication</string>
     <key>ApprovedPreferenceKeys</key>
@@ -39,19 +45,23 @@
     <array>
         <dict>
             <key>RuntimeClass</key>
-            <string>_TtC13Final_Cut_Pro19CloudContentCatalog</string>
+            <string>_TtC13Final_Cut_Pro25DemoProjectDownloadHelper</string>
             <key>Selector</key>
-            <string>updateCatalogAndRegistry</string>
+            <string>fetchDefaultDemoProjectWithCompletionHandler:</string>
             <key>MethodKind</key>
             <string>instance</string>
             <key>ObjectiveCArgumentCount</key>
-            <integer>2</integer>
+            <integer>3</integer>
             <key>ObjectiveCReturnType</key>
             <string>v</string>
             <key>ObjectiveCTypeEncoding</key>
-            <string>v16@0:8</string>
+            <string>v24@0:8@?&lt;v@?@"_TtC13Final_Cut_Pro23CloudContentDemoProject"@"NSError"&gt;16</string>
+            <key>ExpectedOriginalImplementationOffsetArm64</key>
+            <string>0xce540</string>
+            <key>ExpectedOriginalImplementationOffsetX86_64</key>
+            <string>0x107ca0</string>
             <key>Replacement</key>
-            <string>void_noop</string>
+            <string>completion_nil_project_local_error</string>
         </dict>
         <dict>
             <key>RuntimeClass</key>
@@ -153,6 +163,6 @@
     <key>SourceSnapshotCommit</key>
     <string>f4f6618121309a69b66272b441f34cf8ad57f306</string>
     <key>SourceAttribution</key>
-    <string>Manually transcribed bounded flags and exact FCP 12.3 CloudContent runtime contracts from the locked SpliceKit reference documentation and static host inspection; no upstream runtime code is used.</string>
+    <string>Manually transcribed bounded flags and exact FCP 12.3 CloudContent runtime contracts from the locked SpliceKit reference documentation and static host inspection, including the stock executable SHA-256, both slice UUIDs, and the DemoProjectDownloadHelper Objective-C bridge IMP offsets; no upstream runtime code is used.</string>
 </dict>
 </plist>

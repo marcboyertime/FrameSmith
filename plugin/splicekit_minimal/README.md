@@ -21,12 +21,18 @@ debugger, and DYLD-environment entitlements remain forbidden. That observation
 does not establish runtime behavior or authorize a Final Cut library mutation.
 
 The isolated-copy startup compatibility guard has exactly seven compile-time
-allowlisted CloudContent method contracts for Final Cut Pro 12.3. It installs
-only after the exact copied-host containment gate passes, attempts once in the
-framework constructor and once at will-finish-launching, and skips every method
-whose class, placement, argument count, return type, or full Objective-C type
-encoding differs from the reviewed contract. The policy resource is an audit
-artifact, not runtime input; no class or method enumeration is used.
+allowlisted CloudContent method contracts for Final Cut Pro 12.3. Its crash-path
+entry is the exact Objective-C
+DemoProjectDownloadHelper.fetchDefaultDemoProjectWithCompletionHandler:
+bridge—not the private Swift async function. After exact class, selector, and
+full type-encoding validation, it additionally requires the original arm64 or
+x86_64 implementation offset to match the inspected host slice. It completes
+only with (nil, local NSError), matching the bridge’s documented failure shape;
+it never fabricates a project, starts a Swift task, or invokes CloudKit. The
+policy also pins the inspected stock executable SHA-256 and both slice UUIDs.
+Installation remains limited to the exact copied-host containment gate, once in
+the framework constructor and once at will-finish-launching; no class or method
+enumeration is used.
 
 The fixed CloudContent names and contracts were manually transcribed from the
 locked `reference/elliotttate/SpliceKit` snapshot at

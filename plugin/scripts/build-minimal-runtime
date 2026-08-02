@@ -32,7 +32,7 @@ verify_compatibility_policy() {
   local -a expected_replacements
 
   expected_classes=(
-    '_TtC13Final_Cut_Pro19CloudContentCatalog'
+    '_TtC13Final_Cut_Pro25DemoProjectDownloadHelper'
     '_TtC13Final_Cut_Pro19CloudContentCatalog'
     '_TtC13Final_Cut_Pro19CloudContentCatalog'
     '_TtC13Final_Cut_Pro19CloudContentCatalog'
@@ -41,7 +41,7 @@ verify_compatibility_policy() {
     'CCFirstLaunchHelper'
   )
   expected_selectors=(
-    'updateCatalogAndRegistry'
+    'fetchDefaultDemoProjectWithCompletionHandler:'
     'isCloudContentEnabled'
     'isRunningSubscriptionApp'
     'startListeningForApplicationDidBecomeActiveNotifications'
@@ -50,10 +50,10 @@ verify_compatibility_policy() {
     'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:'
   )
   expected_kinds=(instance instance instance instance class class instance)
-  expected_argument_counts=(2 2 2 2 2 2 3)
+  expected_argument_counts=(3 2 2 2 2 2 3)
   expected_return_types=(v B B v B B v)
   expected_type_encodings=(
-    'v16@0:8'
+    'v24@0:8@?<v@?@"_TtC13Final_Cut_Pro23CloudContentDemoProject"@"NSError">16'
     'B16@0:8'
     'B16@0:8'
     'v16@0:8'
@@ -61,10 +61,10 @@ verify_compatibility_policy() {
     'B16@0:8'
     'v24@0:8@?<v@?@"NSError">16'
   )
-  expected_replacements=(void_noop return_false return_false void_noop return_false return_false completion_nil_success)
+  expected_replacements=(completion_nil_project_local_error return_false return_false void_noop return_false return_false completion_nil_success)
 
   /usr/bin/plutil -lint "$policy_path" >/dev/null || fail "compatibility policy is invalid"
-  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
+  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "2" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
     fail "compatibility policy host or preference domain is not exact"
   fi
   if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "will_finish_launching_once" ]]; then
@@ -84,6 +84,14 @@ verify_compatibility_policy() {
   if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:7' "$policy_path" >/dev/null 2>&1; then
     fail "compatibility policy permits an extra method replacement"
   fi
+  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0xce540" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x107ca0" ]]; then
+    fail "compatibility policy demo-project bridge implementation offsets are not exact"
+  fi
+  for index in {1..6}; do
+    if /usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$index:ExpectedOriginalImplementationOffsetArm64" "$policy_path" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$index:ExpectedOriginalImplementationOffsetX86_64" "$policy_path" >/dev/null 2>&1; then
+      fail "compatibility policy permits an unexpected implementation-offset contract"
+    fi
+  done
 }
 
 /bin/mkdir -p "$build_dir"

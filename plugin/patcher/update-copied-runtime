@@ -69,6 +69,7 @@ capture_bundle() {
     /usr/bin/codesign -d --entitlements :- "$app_path" > "$output_dir/entitlements.plist" 2> "$output_dir/entitlements.stderr"
     /usr/bin/otool -arch arm64 -L "$executable_path" > "$output_dir/main-libraries-arm64.txt"
     /usr/bin/otool -arch x86_64 -L "$executable_path" > "$output_dir/main-libraries-x86_64.txt"
+    /usr/bin/dwarfdump --uuid "$executable_path" > "$output_dir/main-executable.uuids.txt"
 }
 
 require_not_running() {
@@ -119,7 +120,7 @@ verify_compatibility_policy() {
     local -a expected_replacements
 
     expected_classes=(
-        '_TtC13Final_Cut_Pro19CloudContentCatalog'
+        '_TtC13Final_Cut_Pro25DemoProjectDownloadHelper'
         '_TtC13Final_Cut_Pro19CloudContentCatalog'
         '_TtC13Final_Cut_Pro19CloudContentCatalog'
         '_TtC13Final_Cut_Pro19CloudContentCatalog'
@@ -128,7 +129,7 @@ verify_compatibility_policy() {
         'CCFirstLaunchHelper'
     )
     expected_selectors=(
-        'updateCatalogAndRegistry'
+        'fetchDefaultDemoProjectWithCompletionHandler:'
         'isCloudContentEnabled'
         'isRunningSubscriptionApp'
         'startListeningForApplicationDidBecomeActiveNotifications'
@@ -137,10 +138,10 @@ verify_compatibility_policy() {
         'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:'
     )
     expected_kinds=(instance instance instance instance class class instance)
-    expected_argument_counts=(2 2 2 2 2 2 3)
+    expected_argument_counts=(3 2 2 2 2 2 3)
     expected_return_types=(v B B v B B v)
     expected_type_encodings=(
-        'v16@0:8'
+        'v24@0:8@?<v@?@"_TtC13Final_Cut_Pro23CloudContentDemoProject"@"NSError">16'
         'B16@0:8'
         'B16@0:8'
         'v16@0:8'
@@ -148,16 +149,16 @@ verify_compatibility_policy() {
         'B16@0:8'
         'v24@0:8@?<v@?@"NSError">16'
     )
-    expected_replacements=(void_noop return_false return_false void_noop return_false return_false completion_nil_success)
+    expected_replacements=(completion_nil_project_local_error return_false return_false void_noop return_false return_false completion_nil_success)
 
     if ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
         fail "$label compatibility policy is invalid"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "2" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" ]]; then
         fail "$label compatibility policy host bundle identifier is not exact"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" ]]; then
-        fail "$label compatibility policy host version/build is not exact"
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" ]]; then
+        fail "$label compatibility policy host version/build or exact binary identity is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
         fail "$label compatibility policy does not use the current application domain"
@@ -188,6 +189,14 @@ verify_compatibility_policy() {
     if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:7' "$policy_path" >/dev/null 2>&1; then
         fail "$label compatibility policy permits an extra method replacement"
     fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0xce540" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x107ca0" ]]; then
+        fail "$label compatibility policy demo-project bridge implementation offsets are not exact"
+    fi
+    for index in {1..6}; do
+        if /usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$index:ExpectedOriginalImplementationOffsetArm64" "$policy_path" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$index:ExpectedOriginalImplementationOffsetX86_64" "$policy_path" >/dev/null 2>&1; then
+            fail "$label compatibility policy permits an unexpected implementation-offset contract"
+        fi
+    done
 }
 
 if [[ ! -d "$source_app" || ! -f "$source_executable" ]]; then
@@ -233,6 +242,19 @@ capture_bundle "$source_app" "$source_executable" "$update_dir/stock-before"
 capture_preferences "$update_dir/stock-before"
 capture_bundle "$copied_app" "$copied_executable" "$update_dir/copied-before"
 /usr/bin/shasum -a 256 "$embedded_runtime" | /usr/bin/awk '{print $1}' > "$update_dir/embedded-runtime-before.sha256"
+source_executable_sha256="$(/usr/bin/awk '{print $1}' "$update_dir/stock-before/main-executable.sha256")"
+source_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$update_dir/stock-before/main-executable.uuids.txt")"
+source_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$update_dir/stock-before/main-executable.uuids.txt")"
+copied_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$update_dir/copied-before/main-executable.uuids.txt")"
+copied_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$update_dir/copied-before/main-executable.uuids.txt")"
+if [[ "$source_executable_sha256" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$source_arm64_uuid" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$source_x86_64_uuid" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$copied_arm64_uuid" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$copied_x86_64_uuid" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" ]]; then
+    fail "stock or copied executable does not match the reviewed FCP 12.3 slice identity"
+fi
+print -r -- "stock_executable_sha256=$source_executable_sha256" > "$update_dir/exact-host-identity.txt"
+print -r -- "stock_arm64_uuid=$source_arm64_uuid" >> "$update_dir/exact-host-identity.txt"
+print -r -- "stock_x86_64_uuid=$source_x86_64_uuid" >> "$update_dir/exact-host-identity.txt"
+print -r -- "copied_arm64_uuid=$copied_arm64_uuid" >> "$update_dir/exact-host-identity.txt"
+print -r -- "copied_x86_64_uuid=$copied_x86_64_uuid" >> "$update_dir/exact-host-identity.txt"
 
 initial_patch_dir=""
 for candidate in "$provenance_root"/patch-*; do
@@ -306,6 +328,9 @@ fi
 /usr/bin/codesign --verify --strict --verbose=4 "$embedded_framework" > "$update_dir/runtime-codesign-verify-after.txt" 2>&1
 capture_bundle "$copied_app" "$copied_executable" "$update_dir/copied-after"
 verify_load_commands "after"
+if ! /usr/bin/cmp -s "$update_dir/copied-before/main-executable.uuids.txt" "$update_dir/copied-after/main-executable.uuids.txt"; then
+    fail "copied executable slice UUID changed during the runtime-only update"
+fi
 verify_compatibility_policy "$embedded_compatibility_policy" "embedded-after-signing"
 if ! /usr/bin/cmp -s "$built_compatibility_policy" "$embedded_compatibility_policy"; then
     fail "embedded compatibility policy changed during signing"
@@ -317,7 +342,7 @@ fi
 capture_bundle "$source_app" "$source_executable" "$update_dir/stock-after"
 capture_preferences "$update_dir/stock-after"
 require_not_running "$update_dir/process-after-update.txt"
-if ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.sha256" "$update_dir/stock-after/main-executable.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/Info.plist.sha256" "$update_dir/stock-after/Info.plist.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/stock-preferences.sha256" "$update_dir/stock-after/stock-preferences.sha256"; then
+if ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.sha256" "$update_dir/stock-after/main-executable.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.uuids.txt" "$update_dir/stock-after/main-executable.uuids.txt" || ! /usr/bin/cmp -s "$update_dir/stock-before/Info.plist.sha256" "$update_dir/stock-after/Info.plist.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/stock-preferences.sha256" "$update_dir/stock-after/stock-preferences.sha256"; then
     fail "stock app or production preference fingerprint changed"
 fi
 print -r -- "stock_app=unchanged" > "$update_dir/stock-integrity.txt"

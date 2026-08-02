@@ -7,7 +7,9 @@
 
 #import "FCPCommandConsoleRuntime.h"
 
+#import <dlfcn.h>
 #import <objc/runtime.h>
+#import <stdint.h>
 #import <stdlib.h>
 #import <string.h>
 
@@ -19,6 +21,8 @@ static NSString * const FCPCCExpectedHostBuild = @"450152";
 static NSString * const FCPCCExpectedRuntimeFrameworkName = @"FCPCommandConsoleRuntime.framework";
 static NSString * const FCPCCCloudContentFirstLaunchCompletedKey = @"CloudContentFirstLaunchCompleted";
 static NSString * const FCPCCFFCloudContentDisabledKey = @"FFCloudContentDisabled";
+static NSString * const FCPCCCloudContentUnavailableErrorDomain = @"com.local.fcpcommandconsole.cloud-content";
+static const NSInteger FCPCCCloudContentUnavailableErrorCode = 1;
 
 // Offline-inspected candidates. These values are intentionally fixed and have
 // no execution path in this build.
@@ -342,7 +346,8 @@ typedef NS_ENUM(NSUInteger, FCPCCCloudContentReplacementDisposition) {
     FCPCCCloudContentReplacementDispositionArgumentCountMismatch = 5,
     FCPCCCloudContentReplacementDispositionReturnTypeMismatch = 6,
     FCPCCCloudContentReplacementDispositionTypeEncodingMismatch = 7,
-    FCPCCCloudContentReplacementDispositionVerificationFailed = 8,
+    FCPCCCloudContentReplacementDispositionOriginalImplementationMismatch = 8,
+    FCPCCCloudContentReplacementDispositionVerificationFailed = 9,
 };
 
 typedef NS_ENUM(NSUInteger, FCPCCCloudContentAttemptPhase) {
@@ -357,6 +362,8 @@ typedef struct {
     NSUInteger argumentCount;
     const char *returnType;
     const char *typeEncoding;
+    uintptr_t expectedArm64OriginalImplementationOffset;
+    uintptr_t expectedX86_64OriginalImplementationOffset;
     IMP replacement;
     const char *auditLabel;
 } FCPCCCloudContentCompatibilityEntry;
@@ -383,16 +390,37 @@ static void FCPCCCloudContentCompleteFirstLaunch(id self, SEL command, void (^co
     }
 }
 
+// The exact FCP 12.3 Objective-C bridge has the reviewed type encoding
+// v24@0:8@?<v@?@"_TtC13Final_Cut_Pro23CloudContentDemoProject"@"NSError">16.
+// Its generated Swift bridge reports its own failure path as (nil, NSError *).
+// This replacement preserves that Objective-C result contract without creating a
+// Swift task, fabricating a demo project, invoking CloudKit, or retaining work
+// that would need cancellation.
+static void FCPCCCloudContentCompleteDemoProjectUnavailable(id self,
+                                                            SEL command,
+                                                            void (^completion)(id, NSError *)) {
+    (void)self;
+    (void)command;
+    if (completion != nil) {
+        NSError *error = [NSError errorWithDomain:FCPCCCloudContentUnavailableErrorDomain
+                                             code:FCPCCCloudContentUnavailableErrorCode
+                                         userInfo:nil];
+        completion(nil, error);
+    }
+}
+
 static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityEntries[] = {
     {
-        "_TtC13Final_Cut_Pro19CloudContentCatalog",
-        "updateCatalogAndRegistry",
+        "_TtC13Final_Cut_Pro25DemoProjectDownloadHelper",
+        "fetchDefaultDemoProjectWithCompletionHandler:",
         FCPCCCloudContentMethodKindInstance,
-        2,
+        3,
         "v",
-        "v16@0:8",
-        (IMP)FCPCCCloudContentReturnVoid,
-        "catalog.update"
+        "v24@0:8@?<v@?@\"_TtC13Final_Cut_Pro23CloudContentDemoProject\"@\"NSError\">16",
+        0xce540,
+        0x107ca0,
+        (IMP)FCPCCCloudContentCompleteDemoProjectUnavailable,
+        "demo_project.fetch_default_completion"
     },
     {
         "_TtC13Final_Cut_Pro19CloudContentCatalog",
@@ -401,6 +429,8 @@ static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityE
         2,
         "B",
         "B16@0:8",
+        0,
+        0,
         (IMP)FCPCCCloudContentReturnFalse,
         "catalog.enabled"
     },
@@ -411,6 +441,8 @@ static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityE
         2,
         "B",
         "B16@0:8",
+        0,
+        0,
         (IMP)FCPCCCloudContentReturnFalse,
         "catalog.subscription"
     },
@@ -421,6 +453,8 @@ static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityE
         2,
         "v",
         "v16@0:8",
+        0,
+        0,
         (IMP)FCPCCCloudContentReturnVoid,
         "catalog.listener"
     },
@@ -431,6 +465,8 @@ static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityE
         2,
         "B",
         "B16@0:8",
+        0,
+        0,
         (IMP)FCPCCCloudContentReturnFalse,
         "feature.enabled"
     },
@@ -441,6 +477,8 @@ static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityE
         2,
         "B",
         "B16@0:8",
+        0,
+        0,
         (IMP)FCPCCCloudContentReturnFalse,
         "feature.first_launch"
     },
@@ -451,6 +489,8 @@ static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityE
         3,
         "v",
         "v24@0:8@?<v@?@\"NSError\">16",
+        0,
+        0,
         (IMP)FCPCCCloudContentCompleteFirstLaunch,
         "first_launch.setup_completion"
     },
@@ -476,6 +516,8 @@ static NSString *FCPCCCloudContentReplacementDispositionSummary(FCPCCCloudConten
             return @"return_type_mismatch";
         case FCPCCCloudContentReplacementDispositionTypeEncodingMismatch:
             return @"type_encoding_mismatch";
+        case FCPCCCloudContentReplacementDispositionOriginalImplementationMismatch:
+            return @"pre_replacement_imp_mismatch";
         case FCPCCCloudContentReplacementDispositionVerificationFailed:
             return @"replacement_verification_failed";
     }
@@ -550,6 +592,44 @@ static FCPCCCloudContentMethodCompatibilityStatus *FCPCCCloudContentMethodCompat
     return status;
 }
 
+// This evaluates only the predeclared method selected by one fixed descriptor.
+// It does not discover classes, selectors, methods, or images. The relative
+// implementation offset is ASLR-stable and ties the crash-path replacement to
+// the exact inspected FCP 12.3 executable slice.
+static BOOL FCPCCCloudContentOriginalImplementationMatches(const FCPCCCloudContentCompatibilityEntry *entry,
+                                                            Method method) {
+#if defined(__arm64__)
+    uintptr_t expectedOffset = entry->expectedArm64OriginalImplementationOffset;
+#elif defined(__x86_64__)
+    uintptr_t expectedOffset = entry->expectedX86_64OriginalImplementationOffset;
+#else
+    return NO;
+#endif
+    if (expectedOffset == 0) {
+        return YES;
+    }
+
+    IMP originalImplementation = method_getImplementation(method);
+    Dl_info implementationImage = {0};
+    if (originalImplementation == NULL
+        || dladdr((const void *)originalImplementation, &implementationImage) == 0
+        || implementationImage.dli_fbase == NULL
+        || implementationImage.dli_fname == NULL) {
+        return NO;
+    }
+
+    NSString *hostExecutablePath = [NSBundle.mainBundle.executablePath stringByStandardizingPath];
+    NSString *implementationImagePath = [[NSString alloc] initWithUTF8String:implementationImage.dli_fname];
+    if (hostExecutablePath.length == 0
+        || implementationImagePath == nil
+        || ![[implementationImagePath stringByStandardizingPath] isEqualToString:hostExecutablePath]) {
+        return NO;
+    }
+
+    uintptr_t actualOffset = (uintptr_t)originalImplementation - (uintptr_t)implementationImage.dli_fbase;
+    return actualOffset == expectedOffset;
+}
+
 static void FCPCCInstallCloudContentCompatibilityEntry(const FCPCCCloudContentCompatibilityEntry *entry,
                                                         NSUInteger index,
                                                         FCPCCCloudContentMethodCompatibilityStatus *status) {
@@ -604,6 +684,11 @@ static void FCPCCInstallCloudContentCompatibilityEntry(const FCPCCCloudContentCo
 
     if (method_getImplementation(expectedMethod) == entry->replacement) {
         [status recordDisposition:FCPCCCloudContentReplacementDispositionInstalled atIndex:index];
+        return;
+    }
+
+    if (!FCPCCCloudContentOriginalImplementationMatches(entry, expectedMethod)) {
+        [status recordDisposition:FCPCCCloudContentReplacementDispositionOriginalImplementationMismatch atIndex:index];
         return;
     }
 

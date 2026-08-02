@@ -175,7 +175,7 @@ done
 /usr/bin/plutil -lint "$runtime_policy_source" >/dev/null
 /usr/bin/plutil -lint "$runtime_policy_build" >/dev/null
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "2" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
         fail "compatibility policy host or isolated preference domain is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:0' "$policy_path")" != "CloudContentFirstLaunchCompleted" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:1' "$policy_path")" != "FFCloudContentDisabled" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" ]]; then
@@ -186,7 +186,7 @@ for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
     fi
 done
 expected_replacement_classes=(
-    '_TtC13Final_Cut_Pro19CloudContentCatalog'
+    '_TtC13Final_Cut_Pro25DemoProjectDownloadHelper'
     '_TtC13Final_Cut_Pro19CloudContentCatalog'
     '_TtC13Final_Cut_Pro19CloudContentCatalog'
     '_TtC13Final_Cut_Pro19CloudContentCatalog'
@@ -195,7 +195,7 @@ expected_replacement_classes=(
     'CCFirstLaunchHelper'
 )
 expected_replacement_selectors=(
-    'updateCatalogAndRegistry'
+    'fetchDefaultDemoProjectWithCompletionHandler:'
     'isCloudContentEnabled'
     'isRunningSubscriptionApp'
     'startListeningForApplicationDidBecomeActiveNotifications'
@@ -204,10 +204,10 @@ expected_replacement_selectors=(
     'setupAndPresentFirstLaunchIfNeededWithCompletionHandler:'
 )
 expected_replacement_kinds=(instance instance instance instance class class instance)
-expected_replacement_argument_counts=(2 2 2 2 2 2 3)
+expected_replacement_argument_counts=(3 2 2 2 2 2 3)
 expected_replacement_return_types=(v B B v B B v)
 expected_replacement_type_encodings=(
-    'v16@0:8'
+    'v24@0:8@?<v@?@"_TtC13Final_Cut_Pro23CloudContentDemoProject"@"NSError">16'
     'B16@0:8'
     'B16@0:8'
     'v16@0:8'
@@ -215,7 +215,7 @@ expected_replacement_type_encodings=(
     'B16@0:8'
     'v24@0:8@?<v@?@"NSError">16'
 )
-expected_replacement_contracts=(void_noop return_false return_false void_noop return_false return_false completion_nil_success)
+expected_replacement_contracts=(completion_nil_project_local_error return_false return_false void_noop return_false return_false completion_nil_success)
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "will_finish_launching_once" ]]; then
         fail "compatibility policy method guard mode or install phases are not exact"
@@ -232,6 +232,14 @@ for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
     if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:7' "$policy_path" >/dev/null 2>&1; then
         fail "compatibility policy permits an extra method replacement"
     fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0xce540" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x107ca0" ]]; then
+        fail "compatibility policy demo-project bridge implementation offsets are not exact"
+    fi
+    for index in {1..6}; do
+        if /usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$index:ExpectedOriginalImplementationOffsetArm64" "$policy_path" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Print :ApprovedMethodReplacements:$index:ExpectedOriginalImplementationOffsetX86_64" "$policy_path" >/dev/null 2>&1; then
+            fail "compatibility policy permits an unexpected implementation-offset contract"
+        fi
+    done
 done
 if ! /usr/bin/cmp -s "$runtime_policy_source" "$runtime_policy_build"; then
     fail "built compatibility policy differs from the project-owned source policy"
@@ -248,7 +256,11 @@ for required_guard_fragment in \
     'class_replaceMethod' \
     'sel_registerName(entry->selectorName)' \
     'objc_getClass(entry->runtimeClassName)' \
-    'FCPCCCloudContentCompleteFirstLaunch'; do
+    'FCPCCCloudContentCompleteFirstLaunch' \
+    'FCPCCCloudContentCompleteDemoProjectUnavailable' \
+    'FCPCCCloudContentOriginalImplementationMatches' \
+    'dladdr((const void *)originalImplementation, &implementationImage)' \
+    'completion(nil, error);'; do
     if ! "$rg_bin" -F -q "$required_guard_fragment" "$runtime_implementation"; then
         fail "runtime is missing required fixed method-guard operation: $required_guard_fragment"
     fi
@@ -256,14 +268,16 @@ done
 if [[ "$("$rg_bin" -F -o 'class_replaceMethod' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$("$rg_bin" -F -o 'sel_registerName(entry->selectorName)' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$("$rg_bin" -F -o 'objc_getClass(entry->runtimeClassName)' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
     fail "runtime method guard is not limited to the one fixed installation path"
 fi
-catalog_runtime_class_count="$("$rg_bin" -F -o '"_TtC13Final_Cut_Pro19CloudContentCatalog"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
-feature_runtime_class_count="$("$rg_bin" -F -o '"_TtC13Final_Cut_Pro23CloudContentFeatureFlag"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
-first_launch_runtime_class_count="$("$rg_bin" -F -o '"CCFirstLaunchHelper"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
-if [[ "$catalog_runtime_class_count" != "4" || "$feature_runtime_class_count" != "2" || "$first_launch_runtime_class_count" != "1" ]]; then
-    fail "runtime method guard class allowlist cardinality is not exactly 4 catalog, 2 feature-flag, and 1 first-launch entries"
+method_guard_entries_source="$(/usr/bin/sed -n '/static const FCPCCCloudContentCompatibilityEntry FCPCCCloudContentCompatibilityEntries\[\] = {/,/^};/p' "$runtime_implementation")"
+demo_project_runtime_class_count="$(print -r -- "$method_guard_entries_source" | "$rg_bin" -F -o '        "_TtC13Final_Cut_Pro25DemoProjectDownloadHelper",' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+catalog_runtime_class_count="$(print -r -- "$method_guard_entries_source" | "$rg_bin" -F -o '        "_TtC13Final_Cut_Pro19CloudContentCatalog",' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+feature_runtime_class_count="$(print -r -- "$method_guard_entries_source" | "$rg_bin" -F -o '        "_TtC13Final_Cut_Pro23CloudContentFeatureFlag",' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+first_launch_runtime_class_count="$(print -r -- "$method_guard_entries_source" | "$rg_bin" -F -o '        "CCFirstLaunchHelper",' | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+if [[ "$demo_project_runtime_class_count" != "1" || "$catalog_runtime_class_count" != "3" || "$feature_runtime_class_count" != "2" || "$first_launch_runtime_class_count" != "1" ]]; then
+    fail "runtime method guard class allowlist cardinality is not exactly 1 demo-project, 3 catalog, 2 feature-flag, and 1 first-launch entries"
 fi
 for selector_literal in \
-    '"updateCatalogAndRegistry"' \
+    '"fetchDefaultDemoProjectWithCompletionHandler:"' \
     '"isCloudContentEnabled"' \
     '"isRunningSubscriptionApp"' \
     '"startListeningForApplicationDidBecomeActiveNotifications"' \
@@ -274,8 +288,11 @@ for selector_literal in \
         fail "runtime method guard selector allowlist is not exact: $selector_literal"
     fi
 done
-if [[ "$("$rg_bin" -F -o '"v16@0:8"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "2" || "$("$rg_bin" -F -o '"B16@0:8"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "4" || "$("$rg_bin" -F -o '"v24@0:8@?<v@?@\"NSError\">16"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
+if [[ "$("$rg_bin" -F -o '"v16@0:8"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$("$rg_bin" -F -o '"B16@0:8"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "4" || "$("$rg_bin" -F -o '"v24@0:8@?<v@?@\"_TtC13Final_Cut_Pro23CloudContentDemoProject\"@\"NSError\">16"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$("$rg_bin" -F -o '"v24@0:8@?<v@?@\"NSError\">16"' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
     fail "runtime method guard type-encoding cardinality is not exact"
+fi
+if "$rg_bin" -F -q 'completion(nil, nil);' "$runtime_implementation"; then
+    fail "demo-project compatibility bridge may not report a nil result as success"
 fi
 
 for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp" "$plugin_dir/patcher/repair-library-validation-entitlement" "$runtime_updater"; do
@@ -347,6 +364,9 @@ for patcher_script in "$runtime_updater" "$plugin_dir/patcher/verify-copied-fcp"
         'RuntimeDiscoveryAllowed' \
         'CompatibilityInstallPhases:2' \
         'ApprovedMethodReplacements:7' \
+        'ExpectedHostExecutableSHA256' \
+        'ExpectedOriginalImplementationOffsetArm64' \
+        '_TtC13Final_Cut_Pro25DemoProjectDownloadHelper' \
         '_TtC13Final_Cut_Pro19CloudContentCatalog' \
         '_TtC13Final_Cut_Pro23CloudContentFeatureFlag' \
         'CCFirstLaunchHelper' \
@@ -360,8 +380,9 @@ for required_verifier_fragment in \
     '_sel_registerName' \
     '_class_replaceMethod' \
     '_method_copyReturnType' \
+    '_dladdr' \
     'method_guard_entries=7' \
-    'objc_getClassList class_copyMethodList NSClassFromString FFImagePlayground DemoProjectDownloadHelper'; do
+    'objc_getClassList class_copyMethodList NSClassFromString FFImagePlayground'; do
     if ! "$rg_bin" -F -q "$required_verifier_fragment" "$plugin_dir/patcher/verify-copied-fcp"; then
         fail "copied-artifact verifier is missing required method-guard evidence: $required_verifier_fragment"
     fi
