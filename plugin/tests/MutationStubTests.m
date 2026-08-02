@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <math.h>
 #import "FCPCommandConsoleRuntime.h"
 
 static int require(BOOL condition, NSString *message) {
@@ -139,20 +140,171 @@ int main(void) {
             return 1;
         }
 
-        FCPCCBeforeAfterTransaction *transaction = [[FCPCCBeforeAfterTransaction alloc] initWithEffectKind:FCPCCEffectKindNativeTargetedRotateZoom beforeState:@{} afterState:@{}];
+        FCPCCTimelineItemSnapshot *readyItem = [[FCPCCTimelineItemSnapshot alloc]
+            initWithStableItemIdentifier:@"item-ready"
+                       canonicalSourcePath:@"/private/tmp/fcpcc-native-plan-media.mov"
+                             sourceSHA256:@"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                     sourceIdentityReason:@"source_identity_available"
+                    primaryStorylineIndex:0
+    previousPrimaryStorylineItemIdentifier:nil
+        nextPrimaryStorylineItemIdentifier:nil
+                            timelineRange:CMTimeRangeMake(CMTimeMake(30, 30), CMTimeMake(120, 30))
+                         hasTimelineRange:YES
+                            leadingHandle:kCMTimeInvalid
+                     hasLeadingHandle:NO
+                           trailingHandle:kCMTimeInvalid
+                    hasTrailingHandle:NO];
+        FCPCCReadOnlyContextSnapshot *ready = [FCPCCReadOnlyContextSnapshot
+            snapshotWithDisposition:FCPCCReadOnlyContextDispositionReady
+                              reason:@"read_only_context_ready"
+                   activeProjectName:@"FCPCommandConsole Test"
+                           frameSize:CGSizeMake(1920, 1080)
+                       hasFrameSize:YES
+                       frameDuration:frameDuration
+                   hasFrameDuration:YES
+               selectedTimelineItems:@[readyItem]
+                   selectionRevision:@"selection-revision-ready"
+                    timelineRevision:@"timeline-revision-ready"];
+        FCPCCNativeTargetedRotateZoomRequest *request = [[FCPCCNativeTargetedRotateZoomRequest alloc]
+            initWithNormalizedTargetPoint:CGPointMake(0.25, 0.75)
+                               scaleStart:1.2
+                                 scaleEnd:1.5
+                     rotationStartDegrees:-10.0
+                       rotationEndDegrees:20.0
+                                 duration:CMTimeMake(60, 30)
+                                   easing:FCPCCNativeKeyframeEasingNatural];
+        FCPCCNativeTargetedRotateZoomTransaction *transaction = [[FCPCCNativeTargetedRotateZoomTransaction alloc]
+            initWithRequest:request
+             contextSnapshot:ready
+            libraryInvariant:verifiedLibrary];
         FCPCCMutationController *controller = [[FCPCCMutationController alloc] init];
+        FCPCCMutationResult *planResult = [controller planTransaction:transaction];
         FCPCCMutationResult *applyResult = [controller applyTransaction:transaction];
         FCPCCMutationResult *undoResult = [controller undoLastTransaction];
-        if (require(applyResult.disposition == FCPCCMutationDispositionUnsupportedUnverifiedFCP123, @"apply did not fail closed")) {
+        if (require(planResult.disposition == FCPCCMutationDispositionPlanReady
+                    && planResult.plannedAfterState != nil
+                    && planResult.beforeState == nil
+                    && planResult.afterState == nil
+                    && !planResult.didPerformNativeMutation,
+                    @"typed preview plan was not read-only")) {
             return 1;
         }
-        if (require(undoResult.disposition == FCPCCMutationDispositionUnsupportedUnverifiedFCP123, @"undo did not fail closed")) {
+        if (require([transaction.nativeUndoActionName isEqualToString:@"FCPCommandConsole: Targeted Rotate + Zoom"], @"named native undo transaction changed")) {
             return 1;
         }
-        if (require([applyResult.reason isEqualToString:@"unsupported_unverified_fcp_12_3"], @"apply reason changed")) {
+        NSArray<FCPCCNativeTransformKeyframe *> *keyframes = planResult.plannedAfterState.keyframes;
+        if (require(keyframes.count == 5, @"preview plan did not contain five keyframes")) {
             return 1;
         }
-        if (require([undoResult.reason isEqualToString:@"unsupported_unverified_fcp_12_3"], @"undo reason changed")) {
+        FCPCCNativeTransformKeyframe *first = keyframes.firstObject;
+        FCPCCNativeTransformKeyframe *early = keyframes[1];
+        FCPCCNativeTransformKeyframe *middle = keyframes[2];
+        FCPCCNativeTransformKeyframe *late = keyframes[3];
+        FCPCCNativeTransformKeyframe *last = keyframes.lastObject;
+        if (require(CMTimeCompare(first.clipLocalTime, kCMTimeZero) == 0
+                    && CMTimeCompare(last.clipLocalTime, request.duration) == 0
+                    && fabs(first.uniformScale - request.scaleStart) < 0.000001
+                    && fabs(first.rotationDegrees - request.rotationStartDegrees) < 0.000001
+                    && fabs(last.uniformScale - request.scaleEnd) < 0.000001
+                    && fabs(last.rotationDegrees - request.rotationEndDegrees) < 0.000001
+                    && first.easedProgress == 0.0,
+                    @"preview plan did not preserve endpoint semantics")) {
+            return 1;
+        }
+        CGFloat sourceX = request.normalizedTargetPoint.x - 0.5;
+        CGFloat sourceY = request.normalizedTargetPoint.y - 0.5;
+        if (require(fabs(early.easedProgress - 0.15625) < 0.000001
+                    && fabs(middle.easedProgress - 0.5) < 0.000001
+                    && fabs(late.easedProgress - 0.84375) < 0.000001,
+                    @"preview plan did not use deterministic smoothstep samples")) {
+            return 1;
+        }
+        CMTime previousClipLocalTime = kCMTimeInvalid;
+        for (FCPCCNativeTransformKeyframe *keyframe in keyframes) {
+            CGFloat radians = keyframe.rotationDegrees * (CGFloat)(M_PI / 180.0);
+            CGFloat transformedX = keyframe.uniformScale * ((sourceX * cos(radians)) - (sourceY * sin(radians)));
+            CGFloat transformedY = keyframe.uniformScale * ((sourceX * sin(radians)) + (sourceY * cos(radians)));
+            CGFloat outputX = transformedX + keyframe.normalizedPosition.x;
+            CGFloat outputY = transformedY + keyframe.normalizedPosition.y;
+            if (require(!keyframe.isNativePixelPositionConversionVerified
+                        && (CMTIME_IS_VALID(previousClipLocalTime) == 0 || CMTimeCompare(keyframe.clipLocalTime, previousClipLocalTime) > 0)
+                        && fabs(outputX - (sourceX * (1.0 - keyframe.easedProgress))) < 0.000001
+                        && fabs(outputY - (sourceY * (1.0 - keyframe.easedProgress))) < 0.000001,
+                        @"preview compensation did not keep every target sample on the centerward segment")) {
+                return 1;
+            }
+            previousClipLocalTime = keyframe.clipLocalTime;
+        }
+        if (require(applyResult.disposition == FCPCCMutationDispositionRejectedHostContainment
+                    && applyResult.plannedAfterState != nil
+                    && applyResult.beforeState == nil
+                    && applyResult.afterState == nil
+                    && !applyResult.didPerformNativeMutation,
+                    @"offline apply did not stop at host containment")) {
+            return 1;
+        }
+        if (require(undoResult.disposition == FCPCCMutationDispositionUnsupportedPendingLiveContract
+                    && [undoResult.reason isEqualToString:FCPCCMutationErrorUnsupportedPendingLiveContract]
+                    && !undoResult.didPerformNativeMutation,
+                    @"undo did not remain pending the native live contracts")) {
+            return 1;
+        }
+
+        FCPCCNativeTargetedRotateZoomRequest *invalidRequest = [[FCPCCNativeTargetedRotateZoomRequest alloc]
+            initWithNormalizedTargetPoint:CGPointMake(NAN, 0.5)
+                               scaleStart:1.2
+                                 scaleEnd:1.5
+                     rotationStartDegrees:-10.0
+                       rotationEndDegrees:20.0
+                                 duration:CMTimeMake(60, 30)
+                                   easing:FCPCCNativeKeyframeEasingNatural];
+        FCPCCNativeTargetedRotateZoomTransaction *invalidTransaction = [[FCPCCNativeTargetedRotateZoomTransaction alloc]
+            initWithRequest:invalidRequest
+             contextSnapshot:ready
+            libraryInvariant:verifiedLibrary];
+        if (require([controller planTransaction:invalidTransaction].disposition == FCPCCMutationDispositionRejectedInvalidRequest, @"non-finite normalized target did not fail closed")) {
+            return 1;
+        }
+        FCPCCNativeTargetedRotateZoomRequest *outOfBoundsRequest = [[FCPCCNativeTargetedRotateZoomRequest alloc]
+            initWithNormalizedTargetPoint:CGPointMake(0.25, 0.75)
+                               scaleStart:1.2
+                                 scaleEnd:4.1
+                     rotationStartDegrees:-10.0
+                       rotationEndDegrees:20.0
+                                 duration:CMTimeMake(60, 30)
+                                   easing:FCPCCNativeKeyframeEasingNatural];
+        FCPCCNativeTargetedRotateZoomTransaction *outOfBoundsTransaction = [[FCPCCNativeTargetedRotateZoomTransaction alloc]
+            initWithRequest:outOfBoundsRequest
+             contextSnapshot:ready
+            libraryInvariant:verifiedLibrary];
+        if (require([controller planTransaction:outOfBoundsTransaction].disposition == FCPCCMutationDispositionRejectedInvalidRequest, @"scale registry bounds did not fail closed")) {
+            return 1;
+        }
+        FCPCCNativeTargetedRotateZoomTransaction *partialTransaction = [[FCPCCNativeTargetedRotateZoomTransaction alloc]
+            initWithRequest:request
+             contextSnapshot:partial
+            libraryInvariant:verifiedLibrary];
+        if (require([controller planTransaction:partialTransaction].disposition == FCPCCMutationDispositionRejectedContextInvariant, @"partial read-only context was treated as execution-ready")) {
+            return 1;
+        }
+        for (FCPCCEffectKind unsupportedEffect = FCPCCEffectKindLookOldTelevision;
+             unsupportedEffect <= FCPCCEffectKindMotionLivingStill;
+             unsupportedEffect += 1) {
+            FCPCCMutationPayload *payload = [[FCPCCMutationPayload alloc] initWithEffectKind:unsupportedEffect];
+            FCPCCBeforeAfterTransaction *unsupportedTransaction = [[FCPCCBeforeAfterTransaction alloc]
+                initWithPayload:payload
+                 contextSnapshot:ready
+                libraryInvariant:verifiedLibrary];
+            if (require([controller planTransaction:unsupportedTransaction].disposition == FCPCCMutationDispositionUnsupportedEffect, @"non-native fixed effect was admitted to native mutation")) {
+                return 1;
+            }
+        }
+        FCPCCMutationPayload *genericNativePayload = [[FCPCCMutationPayload alloc] initWithEffectKind:FCPCCEffectKindNativeTargetedRotateZoom];
+        FCPCCBeforeAfterTransaction *genericNativeTransaction = [[FCPCCBeforeAfterTransaction alloc]
+            initWithPayload:genericNativePayload
+             contextSnapshot:ready
+            libraryInvariant:verifiedLibrary];
+        if (require([controller planTransaction:genericNativeTransaction].disposition == FCPCCMutationDispositionRejectedInvalidRequest, @"generic payload was admitted to the dedicated native route")) {
             return 1;
         }
     }

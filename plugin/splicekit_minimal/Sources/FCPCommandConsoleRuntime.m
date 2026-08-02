@@ -21,6 +21,7 @@
 #import <unistd.h>
 
 NSString * const FCPCCMutationErrorUnsupportedUnverifiedFCP123 = @"unsupported_unverified_fcp_12_3";
+NSString * const FCPCCMutationErrorUnsupportedPendingLiveContract = @"unsupported_pending_live_contract_missing_exact_native_easing_and_native_undo_rollback_contracts";
 
 static NSString * const FCPCCExpectedHostBundleIdentifier = @"com.apple.FinalCut";
 static NSString * const FCPCCExpectedHostVersion = @"12.3";
@@ -1612,41 +1613,463 @@ static NSString *FCPCCDerivedTimelineRevision(NSArray *primaryItems,
 
 @implementation FCPCCBeforeAfterTransaction
 
-- (instancetype)initWithEffectKind:(FCPCCEffectKind)effectKind
-                       beforeState:(NSDictionary<NSString *,id> *)beforeState
-                        afterState:(NSDictionary<NSString *,id> *)afterState {
+- (instancetype)initWithPayload:(FCPCCMutationPayload *)payload
+                   contextSnapshot:(FCPCCReadOnlyContextSnapshot *)contextSnapshot
+                  libraryInvariant:(FCPCCLibraryInvariantResult *)libraryInvariant {
     self = [super init];
     if (self != nil) {
         _transactionIdentifier = NSUUID.UUID.UUIDString;
-        _effectKind = effectKind;
-        _beforeState = [beforeState copy];
-        _afterState = [afterState copy];
+        _payload = payload;
+        _effectKind = payload.effectKind;
+        _contextSnapshot = contextSnapshot;
+        _libraryInvariant = libraryInvariant;
     }
     return self;
 }
 
 @end
 
-@implementation FCPCCMutationResult
+@implementation FCPCCMutationPayload
 
-+ (instancetype)unsupportedUnverified {
-    FCPCCMutationResult *result = [[self alloc] init];
-    result->_disposition = FCPCCMutationDispositionUnsupportedUnverifiedFCP123;
-    result->_reason = FCPCCMutationErrorUnsupportedUnverifiedFCP123;
-    return result;
+- (instancetype)initWithEffectKind:(FCPCCEffectKind)effectKind {
+    self = [super init];
+    if (self != nil) {
+        _effectKind = effectKind;
+    }
+    return self;
 }
 
 @end
 
+@implementation FCPCCNativeTargetedRotateZoomRequest
+
+- (instancetype)initWithNormalizedTargetPoint:(CGPoint)normalizedTargetPoint
+                                   scaleStart:(CGFloat)scaleStart
+                                     scaleEnd:(CGFloat)scaleEnd
+                         rotationStartDegrees:(CGFloat)rotationStartDegrees
+                           rotationEndDegrees:(CGFloat)rotationEndDegrees
+                                     duration:(CMTime)duration
+                                       easing:(FCPCCNativeKeyframeEasing)easing {
+    self = [super initWithEffectKind:FCPCCEffectKindNativeTargetedRotateZoom];
+    if (self != nil) {
+        _normalizedTargetPoint = normalizedTargetPoint;
+        _scaleStart = scaleStart;
+        _scaleEnd = scaleEnd;
+        _rotationStartDegrees = rotationStartDegrees;
+        _rotationEndDegrees = rotationEndDegrees;
+        _duration = duration;
+        _easing = easing;
+    }
+    return self;
+}
+
+@end
+
+@implementation FCPCCNativeTransformKeyframe
+
+- (instancetype)initWithClipLocalTime:(CMTime)clipLocalTime
+                   normalizedPosition:(CGPoint)normalizedPosition
+ nativePixelPositionConversionVerified:(BOOL)nativePixelPositionConversionVerified
+                         uniformScale:(CGFloat)uniformScale
+                      rotationDegrees:(CGFloat)rotationDegrees
+                        easedProgress:(CGFloat)easedProgress {
+    self = [super init];
+    if (self != nil) {
+        _clipLocalTime = clipLocalTime;
+        _normalizedPosition = normalizedPosition;
+        _nativePixelPositionConversionVerified = nativePixelPositionConversionVerified;
+        _uniformScale = uniformScale;
+        _rotationDegrees = rotationDegrees;
+        _easedProgress = easedProgress;
+    }
+    return self;
+}
+
+@end
+
+@implementation FCPCCNativeTargetedRotateZoomTransaction
+
+- (instancetype)initWithRequest:(FCPCCNativeTargetedRotateZoomRequest *)request
+                 contextSnapshot:(FCPCCReadOnlyContextSnapshot *)contextSnapshot
+                libraryInvariant:(FCPCCLibraryInvariantResult *)libraryInvariant {
+    self = [super initWithPayload:request
+                   contextSnapshot:contextSnapshot
+                  libraryInvariant:libraryInvariant];
+    if (self != nil) {
+        _request = request;
+        _nativeUndoActionName = @"FCPCommandConsole: Targeted Rotate + Zoom";
+    }
+    return self;
+}
+
+@end
+
+@implementation FCPCCNativeTransformState
+
+- (instancetype)initWithStableItemIdentifier:(NSString *)stableItemIdentifier
+                            selectionRevision:(NSString *)selectionRevision
+                             timelineRevision:(NSString *)timelineRevision
+                                    frameSize:(CGSize)frameSize
+                                    keyframes:(NSArray<FCPCCNativeTransformKeyframe *> *)keyframes {
+    self = [super init];
+    if (self != nil) {
+        _stableItemIdentifier = [stableItemIdentifier copy];
+        _selectionRevision = [selectionRevision copy];
+        _timelineRevision = [timelineRevision copy];
+        _frameSize = frameSize;
+        _keyframes = [keyframes copy];
+    }
+    return self;
+}
+
+@end
+
+@interface FCPCCMutationResult ()
++ (instancetype)resultWithDisposition:(FCPCCMutationDisposition)disposition
+                               reason:(NSString *)reason
+                    plannedAfterState:(nullable FCPCCNativeTransformState *)plannedAfterState
+                          beforeState:(nullable FCPCCNativeTransformState *)beforeState
+                           afterState:(nullable FCPCCNativeTransformState *)afterState
+              nativeMutationPerformed:(BOOL)nativeMutationPerformed;
++ (instancetype)unavailableWithoutPanelBinding;
+@end
+
+@implementation FCPCCMutationResult
+
++ (instancetype)unsupportedUnverified {
+    return [self resultWithDisposition:FCPCCMutationDispositionUnsupportedUnverifiedFCP123
+                                reason:FCPCCMutationErrorUnsupportedUnverifiedFCP123
+                     plannedAfterState:nil
+                           beforeState:nil
+                            afterState:nil
+               nativeMutationPerformed:NO];
+}
+
++ (instancetype)resultWithDisposition:(FCPCCMutationDisposition)disposition
+                               reason:(NSString *)reason
+                    plannedAfterState:(FCPCCNativeTransformState *)plannedAfterState
+                          beforeState:(FCPCCNativeTransformState *)beforeState
+                           afterState:(FCPCCNativeTransformState *)afterState
+              nativeMutationPerformed:(BOOL)nativeMutationPerformed {
+    FCPCCMutationResult *result = [[self alloc] init];
+    result->_disposition = disposition;
+    result->_reason = [reason copy];
+    result->_plannedAfterState = plannedAfterState;
+    result->_beforeState = beforeState;
+    result->_afterState = afterState;
+    result->_nativeMutationPerformed = nativeMutationPerformed;
+    return result;
+}
+
++ (instancetype)unavailableWithoutPanelBinding {
+    return [self resultWithDisposition:FCPCCMutationDispositionUnsupportedUnverifiedFCP123
+                                reason:@"native_targeted_rotate_zoom_panel_binding_unavailable"
+                     plannedAfterState:nil
+                           beforeState:nil
+                            afterState:nil
+               nativeMutationPerformed:NO];
+}
+
+@end
+
+// Direct-transform and transaction methods below are immutable records from
+// the locally inspected Final Cut Pro 12.3 arm64 image. The records preserve
+// the installed metadata spelling, ABI, and offset; x86_64 fields remain zero
+// because they were not inspected. These entries are not executable:
+// FCPCCNativeMutationLiveContractProven refuses the live route before any
+// private receiver, getter, setter, undo, or action method is resolved.
+static const FCPCCFixedObjCMethodContract FCPCCNativeTargetedRotateZoomStaticContracts[] = {
+    { "FFHeXForm3DEffect", "getPixelPositionAtTime:x:y:z:", "v64@0:8{?=qiIq}16^d40^d48^d56", "v", 6, NO, FCPCCFixedMethodImageFlexo, 0x3e6a10, 0 },
+    { "FFHeXForm3DEffect", "getRotationAtTime:x:y:z:", "v64@0:8{?=qiIq}16^d40^d48^d56", "v", 6, NO, FCPCCFixedMethodImageFlexo, 0x3e6a84, 0 },
+    { "FFHeXForm3DEffect", "getScaleAtTime:x:y:z:", "v64@0:8{?=qiIq}16^d40^d48^d56", "v", 6, NO, FCPCCFixedMethodImageFlexo, 0x3e6ac0, 0 },
+    { "FFHeXForm3DEffect", "setPixelPositionAtTime:curveX:curveY:curveZ:options:", "v68@0:8{?=qiIq}16d40d48d56I64", "v", 7, NO, FCPCCFixedMethodImageFlexo, 0x3e6c2c, 0 },
+    { "FFHeXForm3DEffect", "setRotationAtTime:curveX:curveY:curveZ:options:", "v68@0:8{?=qiIq}16d40d48d56I64", "v", 7, NO, FCPCCFixedMethodImageFlexo, 0x3e6ce8, 0 },
+    { "FFHeXForm3DEffect", "setScaleAtTime:curveX:curveY:curveZ:options:", "v68@0:8{?=qiIq}16d40d48d56I64", "v", 7, NO, FCPCCFixedMethodImageFlexo, 0x3e6d24, 0 },
+    { "FFEffectStack", "actionBegin:animationHint:deferUpdates:", "v36@0:8@16@24B32", "v", 5, NO, FCPCCFixedMethodImageFlexo, 0x156684, 0 },
+    { "FFEffectStack", "actionEnd:save:error:", "B36@0:8@16B24^@28", "B", 5, NO, FCPCCFixedMethodImageFlexo, 0x1566c0, 0 },
+    { "FFUndoHandler", "undoableBegin:", "v24@0:8@16", "v", 3, NO, FCPCCFixedMethodImageFlexo, 0x32cdc4, 0 },
+    { "FFUndoHandler", "undoableEnd:save:error:", "B36@0:8@16B24^@28", "B", 5, NO, FCPCCFixedMethodImageFlexo, 0x32cf84, 0 },
+};
+
+static BOOL FCPCCFiniteCGFloat(CGFloat value) {
+    return isfinite((double)value);
+}
+
+static const CGFloat FCPCCNativeTargetedRotateZoomMinimumScale = 0.1;
+static const CGFloat FCPCCNativeTargetedRotateZoomMaximumScale = 4.0;
+static const CGFloat FCPCCNativeTargetedRotateZoomMinimumRotationDegrees = -180.0;
+static const CGFloat FCPCCNativeTargetedRotateZoomMaximumRotationDegrees = 180.0;
+
+static BOOL FCPCCPositiveNumericCMTime(CMTime time) {
+    return CMTIME_IS_VALID(time)
+        && CMTIME_IS_NUMERIC(time)
+        && time.value > 0
+        && time.timescale > 0;
+}
+
+static BOOL FCPCCNumericCMTime(CMTime time) {
+    return CMTIME_IS_VALID(time) && CMTIME_IS_NUMERIC(time) && time.timescale > 0;
+}
+
+static CGFloat FCPCCNaturalPreviewProgress(CGFloat progress) {
+    // Product-owned smoothstep preview. It is not a claimed FCP curve value.
+    return progress * progress * (3.0 - (2.0 * progress));
+}
+
+static BOOL FCPCCNativeMutationLiveContractProven(NSString **reason) {
+    // A personal copied host only needs a proof for its current architecture.
+    // The static inspection still did not bind a private natural interpolation
+    // option or the project-document-owned undo handler needed to roll back a
+    // partial three-property write.
+    for (NSUInteger index = 0; index < sizeof(FCPCCNativeTargetedRotateZoomStaticContracts) / sizeof(FCPCCNativeTargetedRotateZoomStaticContracts[0]); index += 1) {
+        const FCPCCFixedObjCMethodContract *contract = &FCPCCNativeTargetedRotateZoomStaticContracts[index];
+        if (FCPCCExpectedCurrentArchitectureMethodOffset(contract) == 0) {
+            *reason = FCPCCMutationErrorUnsupportedPendingLiveContract;
+            return NO;
+        }
+    }
+    *reason = FCPCCMutationErrorUnsupportedPendingLiveContract;
+    return NO;
+}
+
 @implementation FCPCCMutationController
 
+- (FCPCCMutationResult *)planTransaction:(FCPCCBeforeAfterTransaction *)transaction {
+    if (![transaction isKindOfClass:[FCPCCBeforeAfterTransaction class]]) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedInvalidRequest
+                                                    reason:@"native_targeted_rotate_zoom_transaction_invalid"
+                                         plannedAfterState:nil
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+    if (transaction.effectKind != FCPCCEffectKindNativeTargetedRotateZoom) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionUnsupportedEffect
+                                                    reason:@"effect_not_admitted_for_native_mutation"
+                                         plannedAfterState:nil
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+    if (![transaction isKindOfClass:[FCPCCNativeTargetedRotateZoomTransaction class]]) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedInvalidRequest
+                                                    reason:@"native_targeted_rotate_zoom_transaction_type_unverified"
+                                         plannedAfterState:nil
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+    FCPCCNativeTargetedRotateZoomTransaction *nativeTransaction = (FCPCCNativeTargetedRotateZoomTransaction *)transaction;
+    FCPCCNativeTargetedRotateZoomRequest *request = nativeTransaction.request;
+    if (![request isKindOfClass:[FCPCCNativeTargetedRotateZoomRequest class]]
+        || transaction.payload != request
+        || request.effectKind != FCPCCEffectKindNativeTargetedRotateZoom
+        || request.easing != FCPCCNativeKeyframeEasingNatural
+        || !FCPCCFiniteCGFloat(request.normalizedTargetPoint.x)
+        || !FCPCCFiniteCGFloat(request.normalizedTargetPoint.y)
+        || request.normalizedTargetPoint.x < 0.0 || request.normalizedTargetPoint.x > 1.0
+        || request.normalizedTargetPoint.y < 0.0 || request.normalizedTargetPoint.y > 1.0
+        || !FCPCCFiniteCGFloat(request.scaleStart)
+        || !FCPCCFiniteCGFloat(request.scaleEnd)
+        || request.scaleStart < FCPCCNativeTargetedRotateZoomMinimumScale
+        || request.scaleStart > FCPCCNativeTargetedRotateZoomMaximumScale
+        || request.scaleEnd <= request.scaleStart
+        || request.scaleEnd > FCPCCNativeTargetedRotateZoomMaximumScale
+        || !FCPCCFiniteCGFloat(request.rotationStartDegrees)
+        || !FCPCCFiniteCGFloat(request.rotationEndDegrees)
+        || request.rotationStartDegrees < FCPCCNativeTargetedRotateZoomMinimumRotationDegrees
+        || request.rotationStartDegrees > FCPCCNativeTargetedRotateZoomMaximumRotationDegrees
+        || request.rotationEndDegrees < FCPCCNativeTargetedRotateZoomMinimumRotationDegrees
+        || request.rotationEndDegrees > FCPCCNativeTargetedRotateZoomMaximumRotationDegrees
+        || !FCPCCPositiveNumericCMTime(request.duration)) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedInvalidRequest
+                                                    reason:@"native_targeted_rotate_zoom_request_invalid"
+                                         plannedAfterState:nil
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+    FCPCCLibraryInvariantResult *libraryInvariant = transaction.libraryInvariant;
+    if (![libraryInvariant isKindOfClass:[FCPCCLibraryInvariantResult class]] || !libraryInvariant.isVerified) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedLibraryInvariant
+                                                    reason:@"native_targeted_rotate_zoom_library_manifest_invariant_unverified"
+                                         plannedAfterState:nil
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+    FCPCCReadOnlyContextSnapshot *contextSnapshot = transaction.contextSnapshot;
+    if (![contextSnapshot isKindOfClass:[FCPCCReadOnlyContextSnapshot class]]
+        || contextSnapshot.disposition != FCPCCReadOnlyContextDispositionReady
+        || !contextSnapshot.isReadOnlyCapable
+        || !contextSnapshot.hasFrameSize
+        || !contextSnapshot.hasFrameDuration
+        || !FCPCCFiniteCGFloat(contextSnapshot.frameSize.width)
+        || !FCPCCFiniteCGFloat(contextSnapshot.frameSize.height)
+        || contextSnapshot.frameSize.width <= 0.0 || contextSnapshot.frameSize.height <= 0.0
+        || !FCPCCPositiveNumericCMTime(contextSnapshot.frameDuration)
+        || !FCPCCBoundedNonemptyString(contextSnapshot.selectionRevision)
+        || !FCPCCBoundedNonemptyString(contextSnapshot.timelineRevision)
+        || contextSnapshot.selectedTimelineItems.count != 1) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedContextInvariant
+                                                    reason:@"native_targeted_rotate_zoom_context_invariant_unverified"
+                                         plannedAfterState:nil
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+    id selectedValue = contextSnapshot.selectedTimelineItems.firstObject;
+    if (![selectedValue isKindOfClass:[FCPCCTimelineItemSnapshot class]]) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedContextInvariant
+                                                    reason:@"native_targeted_rotate_zoom_selected_item_type_unverified"
+                                         plannedAfterState:nil
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+    FCPCCTimelineItemSnapshot *selectedItem = selectedValue;
+    CMTimeRange selectedRange = selectedItem.timelineRange;
+    if (!FCPCCBoundedNonemptyString(selectedItem.stableItemIdentifier)
+        || !FCPCCBoundedNonemptyString(selectedItem.canonicalSourcePath)
+        || !FCPCCLowercaseSHA256HexStringIsValid(selectedItem.sourceSHA256)
+        || ![selectedItem.sourceIdentityReason isEqualToString:@"source_identity_available"]
+        || selectedItem.primaryStorylineIndex < 0
+        || selectedItem.primaryStorylineIndex == NSNotFound
+        || !selectedItem.hasTimelineRange
+        || !FCPCCNumericCMTime(selectedRange.start)
+        || !FCPCCPositiveNumericCMTime(selectedRange.duration)
+        || CMTimeCompare(request.duration, selectedRange.duration) > 0) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedContextInvariant
+                                                    reason:@"native_targeted_rotate_zoom_selected_spine_item_or_range_unverified"
+                                         plannedAfterState:nil
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+    CMTime minimumDuration = CMTimeMultiplyByRatio(contextSnapshot.frameDuration, 4, 1);
+    if (!FCPCCPositiveNumericCMTime(minimumDuration)
+        || CMTimeCompare(request.duration, minimumDuration) < 0) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedContextInvariant
+                                                    reason:@"native_targeted_rotate_zoom_duration_shorter_than_four_frames"
+                                         plannedAfterState:nil
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+
+    // These calculations use a centered, product-owned normalized preview
+    // plane. No Final Cut pixel conversion or y-axis convention is claimed.
+    // For each preview progress p, the desired source point moves toward the
+    // center, then position compensates the scaled/rotated source point. Thus
+    // p=0 has zero position and p=1 lands on the center in this preview plane.
+    CGFloat sourceX = request.normalizedTargetPoint.x - 0.5;
+    CGFloat sourceY = request.normalizedTargetPoint.y - 0.5;
+    NSMutableArray<FCPCCNativeTransformKeyframe *> *keyframes = [[NSMutableArray alloc] initWithCapacity:5];
+    CMTime previousTime = kCMTimeInvalid;
+    for (int index = 0; index < 5; index += 1) {
+        CGFloat linearProgress = (CGFloat)index / 4.0;
+        CGFloat easedProgress = FCPCCNaturalPreviewProgress(linearProgress);
+        CGFloat uniformScale = request.scaleStart + (easedProgress * (request.scaleEnd - request.scaleStart));
+        CGFloat rotationDegrees = request.rotationStartDegrees + (easedProgress * (request.rotationEndDegrees - request.rotationStartDegrees));
+        CGFloat radians = rotationDegrees * (CGFloat)(M_PI / 180.0);
+        CGFloat cosine = cos(radians);
+        CGFloat sine = sin(radians);
+        CGFloat transformedX = uniformScale * ((sourceX * cosine) - (sourceY * sine));
+        CGFloat transformedY = uniformScale * ((sourceX * sine) + (sourceY * cosine));
+        CGFloat desiredX = sourceX + (easedProgress * (0.0 - sourceX));
+        CGFloat desiredY = sourceY + (easedProgress * (0.0 - sourceY));
+        CGPoint normalizedPosition = CGPointMake(desiredX - transformedX, desiredY - transformedY);
+        CMTime clipLocalTime = CMTimeMultiplyByRatio(request.duration, index, 4);
+        if (!FCPCCNumericCMTime(clipLocalTime)
+            || (index > 0 && CMTimeCompare(clipLocalTime, previousTime) <= 0)
+            || !FCPCCFiniteCGFloat(uniformScale)
+            || !FCPCCFiniteCGFloat(rotationDegrees)
+            || !FCPCCFiniteCGFloat(normalizedPosition.x)
+            || !FCPCCFiniteCGFloat(normalizedPosition.y)) {
+            return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedContextInvariant
+                                                        reason:@"native_targeted_rotate_zoom_keyframe_plan_unrepresentable"
+                                             plannedAfterState:nil
+                                                   beforeState:nil
+                                                    afterState:nil
+                                       nativeMutationPerformed:NO];
+        }
+        [keyframes addObject:[[FCPCCNativeTransformKeyframe alloc]
+            initWithClipLocalTime:clipLocalTime
+               normalizedPosition:normalizedPosition
+nativePixelPositionConversionVerified:NO
+                     uniformScale:uniformScale
+                  rotationDegrees:rotationDegrees
+                    easedProgress:easedProgress]];
+        previousTime = clipLocalTime;
+    }
+    FCPCCNativeTransformState *plannedAfterState = [[FCPCCNativeTransformState alloc]
+        initWithStableItemIdentifier:selectedItem.stableItemIdentifier
+                    selectionRevision:contextSnapshot.selectionRevision
+                     timelineRevision:contextSnapshot.timelineRevision
+                            frameSize:contextSnapshot.frameSize
+                            keyframes:keyframes];
+    return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionPlanReady
+                                                reason:@"native_targeted_rotate_zoom_preview_plan_ready"
+                                     plannedAfterState:plannedAfterState
+                                           beforeState:nil
+                                            afterState:nil
+                               nativeMutationPerformed:NO];
+}
+
 - (FCPCCMutationResult *)applyTransaction:(FCPCCBeforeAfterTransaction *)transaction {
-    (void)transaction;
-    return FCPCCMutationResult.unsupportedUnverified;
+    FCPCCMutationResult *planResult = [self planTransaction:transaction];
+    if (planResult.disposition != FCPCCMutationDispositionPlanReady) {
+        return planResult;
+    }
+    if (![NSThread isMainThread]) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedHostContainment
+                                                    reason:@"native_targeted_rotate_zoom_requires_main_thread"
+                                         plannedAfterState:planResult.plannedAfterState
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+    NSString *hostReason = nil;
+    if (!FCPCCReadOnlyHostGatePasses(&hostReason)) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedHostContainment
+                                                    reason:[@"native_targeted_rotate_zoom_host_containment_unverified_" stringByAppendingString:hostReason ?: @"unknown"]
+                                         plannedAfterState:planResult.plannedAfterState
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+
+    // No model method is resolved or invoked until all of the following can
+    // be proven exactly: a named native undo transaction, typed capture of
+    // position/scale/rotation before the write, per-keyframe native natural
+    // interpolation, typed re-read and equality comparison of all three
+    // values, and rollback through that same native undo transaction on any
+    // partial write. The static evidence does not yet establish the required
+    // natural-easing option or project-document undo/rollback provenance.
+    NSString *liveContractReason = nil;
+    if (!FCPCCNativeMutationLiveContractProven(&liveContractReason)) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionUnsupportedPendingLiveContract
+                                                    reason:liveContractReason
+                                         plannedAfterState:planResult.plannedAfterState
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+    return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionUnsupportedPendingLiveContract
+                                                reason:FCPCCMutationErrorUnsupportedPendingLiveContract
+                                     plannedAfterState:planResult.plannedAfterState
+                                           beforeState:nil
+                                            afterState:nil
+                               nativeMutationPerformed:NO];
 }
 
 - (FCPCCMutationResult *)undoLastTransaction {
-    return FCPCCMutationResult.unsupportedUnverified;
+    return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionUnsupportedPendingLiveContract
+                                                reason:FCPCCMutationErrorUnsupportedPendingLiveContract
+                                     plannedAfterState:nil
+                                           beforeState:nil
+                                            afterState:nil
+                               nativeMutationPerformed:NO];
 }
 
 @end
@@ -1766,8 +2189,7 @@ static NSString *FCPCCDerivedTimelineRevision(NSArray *primaryItems,
 
 - (void)apply:(id)sender {
     (void)sender;
-    FCPCCBeforeAfterTransaction *transaction = [[FCPCCBeforeAfterTransaction alloc] initWithEffectKind:FCPCCEffectKindNativeTargetedRotateZoom beforeState:@{} afterState:@{}];
-    FCPCCMutationResult *result = [self.mutationController applyTransaction:transaction];
+    FCPCCMutationResult *result = [FCPCCMutationResult unavailableWithoutPanelBinding];
     self.historyField.stringValue = [@"History / error: " stringByAppendingString:result.reason];
 }
 

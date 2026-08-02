@@ -146,27 +146,128 @@ FOUNDATION_EXPORT FCPCCReadOnlyContextSnapshot *FCPCCValidateReadOnlySnapshotAga
 
 typedef NS_ENUM(NSInteger, FCPCCMutationDisposition) {
     FCPCCMutationDispositionUnsupportedUnverifiedFCP123 = 0,
+    // A deterministic product-owned preview plan was formed. This is not a
+    // Final Cut Pro mutation result.
+    FCPCCMutationDispositionPlanReady = 1,
+    FCPCCMutationDispositionRejectedInvalidRequest = 2,
+    FCPCCMutationDispositionRejectedContextInvariant = 3,
+    FCPCCMutationDispositionRejectedLibraryInvariant = 4,
+    FCPCCMutationDispositionRejectedHostContainment = 5,
+    FCPCCMutationDispositionUnsupportedEffect = 6,
+    FCPCCMutationDispositionUnsupportedPendingLiveContract = 7,
 };
 
 FOUNDATION_EXPORT NSString * const FCPCCMutationErrorUnsupportedUnverifiedFCP123;
+FOUNDATION_EXPORT NSString * const FCPCCMutationErrorUnsupportedPendingLiveContract;
+
+// This is a product-owned desired curve for preview/planning only. The sole
+// value deliberately does not encode, infer, or select a private Final Cut
+// Pro interpolation option.
+typedef NS_ENUM(NSInteger, FCPCCNativeKeyframeEasing) {
+    FCPCCNativeKeyframeEasingNatural = 0,
+};
+
+// The payload boundary remains typed and extensible for the four fixed effect
+// kinds. A base payload can never authorize a native mutation by itself.
+@interface FCPCCMutationPayload : NSObject
+@property (nonatomic, readonly) FCPCCEffectKind effectKind;
+- (instancetype)initWithEffectKind:(FCPCCEffectKind)effectKind NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
+@interface FCPCCNativeTargetedRotateZoomRequest : FCPCCMutationPayload
+@property (nonatomic, readonly) CGPoint normalizedTargetPoint;
+@property (nonatomic, readonly) CGFloat scaleStart;
+@property (nonatomic, readonly) CGFloat scaleEnd;
+@property (nonatomic, readonly) CGFloat rotationStartDegrees;
+@property (nonatomic, readonly) CGFloat rotationEndDegrees;
+@property (nonatomic, readonly) CMTime duration;
+@property (nonatomic, readonly) FCPCCNativeKeyframeEasing easing;
+- (instancetype)initWithNormalizedTargetPoint:(CGPoint)normalizedTargetPoint
+                                   scaleStart:(CGFloat)scaleStart
+                                     scaleEnd:(CGFloat)scaleEnd
+                         rotationStartDegrees:(CGFloat)rotationStartDegrees
+                           rotationEndDegrees:(CGFloat)rotationEndDegrees
+                                     duration:(CMTime)duration
+                                       easing:(FCPCCNativeKeyframeEasing)easing NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithEffectKind:(FCPCCEffectKind)effectKind NS_UNAVAILABLE;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
+// A keyframe is a typed desired transform preview value. No private Final Cut
+// Pro setter is called while creating one.
+@interface FCPCCNativeTransformKeyframe : NSObject
+@property (nonatomic, readonly) CMTime clipLocalTime;
+// This product coordinate remains normalized until an exact Final Cut Pro
+// pixel-position conversion and axis convention have been admitted.
+@property (nonatomic, readonly) CGPoint normalizedPosition;
+@property (nonatomic, readonly, getter=isNativePixelPositionConversionVerified) BOOL nativePixelPositionConversionVerified;
+@property (nonatomic, readonly) CGFloat uniformScale;
+@property (nonatomic, readonly) CGFloat rotationDegrees;
+@property (nonatomic, readonly) CGFloat easedProgress;
+- (instancetype)initWithClipLocalTime:(CMTime)clipLocalTime
+                   normalizedPosition:(CGPoint)normalizedPosition
+ nativePixelPositionConversionVerified:(BOOL)nativePixelPositionConversionVerified
+                         uniformScale:(CGFloat)uniformScale
+                      rotationDegrees:(CGFloat)rotationDegrees
+                        easedProgress:(CGFloat)easedProgress NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
+@interface FCPCCNativeTransformState : NSObject
+@property (nonatomic, copy, readonly) NSString *stableItemIdentifier;
+@property (nonatomic, copy, readonly) NSString *selectionRevision;
+@property (nonatomic, copy, readonly) NSString *timelineRevision;
+@property (nonatomic, readonly) CGSize frameSize;
+@property (nonatomic, copy, readonly) NSArray<FCPCCNativeTransformKeyframe *> *keyframes;
+- (instancetype)initWithStableItemIdentifier:(NSString *)stableItemIdentifier
+                            selectionRevision:(NSString *)selectionRevision
+                             timelineRevision:(NSString *)timelineRevision
+                                    frameSize:(CGSize)frameSize
+                                    keyframes:(NSArray<FCPCCNativeTransformKeyframe *> *)keyframes NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@end
 
 @interface FCPCCBeforeAfterTransaction : NSObject
 @property (nonatomic, copy, readonly) NSString *transactionIdentifier;
 @property (nonatomic, readonly) FCPCCEffectKind effectKind;
-@property (nonatomic, copy, readonly) NSDictionary<NSString *, id> *beforeState;
-@property (nonatomic, copy, readonly) NSDictionary<NSString *, id> *afterState;
-- (instancetype)initWithEffectKind:(FCPCCEffectKind)effectKind
-                       beforeState:(NSDictionary<NSString *, id> *)beforeState
-                        afterState:(NSDictionary<NSString *, id> *)afterState;
+@property (nonatomic, strong, readonly) FCPCCMutationPayload *payload;
+@property (nonatomic, strong, readonly) FCPCCReadOnlyContextSnapshot *contextSnapshot;
+@property (nonatomic, strong, readonly) FCPCCLibraryInvariantResult *libraryInvariant;
+- (instancetype)initWithPayload:(FCPCCMutationPayload *)payload
+                   contextSnapshot:(FCPCCReadOnlyContextSnapshot *)contextSnapshot
+                  libraryInvariant:(FCPCCLibraryInvariantResult *)libraryInvariant NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
+// This is the only transaction subtype admitted to the future native route.
+// The other three fixed payload kinds retain the generic typed boundary and
+// remain unsupported by FCPCCMutationController.
+@interface FCPCCNativeTargetedRotateZoomTransaction : FCPCCBeforeAfterTransaction
+@property (nonatomic, strong, readonly) FCPCCNativeTargetedRotateZoomRequest *request;
+@property (nonatomic, copy, readonly) NSString *nativeUndoActionName;
+- (instancetype)initWithRequest:(FCPCCNativeTargetedRotateZoomRequest *)request
+                 contextSnapshot:(FCPCCReadOnlyContextSnapshot *)contextSnapshot
+                libraryInvariant:(FCPCCLibraryInvariantResult *)libraryInvariant NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithPayload:(FCPCCMutationPayload *)payload
+                 contextSnapshot:(FCPCCReadOnlyContextSnapshot *)contextSnapshot
+                libraryInvariant:(FCPCCLibraryInvariantResult *)libraryInvariant NS_UNAVAILABLE;
 @end
 
 @interface FCPCCMutationResult : NSObject
 @property (nonatomic, readonly) FCPCCMutationDisposition disposition;
 @property (nonatomic, copy, readonly) NSString *reason;
+@property (nonatomic, strong, readonly, nullable) FCPCCNativeTransformState *plannedAfterState;
+@property (nonatomic, strong, readonly, nullable) FCPCCNativeTransformState *beforeState;
+@property (nonatomic, strong, readonly, nullable) FCPCCNativeTransformState *afterState;
+@property (nonatomic, readonly, getter=didPerformNativeMutation) BOOL nativeMutationPerformed;
 + (instancetype)unsupportedUnverified;
 @end
 
 @interface FCPCCMutationController : NSObject
+// This pure planner is available for deterministic preview and test evidence.
+// It cannot write a Final Cut Pro project.
+- (FCPCCMutationResult *)planTransaction:(FCPCCBeforeAfterTransaction *)transaction;
 - (FCPCCMutationResult *)applyTransaction:(FCPCCBeforeAfterTransaction *)transaction;
 - (FCPCCMutationResult *)undoLastTransaction;
 @end

@@ -7,6 +7,7 @@ script_dir="$(cd "$(/usr/bin/dirname "$0")" && /bin/pwd)"
 plugin_dir="$(/usr/bin/dirname "$script_dir")"
 repo_dir="$(/usr/bin/dirname "$plugin_dir")"
 runtime_source="$plugin_dir/splicekit_minimal/Sources"
+runtime_header="$runtime_source/FCPCommandConsoleRuntime.h"
 runtime_implementation="$runtime_source/FCPCommandConsoleRuntime.m"
 runtime_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
 runtime_policy_source="$plugin_dir/splicekit_minimal/Resources/FCPCCOnboardingQueryCompatibility.plist"
@@ -24,6 +25,8 @@ source_app="/Applications/Final Cut Pro.app"
 source_executable="$source_app/Contents/MacOS/Final Cut Pro"
 onboarding_framework_relative_executable_path="Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
 source_onboarding_framework="$source_app/$onboarding_framework_relative_executable_path"
+flexo_framework_relative_executable_path="Contents/Frameworks/Flexo.framework/Versions/A/Flexo"
+source_flexo_framework="$source_app/$flexo_framework_relative_executable_path"
 mas_receipt_relative_path="Contents/_MASReceipt/receipt"
 source_mas_receipt="$source_app/$mas_receipt_relative_path"
 onboarding_framework_load_path="@rpath/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
@@ -63,9 +66,28 @@ fi
 if [[ -z "$rg_bin" ]]; then
     fail "rg is required for source audits"
 fi
-if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboarding_framework" || ! -f "$source_mas_receipt" ]]; then
+if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboarding_framework" || ! -f "$source_flexo_framework" || ! -f "$source_mas_receipt" ]]; then
     fail "required source app or reviewed onboarding framework is missing"
 fi
+
+/usr/bin/otool -arch arm64 -o -v "$source_flexo_framework" > "$test_dir/fcp-12-3-flexo-objc-arm64.txt"
+for installed_flexo_fragment in \
+    'v64@0:8{?=qiIq}16^d40^d48^d56' \
+    'v68@0:8{?=qiIq}16d40d48d56I64' \
+    '0x3e6a10) -[FFHeXForm3DEffect getPixelPositionAtTime:x:y:z:]' \
+    '0x3e6a84) -[FFHeXForm3DEffect getRotationAtTime:x:y:z:]' \
+    '0x3e6ac0) -[FFHeXForm3DEffect getScaleAtTime:x:y:z:]' \
+    '0x3e6c2c) -[FFHeXForm3DEffect setPixelPositionAtTime:curveX:curveY:curveZ:options:]' \
+    '0x3e6ce8) -[FFHeXForm3DEffect setRotationAtTime:curveX:curveY:curveZ:options:]' \
+    '0x3e6d24) -[FFHeXForm3DEffect setScaleAtTime:curveX:curveY:curveZ:options:]' \
+    '0x156684) -[FFEffectStack actionBegin:animationHint:deferUpdates:]' \
+    '0x1566c0) -[FFEffectStack actionEnd:save:error:]' \
+    '0x32cdc4) -[FFUndoHandler undoableBegin:]' \
+    '0x32cf84) -[FFUndoHandler undoableEnd:save:error:]'; do
+    if ! "$rg_bin" -F -q "$installed_flexo_fragment" "$test_dir/fcp-12-3-flexo-objc-arm64.txt"; then
+        fail "installed Final Cut Pro 12.3 Flexo metadata drifted: $installed_flexo_fragment"
+    fi
+done
 
 stock_main_before="$(/usr/bin/shasum -a 256 "$source_executable" | /usr/bin/awk '{print $1}')"
 stock_info_before="$(/usr/bin/shasum -a 256 "$source_app/Contents/Info.plist" | /usr/bin/awk '{print $1}')"
@@ -135,9 +157,93 @@ require_fragment '[self.applyButton setEnabled:NO];' "$runtime_implementation" "
 if "$rg_bin" -F 'setEnabled:YES' "$runtime_implementation" >/dev/null; then
     fail "panel code can enable a mutation control"
 fi
-if [[ "$("$rg_bin" -F -o 'return FCPCCMutationResult.unsupportedUnverified;' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" -lt 2 ]]; then
-    fail "mutation stubs do not fail closed"
+for required_mutation_fragment in \
+    'FCPCCMutationPayload' \
+    'FCPCCNativeTargetedRotateZoomTransaction' \
+    'clipLocalTime' \
+    'normalizedPosition' \
+    'nativePixelPositionConversionVerified'; do
+    require_fragment "$required_mutation_fragment" "$runtime_header" "typed mutation interface"
+done
+for required_mutation_fragment in \
+    'unsupported_pending_live_contract_missing_exact_native_easing_and_native_undo_rollback_contracts' \
+    'native_targeted_rotate_zoom_preview_plan_ready'; do
+    require_fragment "$required_mutation_fragment" "$runtime_implementation" "typed mutation implementation"
+done
+for required_mutation_fragment in \
+    'getPixelPositionAtTime:x:y:z:' \
+    'getRotationAtTime:x:y:z:' \
+    'getScaleAtTime:x:y:z:' \
+    'setPixelPositionAtTime:curveX:curveY:curveZ:options:' \
+    'setRotationAtTime:curveX:curveY:curveZ:options:' \
+    'setScaleAtTime:curveX:curveY:curveZ:options:' \
+    'v64@0:8{?=qiIq}16^d40^d48^d56' \
+    'v68@0:8{?=qiIq}16d40d48d56I64' \
+    '0x3e6a10' \
+    '0x3e6a84' \
+    '0x3e6ac0' \
+    '0x3e6c2c' \
+    '0x3e6ce8' \
+    '0x3e6d24' \
+    '0x156684' \
+    '0x1566c0' \
+    '0x32cdc4' \
+    '0x32cf84'; do
+    require_fragment "$required_mutation_fragment" "$runtime_implementation" "FCP 12.3 static mutation provenance"
+done
+for obsolete_mutation_selector in \
+    'getPixelPosition:atTime:options:' \
+    'getRotation:atTime:options:' \
+    'getScale:atTime:options:' \
+    'setPixelPosition:atTime:options:' \
+    'setRotation:atTime:options:' \
+    'setScale:atTime:options:'; do
+    if "$rg_bin" -F -q "$obsolete_mutation_selector" "$runtime_implementation"; then
+        fail "mutation provenance retains an upstream spelling rather than installed FCP 12.3 metadata: $obsolete_mutation_selector"
+    fi
+done
+if "$rg_bin" -F -q 'NSDictionary<NSString *, id> *beforeState' "$runtime_header" || "$rg_bin" -F -q 'NSDictionary<NSString *, id> *afterState' "$runtime_header"; then
+    fail "mutation interface still accepts arbitrary dictionary state"
 fi
+mutation_controller_source="$(/usr/bin/sed -n '/@implementation FCPCCMutationController/,/^@end$/p' "$runtime_implementation")"
+for forbidden_mutation_controller_fragment in \
+    'FCPCCResolveFixedMethod' \
+    'FCPCCReceiverUsesValidatedMethod' \
+    'objc_getClass' \
+    'sel_registerName' \
+    'class_getInstanceMethod' \
+    'FCPCCObjectGetter' \
+    'FCPCCCMTimeGetter' \
+    'FCPCCSelectedItemsGetter'; do
+    if print -r -- "$mutation_controller_source" | "$rg_bin" -F -q "$forbidden_mutation_controller_fragment"; then
+        fail "plan/apply resolves a private class, selector, or model method: $forbidden_mutation_controller_fragment"
+    fi
+done
+for required_mutation_controller_fragment in \
+    '[self planTransaction:transaction]' \
+    'FCPCCReadOnlyHostGatePasses(&hostReason)' \
+    'FCPCCNativeMutationLiveContractProven(&liveContractReason)' \
+    'FCPCCMutationDispositionUnsupportedPendingLiveContract' \
+    'nativeMutationPerformed:NO'; do
+    if ! print -r -- "$mutation_controller_source" | "$rg_bin" -F -q "$required_mutation_controller_fragment"; then
+        fail "typed mutation controller is missing its fail-closed barrier: $required_mutation_controller_fragment"
+    fi
+done
+panel_apply_source="$(/usr/bin/sed -n '/- (void)apply:(id)sender {/,/- (void)undo:/p' "$runtime_implementation")"
+if ! print -r -- "$panel_apply_source" | "$rg_bin" -F -q 'unavailableWithoutPanelBinding'; then
+    fail "disabled panel apply path does not return an explicit unavailable result"
+fi
+for forbidden_panel_apply_fragment in \
+    'FCPCCNativeTargetedRotateZoomRequest' \
+    'FCPCCNativeTargetedRotateZoomTransaction' \
+    'FCPCCFixedModelTraversalAdapter' \
+    'initWithNormalizedTargetPoint' \
+    'CMTimeMake' \
+    '1.2'; do
+    if print -r -- "$panel_apply_source" | "$rg_bin" -F -q "$forbidden_panel_apply_fragment"; then
+        fail "disabled panel fabricates a native request: $forbidden_panel_apply_fragment"
+    fi
+done
 for manifest_field in canonical_path expected_device expected_inode persistent_uid; do
     require_fragment "$manifest_field" "$repo_dir/config/fcpcommandconsole-library-manifest.json" "library manifest"
 done
@@ -606,6 +712,7 @@ fi
   "$script_dir/MutationStubTests.m" \
   -o "$test_dir/mutation-stub-tests"
 "$test_dir/mutation-stub-tests"
+print -r -- 'native_targeted_rotate_zoom_static_evidence=FCP_12_3_arm64 get_type=v64@0:8{?=qiIq}16^d40^d48^d56 set_type=v68@0:8{?=qiIq}16d40d48d56I64 FFHeXForm3DEffect.getPixelPositionAtTime:x:y:z:=0x3e6a10 FFHeXForm3DEffect.setPixelPositionAtTime:curveX:curveY:curveZ:options:=0x3e6c2c FFEffectStack.actionBegin:animationHint:deferUpdates:=0x156684 FFUndoHandler.undoableBegin:=0x32cdc4 live_mutation=unsupported_pending_exact_native_easing_and_native_undo_rollback_contracts'
 
 /usr/bin/codesign -d --entitlements :- "$source_app" > "$test_dir/stock-entitlements.plist" 2> "$test_dir/stock-entitlements.stderr"
 /bin/cp "$test_dir/stock-entitlements.plist" "$test_dir/expected-entitlements.plist"
