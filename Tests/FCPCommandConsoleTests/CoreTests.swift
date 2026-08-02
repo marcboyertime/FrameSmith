@@ -420,4 +420,122 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(metadata.alphaCapable); XCTAssertFalse(metadata.sha256.isEmpty); XCTAssertTrue(metadata.pixelFormat.hasPrefix("yuva"))
         XCTAssertTrue(fm.fileExists(atPath: metadata.path.path))
     }
+
+    func testJobCoordinatorPreviewApplyReloadAndDuplicateProtection() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fcpcc-jobs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registry = try registry()
+        let plan = try DeterministicPlanner(registry: registry).plan(
+            request: "crop",
+            selection: selection(),
+            target: Target.confirmed(x: 0.4, y: 0.6),
+            operationID: UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
+        )
+        let coordinator = try JobCoordinator(runtimeRoot: root, registry: registry)
+        let previewed = try await coordinator.preview(plan: plan)
+        XCTAssertEqual(previewed.state, .previewed)
+        let applied = try await coordinator.apply(plan: plan, currentRevision: "r1", beforeSnapshotHash: "before-hash") {
+            VerifiedMutationEvidence(evidenceID: "verified-1", afterSnapshotHash: "after-hash", verified: true, details: ["offline evidence"])
+        }
+        XCTAssertEqual(applied.state, .applied)
+        XCTAssertEqual(applied.verifiedEvidence?.evidenceID, "verified-1")
+        XCTAssertFalse(applied.rollbackRequired)
+        do {
+            _ = try await coordinator.apply(plan: plan, currentRevision: "r1") {
+                XCTFail("duplicate operation must not invoke mutation")
+                return VerifiedMutationEvidence(evidenceID: "unexpected", afterSnapshotHash: "unexpected", verified: true)
+            }
+            XCTFail("duplicate operation should fail closed")
+        } catch let error as JobCoordinatorError {
+            guard case .duplicateOperation = error else { return XCTFail("unexpected duplicate error: \(error)") }
+        }
+        let history = await coordinator.history()
+        XCTAssertEqual(history.map(\.state), [.previewed, .applying, .applied])
+        let payloadURL = root.appendingPathComponent("rollback/\(plan.operationID.uuidString).json")
+        let payloadDecoder = JSONDecoder(); payloadDecoder.dateDecodingStrategy = .iso8601
+        let payload = try payloadDecoder.decode(RollbackPayload.self, from: Data(contentsOf: payloadURL))
+        XCTAssertEqual(payload.beforeSnapshotHash, "before-hash")
+        XCTAssertFalse(String(decoding: try Data(contentsOf: payloadURL), as: UTF8.self).contains(sourceA.path))
+
+        let restarted = try JobCoordinator(runtimeRoot: root, registry: registry)
+        let restartedRecord = await restarted.record(operationID: plan.operationID)
+        let restartedHistory = await restarted.history()
+        XCTAssertEqual(restartedRecord?.state, .applied)
+        XCTAssertEqual(restartedHistory.count, 3)
+    }
+
+    func testJobCoordinatorCancellationStaleMutationAndVerificationFailClosed() async throws {
+        let registry = try registry()
+        let planner = DeterministicPlanner(registry: registry)
+
+        let cancelRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fcpcc-job-cancel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: cancelRoot) }
+        let cancelPlan = try planner.plan(request: "crop", selection: selection(), target: Target.confirmed(x: 0.2, y: 0.2), operationID: UUID(uuidString: "00000000-0000-0000-0000-000000000102")!)
+        let cancelCoordinator = try JobCoordinator(runtimeRoot: cancelRoot, registry: registry)
+        _ = try await cancelCoordinator.preview(plan: cancelPlan)
+        _ = try await cancelCoordinator.cancel(operationID: cancelPlan.operationID)
+        do {
+            _ = try await cancelCoordinator.apply(plan: cancelPlan, currentRevision: "r1") {
+                XCTFail("cancelled operation must not invoke mutation")
+                return VerifiedMutationEvidence(evidenceID: "unexpected", afterSnapshotHash: "unexpected", verified: true)
+            }
+            XCTFail("cancelled operation should fail")
+        } catch let error as JobCoordinatorError {
+            guard case .cancelled = error else { return XCTFail("unexpected cancellation error: \(error)") }
+        }
+        let cancelledRecord = await cancelCoordinator.record(operationID: cancelPlan.operationID)
+        XCTAssertEqual(cancelledRecord?.state, .cancelled)
+
+        let staleRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fcpcc-job-stale-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: staleRoot) }
+        let stalePlan = try planner.plan(request: "crop", selection: selection(), target: Target.confirmed(x: 0.3, y: 0.3), operationID: UUID(uuidString: "00000000-0000-0000-0000-000000000103")!)
+        let staleCoordinator = try JobCoordinator(runtimeRoot: staleRoot, registry: registry)
+        final class MutationFlag: @unchecked Sendable { var value = false }
+        let mutationFlag = MutationFlag()
+        do {
+            _ = try await staleCoordinator.apply(plan: stalePlan, currentRevision: "r2") {
+                mutationFlag.value = true
+                return VerifiedMutationEvidence(evidenceID: "unexpected", afterSnapshotHash: "unexpected", verified: true)
+            }
+            XCTFail("stale revision should fail")
+        } catch let error as JobCoordinatorError {
+            guard case .staleRevision = error else { return XCTFail("unexpected stale error: \(error)") }
+        }
+        XCTAssertFalse(mutationFlag.value)
+        let staleRecord = await staleCoordinator.record(operationID: stalePlan.operationID)
+        XCTAssertEqual(staleRecord?.state, .failed)
+
+        let failedRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fcpcc-job-failed-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: failedRoot) }
+        let failedPlan = try planner.plan(request: "crop", selection: selection(), target: Target.confirmed(x: 0.7, y: 0.7), operationID: UUID(uuidString: "00000000-0000-0000-0000-000000000104")!)
+        let failedCoordinator = try JobCoordinator(runtimeRoot: failedRoot, registry: registry)
+        do {
+            _ = try await failedCoordinator.apply(plan: failedPlan, currentRevision: "r1") {
+                throw NSError(domain: "test-mutation", code: 1, userInfo: [NSLocalizedDescriptionKey: "bounded mutation failed"])
+            }
+            XCTFail("failed mutation should throw")
+        } catch let error as JobCoordinatorError {
+            guard case .mutationFailed = error else { return XCTFail("unexpected mutation error: \(error)") }
+        }
+        let failedRecord = await failedCoordinator.record(operationID: failedPlan.operationID)
+        let failedHistory = await failedCoordinator.history()
+        XCTAssertEqual(failedRecord?.state, .rollbackRequired)
+        XCTAssertEqual(failedHistory.map(\.state), [.planned, .applying, .failed, .rollbackRequired])
+
+        let verifyRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fcpcc-job-verify-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: verifyRoot) }
+        let verifyPlan = try planner.plan(request: "crop", selection: selection(), target: Target.confirmed(x: 0.8, y: 0.8), operationID: UUID(uuidString: "00000000-0000-0000-0000-000000000105")!)
+        let verifyCoordinator = try JobCoordinator(runtimeRoot: verifyRoot, registry: registry)
+        do {
+            _ = try await verifyCoordinator.apply(plan: verifyPlan, currentRevision: "r1") {
+                VerifiedMutationEvidence(evidenceID: "unverified", afterSnapshotHash: "after", verified: false)
+            }
+            XCTFail("unverified evidence should throw")
+        } catch let error as JobCoordinatorError {
+            guard case .verificationFailed = error else { return XCTFail("unexpected verification error: \(error)") }
+        }
+        let verifyRecord = await verifyCoordinator.record(operationID: verifyPlan.operationID)
+        XCTAssertEqual(verifyRecord?.state, .rollbackRequired)
+        XCTAssertNil(verifyRecord?.verifiedEvidence)
+    }
 }
