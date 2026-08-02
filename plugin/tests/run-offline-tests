@@ -355,6 +355,13 @@ done
 if ! "$rg_bin" -F -q 'copied_onboarding_framework=stock_identity_matched' "$runtime_verifier" || ! "$rg_bin" -F -q 'query_setter_offsets=arm64:0x1313c,x86_64:0x13cc0' "$runtime_verifier"; then
     fail "copied-artifact verifier does not record exact framework provenance and setter offsets"
 fi
+runtime_string_loop_source="$(/usr/bin/sed -n '/for required_runtime_string in/,/^done/p' "$runtime_verifier")"
+if ! print -r -- "$runtime_string_loop_source" | "$rg_bin" -F -q "'v24@0:8@?16'"; then
+    fail "copied-artifact verifier leaves the block type encoding exposed to zsh glob expansion"
+fi
+if ! /bin/zsh -f -c 'set -o nomatch; for expected in '"'"'v24@0:8@?16'"'"'; do [[ "$expected" == "v24@0:8@?16" ]] || exit 1; done'; then
+    fail "quoted block type encoding is not executable under zsh nomatch"
+fi
 if "$rg_bin" -F -- '--deep --sign' "$initial_patcher" >/dev/null || "$rg_bin" -F -- '--deep --sign' "$runtime_updater" >/dev/null || "$rg_bin" -F -- '--deep --sign' "$repair_patcher" >/dev/null; then
     fail "a patcher may deep-sign nested code"
 fi

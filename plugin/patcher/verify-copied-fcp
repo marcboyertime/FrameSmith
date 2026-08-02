@@ -374,18 +374,18 @@ if ! /usr/bin/cmp -s "$built_compatibility_policy" "$embedded_compatibility_poli
 fi
 /usr/bin/strings "$embedded_runtime" > "$verify_dir/runtime-strings.txt"
 for required_runtime_string in \
-    com.local.fcpcommandconsole.FinalCut \
-    12.3 \
-    450152 \
-    CloudContentFirstLaunchCompleted \
-    FFCloudContentDisabled \
-    constructor \
-    Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne \
-    POFDesktopOnboardingCoordinator \
-    setQueryDemoProjectInfo: \
-    v24@0:8@?16 \
-    636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce \
-    onboarding_query_gate=installed; do
+    'com.local.fcpcommandconsole.FinalCut' \
+    '12.3' \
+    '450152' \
+    'CloudContentFirstLaunchCompleted' \
+    'FFCloudContentDisabled' \
+    'constructor' \
+    'Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne' \
+    'POFDesktopOnboardingCoordinator' \
+    'setQueryDemoProjectInfo:' \
+    'v24@0:8@?16' \
+    '636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce' \
+    'onboarding_query_gate=installed'; do
     if ! /usr/bin/grep -F -x -q "$required_runtime_string" "$verify_dir/runtime-strings.txt"; then
         fail "runtime is missing required exact-host, preference, or method-guard string: $required_runtime_string"
     fi
