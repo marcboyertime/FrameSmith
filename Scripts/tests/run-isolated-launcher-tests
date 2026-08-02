@@ -1,0 +1,160 @@
+#!/bin/zsh
+# Focused offline checks for the guarded copied-Final-Cut launcher.
+# These tests never invoke the launcher or either Final Cut executable.
+
+set -euo pipefail
+
+script_dir="$(cd "$(/usr/bin/dirname "$0")" && /bin/pwd -P)"
+scripts_dir="$(/usr/bin/dirname "$script_dir")"
+repo_dir="$(/usr/bin/dirname "$scripts_dir")"
+launcher="$scripts_dir/launch-isolated-fcpcommandconsole"
+profile="$repo_dir/config/fcpcommandconsole-isolation.sb"
+copied_app="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app"
+rg_bin="$(command -v rg || true)"
+test_dir="$(/bin/realpath "$(/usr/bin/mktemp -d /tmp/fcpcc-isolated-launcher-tests.XXXXXX)")"
+
+fail() {
+    print -u2 -r -- "run-isolated-launcher-tests: $1"
+    exit 1
+}
+
+cleanup() {
+    [[ "$test_dir" == /private/tmp/fcpcc-isolated-launcher-tests.* ]] || return
+    /bin/rm -rf -- "$test_dir"
+}
+trap cleanup EXIT
+
+require_fragment() {
+    local fragment="$1" path="$2" label="$3"
+    "$rg_bin" -F -q -- "$fragment" "$path" || fail "$label is missing: $fragment"
+}
+
+[[ -n "$rg_bin" ]] || fail "rg is required"
+[[ -f "$launcher" ]] || fail "guarded launcher is missing"
+[[ -f "$profile" ]] || fail "committed sandbox profile is missing"
+[[ -x /usr/bin/sandbox-exec ]] || fail "sandbox-exec is unavailable"
+/bin/zsh -n "$launcher"
+
+for required_launcher_fragment in \
+    'copied_app="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app"' \
+    'copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"' \
+    '--preflight-only|--launch' \
+    'require_not_running' \
+    'interpret_process_probe_status' \
+    'pgrep_status=0' \
+    'pgrep_status=1' \
+    'pgrep_status=$pgrep_status' \
+    'codesign --verify --deep --strict --verbose=4' \
+    'expected_copied_cdhash_full="4d40df5ac3153f0301d9776513832a21b81ac692d1daae25f8ada4cc21125bb2"' \
+    'verify_reviewed_copied_cdhash' \
+    'CandidateCDHashFull' \
+    'create_five_entitlements' \
+    'CFFIXED_USER_HOME="$isolated_home"' \
+    'HOME="$isolated_home"' \
+    'TMPDIR="$isolated_home/tmp"' \
+    'XDG_CACHE_HOME="$isolated_home/Library/Caches"' \
+    '/usr/bin/env -i' \
+    '/usr/bin/sandbox-exec -f "$profile"' \
+    '"$copied_executable"' \
+    'child_pid=$!' \
+    'wait "$child_pid"' \
+    'launch=child_exit_status=' \
+    'normal_container_preferences=' \
+    'normal_user_preferences=' \
+    'raw.sha256' \
+    'normalized.sha256' \
+    'compare_normal_preferences' \
+    'limitation=sandbox-exec_is_deprecated'; do
+    require_fragment "$required_launcher_fragment" "$launcher" "launcher"
+done
+
+process_probe_helper="$test_dir/process-probe-helper.zsh"
+/usr/bin/sed -n '/^interpret_process_probe_status()/,/^}/p' "$launcher" > "$process_probe_helper"
+status_one_audit="$test_dir/pgrep-status-one.audit"
+if ! /bin/zsh -f -c 'source "$1"; interpret_process_probe_status 1 "$2"' -- "$process_probe_helper" "$status_one_audit"; then
+    fail "pgrep status 1 was not treated as a clean no-match"
+fi
+if ! "$rg_bin" -F -q 'pgrep_status=1' "$status_one_audit"; then
+    fail "pgrep status 1 diagnostic was not preserved"
+fi
+status_two_audit="$test_dir/pgrep-status-two.audit"
+if /bin/zsh -f -c 'source "$1"; interpret_process_probe_status 2 "$2"' -- "$process_probe_helper" "$status_two_audit"; then
+    fail "pgrep status 2 was incorrectly treated as a clean no-match"
+fi
+if ! "$rg_bin" -F -q 'pgrep_status=2 process_probe_error=true' "$status_two_audit"; then
+    fail "pgrep status 2 diagnostic was not preserved"
+fi
+
+[[ -d "$copied_app" ]] || fail "reviewed copied Final Cut app is missing for identity-gate test"
+copied_metadata="$test_dir/copied-codesign-metadata.txt"
+/usr/bin/codesign -dvvv "$copied_app" > "$copied_metadata" 2>&1
+pinned_cdhash="$({ /usr/bin/sed -n 's/^expected_copied_cdhash_full="\(.*\)"$/\1/p' "$launcher"; })"
+observed_cdhash="$(/usr/bin/awk -F= '/^CandidateCDHashFull sha256=/{print $2; exit}' "$copied_metadata")"
+[[ -n "$pinned_cdhash" && "$observed_cdhash" == "$pinned_cdhash" ]] || fail "installed copied app does not match the pinned reviewed CDHashFull"
+identity_helper="$test_dir/cdhash-helper.zsh"
+/usr/bin/sed -n '/^verify_reviewed_copied_cdhash()/,/^}/p' "$launcher" > "$identity_helper"
+if ! /bin/zsh -f -c 'source "$1"; verify_reviewed_copied_cdhash "$2" "$3" fixture' -- "$identity_helper" "$copied_metadata" "$pinned_cdhash"; then
+    fail "identity helper rejected the reviewed copied app"
+fi
+if /bin/zsh -f -c 'source "$1"; verify_reviewed_copied_cdhash "$2" "0000000000000000000000000000000000000000000000000000000000000000" fixture' -- "$identity_helper" "$copied_metadata"; then
+    fail "identity helper accepted a deliberately drifted CDHashFull"
+fi
+
+for forbidden_launcher_fragment in \
+    'osascript' \
+    'Accessibility' \
+    'CGEvent' \
+    'System Events' \
+    '/usr/bin/open' \
+    '/bin/open' \
+    'exec /usr/bin/env' \
+    'kill ' \
+    'pkill' \
+    'launchctl' \
+    '/usr/bin/defaults' \
+    'eval ' \
+    '"$@"'; do
+    if "$rg_bin" -F -q "$forbidden_launcher_fragment" "$launcher"; then
+        fail "launcher exposes forbidden automation or arbitrary-command surface: $forbidden_launcher_fragment"
+    fi
+done
+
+for required_profile_fragment in \
+    '(deny file-read* file-write* file-read-metadata' \
+    '(regex #"^(.*/)?[^/]*\.[Ff][Cc][Pp][Bb][Uu][Nn][Dd][Ll][Ee]([/].*)?$")' \
+    '(require-not (subpath (param "ALLOWED_LIBRARY")))' \
+    '(deny file-write* (subpath (param "STOCK_APP")))' \
+    '/Users/marcboyer/Library/Containers/com.apple.FinalCut' \
+    '/Users/marcboyer/Library/Preferences/com.apple.FinalCut.plist' \
+    '/Users/marcboyer/Library/Saved Application State/com.apple.FinalCut.savedState' \
+    '/Users/marcboyer/Library/Caches/com.apple.FinalCut'; do
+    require_fragment "$required_profile_fragment" "$profile" "sandbox profile"
+done
+
+allowed_bundle="$test_dir/FCPCommandConsole Test.fcpbundle"
+/bin/mkdir -p "$allowed_bundle"
+/usr/bin/touch "$allowed_bundle/probe"
+profile_args=(-f "$profile" -D "ALLOWED_LIBRARY=$allowed_bundle" -D "STOCK_APP=/Applications/Final Cut Pro.app")
+for denied_bundle_name in production-fixture.fcpbundle PRODUCTION-FIXTURE.FCPBUNDLE MiXeD-Fixture.FcPbUnDlE; do
+    denied_bundle="$test_dir/$denied_bundle_name"
+    /bin/mkdir -p "$denied_bundle/descendant"
+    /usr/bin/touch "$denied_bundle/descendant/probe"
+    if /usr/bin/sandbox-exec "${profile_args[@]}" /bin/cat "$denied_bundle/descendant/probe" > "$test_dir/$denied_bundle_name-denied-read.txt" 2>&1; then
+        fail "sandbox profile allowed read access to a production-like library fixture: $denied_bundle_name"
+    fi
+    if /usr/bin/sandbox-exec "${profile_args[@]}" /usr/bin/touch "$denied_bundle/descendant/write-probe" > "$test_dir/$denied_bundle_name-denied-write.txt" 2>&1; then
+        fail "sandbox profile allowed write access to a production-like library fixture: $denied_bundle_name"
+    fi
+    if /usr/bin/sandbox-exec "${profile_args[@]}" /usr/bin/stat -f '%z' "$denied_bundle" > "$test_dir/$denied_bundle_name-denied-root-metadata.txt" 2>&1; then
+        fail "sandbox profile allowed root metadata access to a production-like library fixture: $denied_bundle_name"
+    fi
+    if /usr/bin/sandbox-exec "${profile_args[@]}" /usr/bin/stat -f '%z' "$denied_bundle/descendant/probe" > "$test_dir/$denied_bundle_name-denied-descendant-metadata.txt" 2>&1; then
+        fail "sandbox profile allowed descendant metadata access to a production-like library fixture: $denied_bundle_name"
+    fi
+done
+/usr/bin/sandbox-exec "${profile_args[@]}" /bin/cat "$allowed_bundle/probe" > "$test_dir/allowed-read.txt" 2>&1 || fail "sandbox profile denied the explicitly allowed disposable fixture"
+/usr/bin/sandbox-exec "${profile_args[@]}" /usr/bin/touch "$allowed_bundle/write-probe" > "$test_dir/allowed-write.txt" 2>&1 || fail "sandbox profile denied a write inside the explicitly allowed disposable fixture"
+/usr/bin/sandbox-exec "${profile_args[@]}" /usr/bin/stat -f '%z' "$allowed_bundle" > "$test_dir/allowed-metadata.txt" 2>&1 || fail "sandbox profile denied metadata access to the explicitly allowed disposable fixture"
+/usr/bin/sandbox-exec "${profile_args[@]}" /usr/bin/touch "$test_dir/runtime-write-probe" > "$test_dir/runtime-write.txt" 2>&1 || fail "sandbox profile denied a non-library runtime write"
+
+print -r -- "isolated_launcher_profile=pass denied_library_read_write_metadata=pass allowed_fixture=pass runtime_write=pass launcher_static_audit=pass"

@@ -1,0 +1,288 @@
+#!/bin/zsh
+# Guarded direct launcher for the one reviewed copied Final Cut Pro app.
+# It performs no UI automation and never opens a library itself.
+
+set -euo pipefail
+
+script_dir="$(cd "$(/usr/bin/dirname "$0")" && /bin/pwd -P)"
+repo_dir="$(/usr/bin/dirname "$script_dir")"
+profile="$repo_dir/config/fcpcommandconsole-isolation.sb"
+stock_app="/Applications/Final Cut Pro.app"
+stock_executable="$stock_app/Contents/MacOS/Final Cut Pro"
+copied_app="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app"
+copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
+runtime_framework="$copied_app/Contents/Frameworks/FCPCommandConsoleRuntime.framework"
+runtime_binary="$runtime_framework/Versions/A/FCPCommandConsoleRuntime"
+runtime_policy="$runtime_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
+entitlement_verifier="$repo_dir/plugin/build/fcpcc-entitlement-verify"
+runtime_root="/Users/marcboyer/Movies/FCPCommandConsole"
+allowed_library="$runtime_root/FCPCommandConsole Test.fcpbundle"
+isolated_home="$runtime_root/isolated-final-cut-home"
+normal_container_preferences="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
+normal_user_preferences="/Users/marcboyer/Library/Preferences/com.apple.FinalCut.plist"
+expected_version="12.3"
+expected_build="450152"
+expected_copied_cdhash_full="4d40df5ac3153f0301d9776513832a21b81ac692d1daae25f8ada4cc21125bb2"
+expected_receipt_sha256="2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e"
+receipt_relative_path="Contents/_MASReceipt/receipt"
+
+fail() {
+    print -u2 -r -- "launch-isolated-fcpcommandconsole: $1"
+    exit 1
+}
+
+usage() {
+    print -u2 -r -- "usage: launch-isolated-fcpcommandconsole --preflight-only|--launch"
+    exit 64
+}
+
+require_exact_directory() {
+    local path="$1" label="$2" canonical
+    [[ -d "$path" && ! -L "$path" ]] || fail "$label is missing, non-directory, or symlink: $path"
+    canonical="$(/bin/realpath "$path")" || fail "$label cannot be canonicalized: $path"
+    [[ "$canonical" == "$path" ]] || fail "$label is noncanonical or traverses a symlink: $path"
+}
+
+require_exact_regular_file() {
+    local path="$1" label="$2" canonical
+    [[ -f "$path" && ! -L "$path" ]] || fail "$label is missing, non-regular, or symlink: $path"
+    canonical="$(/bin/realpath "$path")" || fail "$label cannot be canonicalized: $path"
+    [[ "$canonical" == "$path" ]] || fail "$label is noncanonical or traverses a symlink: $path"
+}
+
+make_or_require_exact_directory() {
+    local path="$1" label="$2" parent
+    if [[ -e "$path" || -L "$path" ]]; then
+        require_exact_directory "$path" "$label"
+        return
+    fi
+    parent="${path:h}"
+    require_exact_directory "$parent" "$label parent"
+    /bin/mkdir "$path"
+    require_exact_directory "$path" "$label"
+}
+
+require_not_running() {
+    local audit_path="$1" pgrep_status interpretation
+    if /usr/bin/pgrep -fl '[F]inal Cut Pro' > "$audit_path" 2>&1; then
+        pgrep_status=0
+    else
+        pgrep_status=$?
+    fi
+    if interpret_process_probe_status "$pgrep_status" "$audit_path"; then
+        return 0
+    else
+        interpretation=$?
+    fi
+    case "$interpretation" in
+        1) fail "a Final Cut Pro process is running; stock and copied app must both be closed (audit=$audit_path)" ;;
+        2) fail "Final Cut Pro process probe failed with status=$pgrep_status (audit=$audit_path)" ;;
+        *) fail "unexpected process probe interpretation=$interpretation (audit=$audit_path)" ;;
+    esac
+}
+
+interpret_process_probe_status() {
+    local pgrep_status="$1" audit_path="$2"
+    case "$pgrep_status" in
+        0)
+            print -r -- "pgrep_status=0 process_match=true" >> "$audit_path"
+            return 1
+            ;;
+        1)
+            print -r -- "no Final Cut Pro process observed (pgrep_status=1)" >> "$audit_path"
+            return 0
+            ;;
+        *)
+            print -r -- "pgrep_status=$pgrep_status process_probe_error=true" >> "$audit_path"
+            return 2
+            ;;
+    esac
+}
+
+plist_value() {
+    /usr/libexec/PlistBuddy -c "Print :$2" "$1"
+}
+
+capture_normal_preferences() {
+    local output_dir="$1"
+    /bin/mkdir -p "$output_dir"
+    local -a labels=(container user)
+    local -a paths=("$normal_container_preferences" "$normal_user_preferences")
+    local index label preference_path
+    for index in 1 2; do
+        label="${labels[$index]}"
+        preference_path="${paths[$index]}"
+        if [[ -e "$preference_path" || -L "$preference_path" ]]; then
+            require_exact_regular_file "$preference_path" "normal $label preference"
+            print -r -- "present" > "$output_dir/$label.state"
+            /usr/bin/shasum -a 256 "$preference_path" | /usr/bin/awk '{print $1}' > "$output_dir/$label.raw.sha256"
+            /usr/bin/plutil -convert xml1 -o "$output_dir/$label.normalized.plist" "$preference_path"
+            /usr/bin/shasum -a 256 "$output_dir/$label.normalized.plist" | /usr/bin/awk '{print $1}' > "$output_dir/$label.normalized.sha256"
+        else
+            print -r -- "absent" > "$output_dir/$label.state"
+            print -r -- "absent" > "$output_dir/$label.raw.sha256"
+            print -r -- "absent" > "$output_dir/$label.normalized.sha256"
+        fi
+    done
+}
+
+compare_normal_preferences() {
+    local before_dir="$1" after_dir="$2" child_status="${3:-preflight}" label
+    for label in container user; do
+        /usr/bin/cmp -s "$before_dir/$label.state" "$after_dir/$label.state" || fail "normal $label preference presence changed (child_status=$child_status)"
+        /usr/bin/cmp -s "$before_dir/$label.raw.sha256" "$after_dir/$label.raw.sha256" || fail "normal $label preference raw bytes changed (child_status=$child_status)"
+        /usr/bin/cmp -s "$before_dir/$label.normalized.sha256" "$after_dir/$label.normalized.sha256" || fail "normal $label preference normalized plist changed (child_status=$child_status)"
+    done
+}
+
+create_five_entitlements() {
+    local output_path="$1"
+    /usr/bin/plutil -create xml1 "$output_path"
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.app-sandbox bool false' "$output_path"
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' "$output_path"
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.device.audio-input bool true' "$output_path"
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.device.camera bool true' "$output_path"
+    /usr/libexec/PlistBuddy -c 'Add :com.apple.security.device.microphone bool true' "$output_path"
+}
+
+verify_reviewed_copied_cdhash() {
+    local metadata_path="$1" expected_hash="$2" label="$3" observed_hash
+    observed_hash="$(/usr/bin/awk -F= '/^CandidateCDHashFull sha256=/{print $2; exit}' "$metadata_path")"
+    if [[ -z "$observed_hash" ]]; then
+        print -u2 -r -- "$label is missing CandidateCDHashFull metadata: $metadata_path"
+        return 1
+    fi
+    if [[ "$observed_hash" != "$expected_hash" ]]; then
+        print -u2 -r -- "$label CandidateCDHashFull drifted: expected=$expected_hash observed=$observed_hash"
+        return 1
+    fi
+    print -r -- "candidate_cdhash_full=$observed_hash" > "${metadata_path:h}/cdhash-full.txt"
+    return 0
+}
+
+verify_copied_identity() {
+    local output_dir="$1"
+    require_exact_directory "$stock_app" "stock Final Cut app"
+    require_exact_regular_file "$stock_executable" "stock Final Cut executable"
+    require_exact_directory "$copied_app" "copied Final Cut app"
+    require_exact_regular_file "$copied_executable" "copied Final Cut executable"
+    require_exact_regular_file "$copied_app/Contents/Info.plist" "copied Final Cut Info.plist"
+    [[ "$(plist_value "$stock_app/Contents/Info.plist" CFBundleShortVersionString)" == "$expected_version" && "$(plist_value "$stock_app/Contents/Info.plist" CFBundleVersion)" == "$expected_build" ]] || fail "stock Final Cut version/build is not 12.3/450152"
+    [[ "$(plist_value "$copied_app/Contents/Info.plist" CFBundleShortVersionString)" == "$expected_version" && "$(plist_value "$copied_app/Contents/Info.plist" CFBundleVersion)" == "$expected_build" && "$(plist_value "$copied_app/Contents/Info.plist" CFBundleIdentifier)" == "com.apple.FinalCut" ]] || fail "copied Final Cut identity is not reviewed"
+    local copied_receipt="$copied_app/$receipt_relative_path"
+    require_exact_regular_file "$copied_receipt" "copied Final Cut MAS receipt"
+    [[ "$(/usr/bin/shasum -a 256 "$copied_receipt" | /usr/bin/awk '{print $1}')" == "$expected_receipt_sha256" ]] || fail "copied MAS receipt hash is not reviewed"
+    /usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$output_dir/copied-codesign-verify.txt" 2>&1
+    /usr/bin/codesign -dvvv "$copied_app" > "$output_dir/copied-codesign-metadata.txt" 2>&1
+    if ! verify_reviewed_copied_cdhash "$output_dir/copied-codesign-metadata.txt" "$expected_copied_cdhash_full" "copied Final Cut"; then
+        fail "copied Final Cut top-level code-sign CDHashFull is not the reviewed artifact identity"
+    fi
+    require_exact_directory "$runtime_framework" "embedded runtime framework"
+    require_exact_regular_file "$runtime_binary" "embedded runtime binary"
+    require_exact_regular_file "$runtime_policy" "embedded runtime policy"
+    /usr/bin/plutil -lint "$runtime_policy" > "$output_dir/runtime-policy-lint.txt"
+    [[ "$(plist_value "$runtime_policy" SchemaVersion)" == "6" && "$(plist_value "$runtime_policy" ExpectedHostBundleIdentifier)" == "com.apple.FinalCut" && "$(plist_value "$runtime_policy" ExpectedCopiedHostBundlePath)" == "$copied_app" && "$(plist_value "$runtime_policy" ExpectedHostVersion)" == "$expected_version" && "$(plist_value "$runtime_policy" ExpectedHostBuild)" == "$expected_build" && "$(plist_value "$runtime_policy" ExpectedMASReceiptRelativePath)" == "$receipt_relative_path" && "$(plist_value "$runtime_policy" ExpectedMASReceiptSHA256)" == "$expected_receipt_sha256" && "$(plist_value "$runtime_policy" ImmutableCompileTimeAllowlist)" == "true" && "$(plist_value "$runtime_policy" RuntimeDiscoveryAllowed)" == "false" ]] || fail "embedded runtime policy is not reviewed"
+    /usr/bin/shasum -a 256 "$runtime_binary" | /usr/bin/awk '{print $1}' > "$output_dir/runtime.sha256"
+    /usr/bin/codesign -d --entitlements :- "$stock_app" > "$output_dir/stock-entitlements.plist" 2> "$output_dir/stock-entitlements.stderr"
+    /usr/bin/codesign -d --entitlements :- "$copied_app" > "$output_dir/copied-entitlements.plist" 2> "$output_dir/copied-entitlements.stderr"
+    create_five_entitlements "$output_dir/expected-five-entitlements.plist"
+    "$entitlement_verifier" "$output_dir/stock-entitlements.plist" "$output_dir/expected-five-entitlements.plist" "$output_dir/copied-entitlements.plist" "$repo_dir/config/patch-entitlement-allowlist.json" > "$output_dir/entitlement-verifier.txt"
+}
+
+prepare_isolation_paths() {
+    require_exact_directory "$runtime_root" "FCPCommandConsole runtime root"
+    make_or_require_exact_directory "$runtime_root/provenance" "FCPCommandConsole provenance root"
+    make_or_require_exact_directory "$isolated_home" "isolated Final Cut home"
+    make_or_require_exact_directory "$isolated_home/Library" "isolated Final Cut Library directory"
+    make_or_require_exact_directory "$isolated_home/Library/Preferences" "isolated Final Cut Preferences directory"
+    make_or_require_exact_directory "$isolated_home/Library/Caches" "isolated Final Cut Caches directory"
+    make_or_require_exact_directory "$isolated_home/Library/Saved Application State" "isolated Final Cut Saved Application State directory"
+    make_or_require_exact_directory "$isolated_home/tmp" "isolated temporary directory"
+    local allowed_parent="${allowed_library:h}"
+    require_exact_directory "$allowed_parent" "disposable library parent"
+    if [[ -e "$allowed_library" || -L "$allowed_library" ]]; then
+        require_exact_directory "$allowed_library" "allowed disposable library"
+    fi
+}
+
+run_profile_probes() {
+    local output_dir="$1"
+    local probe_root="$output_dir/sandbox-probes"
+    local denied_bundle="$probe_root/production-fixture.fcpbundle"
+    local probe_allowed="$probe_root/FCPCommandConsole Test.fcpbundle"
+    /bin/mkdir -p "$denied_bundle" "$probe_allowed"
+    require_exact_directory "$probe_root" "sandbox-probe root"
+    require_exact_directory "$denied_bundle" "denied sandbox-probe bundle"
+    require_exact_directory "$probe_allowed" "allowed sandbox-probe bundle"
+    /usr/bin/touch "$denied_bundle/metadata-probe" "$probe_allowed/metadata-probe"
+    local -a test_args=(-f "$profile" -D "ALLOWED_LIBRARY=$probe_allowed" -D "STOCK_APP=$stock_app")
+    if /usr/bin/sandbox-exec "${test_args[@]}" /usr/bin/stat -f '%z' "$denied_bundle/metadata-probe" > "$output_dir/denied-library-probe.txt" 2>&1; then
+        fail "sandbox profile permitted a production-like .fcpbundle fixture"
+    fi
+    /usr/bin/sandbox-exec "${test_args[@]}" /usr/bin/stat -f '%z' "$probe_allowed/metadata-probe" > "$output_dir/allowed-library-probe.txt" 2>&1 || fail "sandbox profile denied its explicitly allowed fixture"
+    /usr/bin/sandbox-exec "${test_args[@]}" /usr/bin/touch "$probe_root/runtime-write-probe" > "$output_dir/runtime-write-probe.txt" 2>&1 || fail "sandbox profile denied a non-library runtime write"
+    local -a launch_args=(-f "$profile" -D "ALLOWED_LIBRARY=$allowed_library" -D "STOCK_APP=$stock_app")
+    /usr/bin/sandbox-exec "${launch_args[@]}" /usr/bin/stat -f '%d' "${allowed_library:h}" > "$output_dir/allowed-parent-probe.txt" 2>&1 || fail "sandbox profile denied disposable-library parent metadata"
+    if [[ -e "$allowed_library" ]]; then
+        /usr/bin/sandbox-exec "${launch_args[@]}" /usr/bin/stat -f '%d' "$allowed_library" > "$output_dir/existing-allowed-library-probe.txt" 2>&1 || fail "sandbox profile denied existing exact disposable-library metadata"
+        print -r -- "allowed_library_probe=existing_library_metadata_only" > "$output_dir/allowed-library-probe-mode.txt"
+    else
+        print -r -- "allowed_library_probe=absent_library_parent_metadata_only" > "$output_dir/allowed-library-probe-mode.txt"
+    fi
+}
+
+if [[ "$#" -ne 1 || ( "$1" != "--preflight-only" && "$1" != "--launch" ) ]]; then
+    usage
+fi
+mode="$1"
+[[ -x /usr/bin/sandbox-exec ]] || fail "/usr/bin/sandbox-exec is unavailable; refusing an uncontained launch"
+require_exact_regular_file "$profile" "committed sandbox profile"
+require_exact_regular_file "$entitlement_verifier" "entitlement verifier"
+umask 077
+prepare_isolation_paths
+preflight_dir="$(/usr/bin/mktemp -d "$runtime_root/provenance/isolated-launch-preflight.XXXXXX")" || fail "cannot create private preflight provenance"
+require_exact_directory "$preflight_dir" "preflight provenance directory"
+require_not_running "$preflight_dir/no-fcp-before.txt"
+capture_normal_preferences "$preflight_dir/normal-preferences-before"
+verify_copied_identity "$preflight_dir"
+run_profile_probes "$preflight_dir"
+capture_normal_preferences "$preflight_dir/normal-preferences-after"
+compare_normal_preferences "$preflight_dir/normal-preferences-before" "$preflight_dir/normal-preferences-after"
+require_not_running "$preflight_dir/no-fcp-after.txt"
+print -r -- "copied_app=$copied_app"
+print -r -- "copied_executable=$copied_executable"
+print -r -- "allowed_disposable_library=$allowed_library"
+print -r -- "isolation_home=$isolated_home"
+print -r -- "environment=HOME=$isolated_home CFFIXED_USER_HOME=$isolated_home TMPDIR=$isolated_home/tmp XDG_CACHE_HOME=$isolated_home/Library/Caches"
+print -r -- "limitation=sandbox-exec_is_deprecated_and_CFFIXED_USER_HOME_cannot_prove_isolation_of_every_daemon_mediated_state_write"
+print -r -- "preflight=pass provenance=$preflight_dir"
+[[ "$mode" == "--preflight-only" ]] && exit 0
+require_not_running "$preflight_dir/no-fcp-before-launch.txt"
+print -r -- "launch=begin exact_copied_executable_only"
+capture_normal_preferences "$preflight_dir/normal-preferences-before-launch"
+/usr/bin/env -i \
+    PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    HOME="$isolated_home" \
+    CFFIXED_USER_HOME="$isolated_home" \
+    TMPDIR="$isolated_home/tmp" \
+    XDG_CACHE_HOME="$isolated_home/Library/Caches" \
+    FCPCC_ISOLATED_HOME="$isolated_home" \
+    /usr/bin/sandbox-exec -f "$profile" \
+    -D "ALLOWED_LIBRARY=$allowed_library" \
+    -D "STOCK_APP=$stock_app" \
+    "$copied_executable" \
+    > "$preflight_dir/child.stdout" \
+    2> "$preflight_dir/child.stderr" &
+child_pid=$!
+child_status=0
+wait "$child_pid" || child_status=$?
+print -r -- "launch=child_exit_status=$child_status"
+require_not_running "$preflight_dir/no-fcp-after-launch.txt"
+capture_normal_preferences "$preflight_dir/normal-preferences-after-launch"
+compare_normal_preferences "$preflight_dir/normal-preferences-before-launch" "$preflight_dir/normal-preferences-after-launch" "$child_status"
+print -r -- "launch=child_stdout=$preflight_dir/child.stdout"
+print -r -- "launch=child_stderr=$preflight_dir/child.stderr"
+if [[ "$child_status" -ne 0 ]]; then
+    print -u2 -r -- "launch-isolated-fcpcommandconsole: copied Final Cut child exited with status=$child_status"
+fi
+exit "$child_status"

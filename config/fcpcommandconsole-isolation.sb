@@ -1,0 +1,36 @@
+; FCPCommandConsole direct-launch containment profile.
+;
+; This profile intentionally starts from the host default policy and adds only
+; narrow path denials. The launcher supplies ALLOWED_LIBRARY and STOCK_APP only
+; after exact, canonical, non-symlink path checks. It never accepts either value
+; from a caller.
+;
+; Important: sandbox-exec is deprecated by macOS. It is a process-level guard
+; for this direct child and its descendants, not proof that every helper or
+; daemon Final Cut may contact has independently isolated state.
+
+(version 1)
+
+(allow default)
+
+; Deny read, write, and metadata access to every .fcpbundle path component,
+; except the exact disposable library path supplied by the guarded launcher.
+(deny file-read* file-write* file-read-metadata
+  (require-all
+    (regex #"^(.*/)?[^/]*\.[Ff][Cc][Pp][Bb][Uu][Nn][Dd][Ll][Ee]([/].*)?$")
+    (require-not (subpath (param "ALLOWED_LIBRARY")))))
+
+; The stock App Store bundle is never a writable launch target.
+(deny file-write* (subpath (param "STOCK_APP")))
+
+; Never fall back to the normal Final Cut preference, container, saved-state, or
+; cache locations. HOME and CFFIXED_USER_HOME point at an isolated runtime home
+; in the guarded launcher; these denials make a fallback fail closed instead.
+(deny file-read* file-write* file-read-metadata
+  (subpath "/Users/marcboyer/Library/Containers/com.apple.FinalCut"))
+(deny file-read* file-write* file-read-metadata
+  (literal "/Users/marcboyer/Library/Preferences/com.apple.FinalCut.plist"))
+(deny file-read* file-write* file-read-metadata
+  (subpath "/Users/marcboyer/Library/Saved Application State/com.apple.FinalCut.savedState"))
+(deny file-read* file-write* file-read-metadata
+  (subpath "/Users/marcboyer/Library/Caches/com.apple.FinalCut"))
