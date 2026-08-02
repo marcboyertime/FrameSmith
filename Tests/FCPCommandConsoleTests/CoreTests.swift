@@ -27,6 +27,58 @@ final class CoreTests: XCTestCase {
         return try EffectRegistry.load(from: root.appendingPathComponent("registry/effects"))
     }
 
+    private func projectRoot() -> URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    private func schemaValidator() throws -> PlanSchemaValidator {
+        try PlanSchemaValidator(schemaURL: projectRoot().appendingPathComponent("schemas/effect-plan.schema.json"))
+    }
+
+    private func encode(_ plan: EffectPlan) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(plan)
+    }
+
+    private func mutateSerializedPlan(_ plan: EffectPlan, _ mutate: (inout [String: Any]) throws -> Void) throws -> Data {
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encode(plan)) as? [String: Any])
+        try mutate(&object)
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    private struct CLIResult {
+        var status: Int32
+        var stdout: String
+        var stderr: String
+    }
+
+    private func runCLI(_ arguments: [String]) throws -> CLIResult {
+        let candidates = [
+            projectRoot().appendingPathComponent(".build/arm64-apple-macosx/debug/fcpcommandconsole"),
+            projectRoot().appendingPathComponent(".build/debug/fcpcommandconsole")
+        ]
+        guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
+            throw XCTSkip("fcpcommandconsole executable is not built; run swift build before CLI integration tests")
+        }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        process.currentDirectoryURL = projectRoot()
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+        try process.run()
+        process.waitUntilExit()
+        return CLIResult(
+            status: process.terminationStatus,
+            stdout: String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
+    }
+
     private func selection(_ type: SelectionType = .singleClip, clips: [String] = ["clip-a"], revision: String = "r1") -> SelectionToken {
         let urls = [sourceA!, sourceB!]
         let identities = clips.enumerated().map { index, clip in
@@ -85,6 +137,158 @@ final class CoreTests: XCTestCase {
         let enriched = try planner.plan(request: "Make this still image feel gently alive for four seconds, slightly enrich the colors, then fade quickly to black.", selection: selection())
         XCTAssertEqual(enriched.effectID, .livingStill)
         XCTAssertTrue(enriched.ambiguities.isEmpty)
+    }
+
+    func testExactWorkflowSentencesSerializeSchemaAndSemanticValidate() throws {
+        let registry = try registry()
+        let planner = DeterministicPlanner(registry: registry)
+        let cases: [(String, SelectionToken, Target?)] = [
+            (
+                "Give this image a slow clockwise rotation while zooming toward the point I select.",
+                selection(),
+                Target.confirmed(x: 0.68, y: 0.34)
+            ),
+            (
+                "Make this look like old black-and-white television footage with static, grain, scanlines, and subtle image instability.",
+                selection(),
+                nil
+            ),
+            (
+                "Make this clip dissolve naturally into the next clip.",
+                selection(.twoAdjacentClips, clips: ["clip-a", "clip-b"]),
+                nil
+            ),
+            (
+                "Make this still image feel gently alive for four seconds, then fade quickly to black.",
+                selection(),
+                nil
+            )
+        ]
+
+        for (request, token, target) in cases {
+            let plan = try planner.plan(request: request, selection: token, target: target, operationID: UUID())
+            let data = try encode(plan)
+            XCTAssertNoThrow(try schemaValidator().validate(data), request)
+            let decoded = try JSONDecoder().decode(EffectPlan.self, from: data)
+            XCTAssertNoThrow(try PlanValidator(registry: registry).validate(decoded), request)
+            // JSON numeric values intentionally do not preserve whether a
+            // source default was encoded from `Int` or `Double`; canonical
+            // sorted-key re-encoding is the wire-level round-trip contract.
+            XCTAssertEqual(try encode(decoded), data, request)
+        }
+    }
+
+    func testSchemaRejectsRequiredExtraRepresentationAndSourceIdentityViolations() throws {
+        let registry = try registry()
+        let planner = DeterministicPlanner(registry: registry)
+        let plan = try planner.plan(
+            request: "Give this image a slow clockwise rotation while zooming toward the point I select.",
+            selection: selection(),
+            target: Target.confirmed(x: 0.5, y: 0.5)
+        )
+        let validator = try schemaValidator()
+
+        let missingRequired = try mutateSerializedPlan(plan) { object in
+            object.removeValue(forKey: "operationID")
+        }
+        XCTAssertThrowsError(try validator.validate(missingRequired)) { error in
+            guard case PlanSchemaValidationError.violation(let path, _) = error else {
+                return XCTFail("expected required-field schema violation, got \(error)")
+            }
+            XCTAssertEqual(path, "$.operationID")
+        }
+
+        let extraField = try mutateSerializedPlan(plan) { object in
+            object["unexpected"] = "not part of the wire contract"
+        }
+        XCTAssertThrowsError(try validator.validate(extraField)) { error in
+            guard case PlanSchemaValidationError.violation(let path, _) = error else {
+                return XCTFail("expected additionalProperties schema violation, got \(error)")
+            }
+            XCTAssertEqual(path, "$.unexpected")
+        }
+
+        let wrongRepresentation = try mutateSerializedPlan(plan) { object in
+            object["representation"] = "native"
+        }
+        XCTAssertThrowsError(try validator.validate(wrongRepresentation))
+
+        let malformedHash = try mutateSerializedPlan(plan) { object in
+            var token = try XCTUnwrap(object["selectionToken"] as? [String: Any])
+            var identities = try XCTUnwrap(token["sourceIdentities"] as? [[String: Any]])
+            identities[0]["sha256"] = "not-a-sha256"
+            token["sourceIdentities"] = identities
+            object["selectionToken"] = token
+        }
+        XCTAssertThrowsError(try validator.validate(malformedHash))
+
+        let malformedPath = try mutateSerializedPlan(plan) { object in
+            var token = try XCTUnwrap(object["selectionToken"] as? [String: Any])
+            var identities = try XCTUnwrap(token["sourceIdentities"] as? [[String: Any]])
+            identities[0]["canonicalPath"] = "relative/source.mov"
+            token["sourceIdentities"] = identities
+            object["selectionToken"] = token
+        }
+        XCTAssertThrowsError(try validator.validate(malformedPath))
+
+        let recursiveParameter = try mutateSerializedPlan(plan) { object in
+            object["parameters"] = [
+                "nested": [
+                    "deep": [
+                        "leaf": true
+                    ]
+                ]
+            ]
+        }
+        XCTAssertNoThrow(try validator.validate(recursiveParameter))
+
+        // JSON has no additional primitive type that can be represented by
+        // ParameterValue. A non-finite number is therefore an unsupported
+        // value and must fail before any schema branch is accepted.
+        let nonFiniteParameter = Data(#"{"parameters":{"nested":NaN}}"#.utf8)
+        XCTAssertThrowsError(try validator.validate(nonFiniteParameter))
+    }
+
+    func testBoundedCLIRejectsInjectionAndUnknownFlags() throws {
+        let baseArguments = [
+            "plan-bounded",
+            "--request", "Give this image a slow clockwise rotation while zooming toward the point I select.",
+            "--source", sourceA.path,
+            "--source-id", "clip-a",
+            "--revision", "r1",
+            "--target-x", "0.5",
+            "--target-y", "0.5"
+        ]
+
+        let unknownFlag = try runCLI(baseArguments + ["--backend", "native"])
+        XCTAssertNotEqual(unknownFlag.status, 0)
+        XCTAssertTrue(unknownFlag.stderr.contains("error:"), unknownFlag.stderr)
+
+        let marker = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fcpcc-cli-injection-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: marker) }
+        let injection = try runCLI([
+            "plan-bounded",
+            "--request", "rotate this; touch \(marker.path)",
+            "--source", sourceA.path,
+            "--source-id", "clip-a",
+            "--revision", "r1",
+            "--target-x", "0.5",
+            "--target-y", "0.5"
+        ])
+        XCTAssertNotEqual(injection.status, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "CLI must never execute request text as shell")
+
+        let injectedSourceID = try runCLI([
+            "plan-bounded",
+            "--request", "Give this image a slow clockwise rotation while zooming toward the point I select.",
+            "--source", sourceA.path,
+            "--source-id", "clip-a;touch",
+            "--revision", "r1",
+            "--target-x", "0.5",
+            "--target-y", "0.5"
+        ])
+        XCTAssertNotEqual(injectedSourceID.status, 0)
+        XCTAssertFalse(injectedSourceID.stdout.contains("native.targeted_rotate_zoom"))
     }
 
     func testSelectionSourceIdentityValidationFailsClosed() throws {
