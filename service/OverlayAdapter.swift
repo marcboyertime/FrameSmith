@@ -84,9 +84,9 @@ public struct SafeFFmpegOverlayAdapter: Sendable {
             if FileManager.default.fileExists(atPath: temporary.path) { try? FileManager.default.removeItem(at: temporary) }
         }
         let filter = filterGraph(for: request)
-        var process = Process()
+        let process = Process()
         process.executableURL = ffmpeg
-        process.arguments = ["-hide_banner", "-loglevel", "error", "-nostdin", "-f", "lavfi", "-i", filter, "-an", "-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le", "-frames:v", String(max(1, Int((request.durationSeconds * Double(request.fps)).rounded(.up)))), temporary.path]
+        process.arguments = ["-hide_banner", "-loglevel", "error", "-nostdin", "-bitexact", "-fflags", "+bitexact", "-f", "lavfi", "-i", filter, "-map_metadata", "-1", "-map_chapters", "-1", "-an", "-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le", "-frames:v", String(max(1, Int((request.durationSeconds * Double(request.fps)).rounded(.up)))), temporary.path]
         let errorPipe = Pipe(); process.standardError = errorPipe; process.standardOutput = Pipe()
         do { try process.run() } catch { throw OverlayError.processFailed(error.localizedDescription) }
         try wait(process, timeout: 30)
@@ -111,47 +111,64 @@ public struct SafeFFmpegOverlayAdapter: Sendable {
 
     private func filterGraph(for request: OverlayRequest) -> String {
         let source = "color=c=black@0.0:s=\(request.width)x\(request.height):r=\(request.fps):d=\(String(format: "%.6f", request.durationSeconds)),format=rgba"
+        // Blend a fixed three-frame temporal window. The symmetric 1:2:1
+        // weighting keeps seeded noise moving while bounding transitions and,
+        // unlike tblend, preserves the first frame and requested frame count.
+        let coherentNoise = "tmix=frames=3:weights=1 2 1"
         switch request.kind {
         case .staticGrain:
-            return "\(source),noise=alls=22:allf=t+u:all_seed=\(request.seed),format=yuva444p10le"
+            return "\(source),noise=alls=22:allf=t+u:all_seed=\(request.seed),\(coherentNoise),format=yuva444p10le"
         case .scanline:
-            return "\(source),drawgrid=w=iw:h=2:t=1:c=white@0.10,noise=alls=5:allf=t+u:all_seed=\(request.seed),format=yuva444p10le"
+            // Draw the scanline grid after temporal blending so its geometry
+            // remains fixed while the low-strength grain continues to move.
+            return "\(source),noise=alls=5:allf=t+u:all_seed=\(request.seed),\(coherentNoise),drawgrid=w=iw:h=2:t=1:c=white@0.10,format=yuva444p10le"
         }
     }
 
     private func verify(output: URL, request: OverlayRequest) throws -> OverlayMetadata {
         let probe = try runProbe(output)
-        let fields = probe.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "|" || $0 == "," || $0.isWhitespace }).map(String.init)
-        guard fields.count >= 6 else { throw OverlayError.verificationFailed("ffprobe response was incomplete: \(probe.debugDescription)") }
-        let codec = fields[0]
-        guard let pixelIndex = fields.firstIndex(where: { $0.lowercased().hasPrefix("yuva") || $0.lowercased().hasPrefix("rgba") }) else {
-            throw OverlayError.verificationFailed("FFmpeg did not report an alpha-capable pixel format; probe=\(fields.joined(separator: ","))")
+        guard let codec = probe["codec_name"], let pixelFormat = probe["pix_fmt"],
+              let width = Int(probe["width"] ?? ""), let height = Int(probe["height"] ?? ""),
+              let frameRate = parseRational(probe["r_frame_rate"] ?? ""),
+              let duration = Double(probe["duration"] ?? ""),
+              let frameCount = Int(probe["nb_read_frames"] ?? "") ?? Int(probe["nb_frames"] ?? "") else {
+            throw OverlayError.verificationFailed("ffprobe response was incomplete: \(probe)")
         }
-        let pixelFormat = fields[pixelIndex]
-        let width = fields.dropFirst().compactMap(Int.init).first ?? 0
-        let height = fields.dropFirst().compactMap(Int.init).dropFirst().first ?? 0
-        let fps = fields.dropFirst(pixelIndex + 1).compactMap(Int.init).first ?? 0
-        let duration = fields.reversed().compactMap(Double.init).first ?? 0
+        let fps = Int(frameRate.rounded())
         guard codec == "prores" || codec == "prores_ks" else { throw OverlayError.verificationFailed("codec is \(codec), expected ProRes") }
         let alpha = pixelFormat.lowercased().hasPrefix("yuva") || pixelFormat.lowercased().contains("rgba")
-        guard alpha else { throw OverlayError.verificationFailed("FFmpeg did not produce an alpha-capable pixel format (\(pixelFormat)); probe=\(fields.joined(separator: ","))") }
-        guard width == request.width, height == request.height, fps > 0, duration > 0 else { throw OverlayError.verificationFailed("dimensions, frame rate, or duration mismatch") }
+        guard alpha else { throw OverlayError.verificationFailed("FFmpeg did not produce an alpha-capable pixel format (\(pixelFormat)); probe=\(probe)") }
+        guard width == request.width, height == request.height, fps == request.fps, duration > 0 else { throw OverlayError.verificationFailed("dimensions, frame rate, or duration mismatch") }
+        let expectedFrames = max(1, Int((request.durationSeconds * Double(request.fps)).rounded(.up)))
+        guard frameCount == expectedFrames else { throw OverlayError.verificationFailed("decoded frame count was \(frameCount), expected \(expectedFrames)") }
+        let durationTolerance = (1.0 / Double(request.fps)) + 0.000001
+        guard abs(duration - request.durationSeconds) <= durationTolerance else {
+            throw OverlayError.verificationFailed("duration was \(duration), expected \(request.durationSeconds) ± \(durationTolerance)")
+        }
         return OverlayMetadata(path: output, sha256: try ContentHasher.sha256File(output), codec: codec, pixelFormat: pixelFormat, width: width, height: height, fps: fps, durationSeconds: duration, alphaCapable: alpha, request: request)
     }
 
-    private func runProbe(_ output: URL) throws -> String {
-        var process = Process(); process.executableURL = ffprobe
-        process.arguments = ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,pix_fmt,width,height,r_frame_rate,duration", "-of", "csv=p=0:s=|", output.path]
+    private func runProbe(_ output: URL) throws -> [String: String] {
+        let process = Process(); process.executableURL = ffprobe
+        process.arguments = ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=codec_name,pix_fmt,width,height,r_frame_rate,duration,nb_read_frames,nb_frames", "-of", "default=nw=1:nk=0", output.path]
         let stdout = Pipe(); let stderr = Pipe(); process.standardOutput = stdout; process.standardError = stderr
         do { try process.run() } catch { throw OverlayError.processFailed(error.localizedDescription) }
         try wait(process, timeout: 15)
         guard process.terminationStatus == 0 else { throw OverlayError.verificationFailed(String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "ffprobe failed") }
         let raw = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        var fields = raw.trimmingCharacters(in: .whitespacesAndNewlines).split(omittingEmptySubsequences: false, whereSeparator: { $0 == "|" || $0 == "," || $0.isWhitespace }).map(String.init)
-        // ffprobe reports frame rate as a rational; retain only the bounded
-        // integer numerator for the metadata contract.
-        if fields.count >= 6, fields[4].contains("/") { fields[4] = fields[4].split(separator: "/").first.map(String.init) ?? fields[4] }
-        return fields.joined(separator: "|")
+        return raw.split(whereSeparator: { $0.isNewline }).reduce(into: [String: String]()) { values, line in
+            let pair = line.split(separator: "=", maxSplits: 1).map(String.init)
+            guard pair.count == 2 else { return }
+            values[pair[0]] = pair[1]
+        }
+    }
+
+    private func parseRational(_ value: String) -> Double? {
+        if let slash = value.firstIndex(of: "/") {
+            guard let numerator = Double(value[..<slash]), let denominator = Double(value[value.index(after: slash)...]), denominator != 0 else { return nil }
+            return numerator / denominator
+        }
+        return Double(value)
     }
 
     private func wait(_ process: Process, timeout: TimeInterval) throws {
