@@ -1,0 +1,5 @@
+#!/bin/zsh
+set -euo pipefail
+echo "Phase 1 core is in-process; no daemon is started. Building the future panel target only."
+swift build
+echo "No Final Cut Pro application was launched or touched."

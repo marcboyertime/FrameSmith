@@ -1,0 +1,21 @@
+{
+  "identifier": "transition.natural_dissolve",
+  "name": "Natural Dissolve",
+  "aliases": ["natural dissolve", "cross dissolve", "crossfade", "cross fade", "dissolve transition"],
+  "requiredSelection": "two-adjacent-clips",
+  "inputCount": 2,
+  "representation": "native",
+  "parameters": [
+    {"name":"durationFrames","type":"integer","defaultValue":12,"minimum":1,"maximum":120,"description":"frame-quantized transition duration"},
+    {"name":"easing","type":"string","defaultValue":"linear","allowedValues":["linear","ease-in","ease-out","ease-in-out"]}
+  ],
+  "backend": "native",
+  "editableProperties": [
+    {"name":"durationFrames","valueType":"integer","minimum":1,"maximum":120,"defaultValue":12,"keyframeable":false},
+    {"name":"easing","valueType":"string","defaultValue":"linear","keyframeable":false}
+  ],
+  "generatedAssets": [],
+  "preview": "native-dissolve-preview",
+  "verification": ["exactly two adjacent spine clips", "frame-quantized boundary", "source ranges and handles are sufficient", "revision is current"],
+  "fallback": "native-natural-dissolve-only"
+}

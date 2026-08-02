@@ -1,0 +1,3 @@
+#!/bin/zsh
+set -euo pipefail
+echo "Phase 1 core has no daemon; stop-service is a safe no-op. No application or service was changed."

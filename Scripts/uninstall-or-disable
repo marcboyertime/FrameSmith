@@ -1,0 +1,9 @@
+#!/bin/zsh
+set -euo pipefail
+MANIFEST="${1:-}"
+if [[ -z "$MANIFEST" || ! -f "$MANIFEST" || "${FCPCC_PLUGIN_MANIFEST_APPROVED:-0}" != "1" ]]; then
+  echo "Refusing uninstall: plugin lane must provide a specific copied-app manifest and explicit approval." >&2
+  exit 2
+fi
+echo "No stock Final Cut Pro application, library, or user media is altered by this core script."
+exit 0

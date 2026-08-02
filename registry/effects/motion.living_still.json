@@ -1,0 +1,21 @@
+{
+  "identifier": "motion.living_still",
+  "name": "Living Still",
+  "aliases": ["living still", "depthflow parallax", "depth flow", "parallax", "parallax still", "2.5d motion"],
+  "requiredSelection": "single-clip",
+  "inputCount": 1,
+  "representation": "hybrid",
+  "parameters": [
+    {"name":"amount","type":"number","defaultValue":0.25,"minimum":0.0,"maximum":1.0},
+    {"name":"durationSeconds","type":"number","defaultValue":1.0,"minimum":0.1,"maximum":30.0},
+    {"name":"depthFlowStatus","type":"string","defaultValue":"optional-uninstalled","allowedValues":["optional-uninstalled","available-but-unverified"]}
+  ],
+  "backend": "depthflow",
+  "editableProperties": [
+    {"name":"amount","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":0.25,"keyframeable":true}
+  ],
+  "generatedAssets": [{"kind":"depth-map","format":"declared-only","alpha":false,"deterministic":false}],
+  "preview": "native-fallback-with-optional-depthflow-status",
+  "verification": ["typed optional DepthFlow status only", "native fallback is explicit", "no model installation", "no network or media upload"],
+  "fallback": "native-living-still"
+}

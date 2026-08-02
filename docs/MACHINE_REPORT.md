@@ -11,7 +11,7 @@ and source inspection only; it is not an installation or live-runtime claim.
 | Model/chip | MacBookPro18,2; Apple M1 Max; 10 cores (8 performance + 2 efficiency) | `sysctl -n hw.model`; `system_profiler SPHardwareDataType` |
 | Unified memory | 64 GB (`hw.memsize=68719476736`) | `sysctl -n hw.memsize`; `system_profiler SPHardwareDataType` |
 | Root disk | APFS, 994.7 GB device; `df -h /`: 926 GiB volume, 11 GiB used, 345 GiB available (4%) | `diskutil info /`; `df -h /` |
-| Final Cut Pro | 11.1.1 (bundle build 440111) at `/Applications/Final Cut Pro.app` | `find /Applications ... -name 'Final Cut Pro.app'`; `plutil -p .../Contents/Info.plist`; `defaults read ... CFBundle*` |
+| Final Cut Pro | 12.3 (bundle build 450152) at `/Applications/Final Cut Pro.app` | `find /Applications ... -name 'Final Cut Pro.app'`; `plutil -p .../Contents/Info.plist`; `defaults read ... CFBundle*` |
 | Xcode / Swift | Xcode 26.6 (17F113); Apple Swift 6.3.3; arm64-apple-macosx26.0 target | `xcode-select -p`; `xcodebuild -version`; `swift --version` |
 | Python | Python 3.14.5 at `/opt/homebrew/bin/python3` | `python3 --version`; `command -v python3` |
 | Homebrew | 6.0.14-38-g1f3abf4 at `/opt/homebrew/bin/brew` | `brew --version`; `command -v brew` |
@@ -40,7 +40,7 @@ Observed facts:
 
 Bounded result: **source-level candidate only**. There is no evidence here that
 SpliceKit builds, patches, launches, connects to, or safely edits this machine's
-Final Cut Pro 11.1.1. The patcher was not run, no application copy was made, no
+Final Cut Pro 12.3 (450152). The patcher was not run, no application copy was made, no
 code signing/injection was attempted, and no Final Cut library was opened.
 
 ## Reproducible probe summary

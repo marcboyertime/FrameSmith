@@ -1,0 +1,6 @@
+#!/bin/zsh
+set -euo pipefail
+ROOT="${HOME}/Movies/FCPCommandConsole"
+mkdir -p "$ROOT/previews" "$ROOT/renders" "$ROOT/overlays" "$ROOT/depth-maps" "$ROOT/logs" "$ROOT/jobs" "$ROOT/provenance" "$ROOT/usage"
+swift build
+echo "FCPCommandConsole core built; runtime directories ready at $ROOT"

@@ -1,0 +1,25 @@
+{
+  "identifier": "look.old_television",
+  "name": "Old Television",
+  "aliases": ["old tv", "old television", "vhs", "vhs overlay", "scanline", "static grain", "retro television"],
+  "requiredSelection": "single-clip",
+  "inputCount": 1,
+  "representation": "generated-overlay",
+  "parameters": [
+    {"name":"kind","type":"string","defaultValue":"static","allowedValues":["static","scanline"]},
+    {"name":"width","type":"integer","defaultValue":320,"minimum":16,"maximum":1920},
+    {"name":"height","type":"integer","defaultValue":180,"minimum":16,"maximum":1080},
+    {"name":"fps","type":"integer","defaultValue":24,"minimum":1,"maximum":60},
+    {"name":"durationSeconds","type":"number","defaultValue":1.0,"minimum":0.1,"maximum":30.0},
+    {"name":"seed","type":"integer","defaultValue":1,"minimum":0,"maximum":2147483647}
+  ],
+  "backend": "ffmpeg",
+  "editableProperties": [
+    {"name":"opacity","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":0.35,"keyframeable":true},
+    {"name":"blendMode","valueType":"string","defaultValue":"screen","keyframeable":false}
+  ],
+  "generatedAssets": [{"kind":"static","format":"mov","alpha":true,"deterministic":true},{"kind":"scanline","format":"mov","alpha":true,"deterministic":true}],
+  "preview": "ffmpeg-prores-4444-alpha-preview",
+  "verification": ["fixed FFmpeg executable and argv", "content-addressed filename", "SHA-256", "ffprobe ProRes 4444 alpha pixel format"],
+  "fallback": "native-color-overlay"
+}

@@ -1,6 +1,6 @@
 # FCPCommandConsole status
 
-Captured 2026-08-02 (local machine, read-only audit).
+Captured 2026-08-02 (local machine, core implementation audit).
 
 ## Complete in this stage
 
@@ -14,6 +14,12 @@ Captured 2026-08-02 (local machine, read-only audit).
   `docs/MACHINE_REPORT.md`.
 - Focused repository integration/deferment notes are in
   `docs/REPOSITORY_AUDIT.md`.
+- Typed four-effect registry/planner/validator, policy foundations, CLI, and
+  deterministic overlay adapter are implemented under `service/`, `registry/`,
+  `schemas/`, and `Sources/`.
+- The fixed Phase 1 identifiers are `native.targeted_rotate_zoom`,
+  `look.old_television`, `transition.natural_dissolve`, and
+  `motion.living_still`.
 
 ## Evidence classes
 
@@ -26,7 +32,9 @@ Captured 2026-08-02 (local machine, read-only audit).
 | Final Cut Pro integration | not proven | No patcher, injected copy, bridge, library, or project was used |
 | ComfyUI/DepthFlow installation | not proven | Source inspection only; no dependencies/models were installed |
 | Media render/export | not proven | No input media was uploaded, processed, or rendered |
-| Product behavior | not implemented | This stage is skeleton and audit only |
+| Core planner/policy behavior | tested | `swift test`, `make test` |
+| Generated overlay artifact | locally verified | FFmpeg + ffprobe metadata/SHA-256; no FCP insertion |
+| Product behavior | bounded only | Native FCP runtime remains unproven |
 
 The next architecture stage must convert these observations into explicit,
 reversible tests. It must not treat source claims, a compatible version label, or
