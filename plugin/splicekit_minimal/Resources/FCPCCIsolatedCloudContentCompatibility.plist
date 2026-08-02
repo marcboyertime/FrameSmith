@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>2</integer>
+    <integer>3</integer>
     <key>ExpectedHostBundleIdentifier</key>
     <string>com.local.fcpcommandconsole.FinalCut</string>
     <key>ExpectedHostVersion</key>
@@ -36,7 +36,14 @@
     <array>
         <string>constructor</string>
         <string>will_finish_launching_once</string>
+        <string>main_queue_once</string>
     </array>
+    <key>MaximumMethodGuardAttempts</key>
+    <integer>3</integer>
+    <key>MethodGuardLogSubsystem</key>
+    <string>com.local.fcpcommandconsole.runtime</string>
+    <key>MethodGuardLogCategory</key>
+    <string>cloud_content_method_guard</string>
     <key>ImmutableCompileTimeAllowlist</key>
     <true/>
     <key>RuntimeDiscoveryAllowed</key>

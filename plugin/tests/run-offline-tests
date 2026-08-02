@@ -161,11 +161,23 @@ if [[ -z "$method_guard_gate_line" || -z "$method_guard_guard_line" || -z "$meth
     fail "exact-host containment gate does not precede every fixed method-guard installation"
 fi
 method_guard_registration_source="$(/usr/bin/sed -n '/static void FCPCCInstallIsolatedCloudContentMethodCompatibility/,/^}/p' "$runtime_implementation")"
-if [[ "$(print -r -- "$method_guard_registration_source" | "$rg_bin" -F -o 'NSApplicationWillFinishLaunchingNotification' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]] || ! print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseConstructor);' || ! print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseWillFinishLaunching);'; then
-    fail "method guard does not use exactly the constructor and single will-finish attempts"
+if [[ "$(print -r -- "$method_guard_registration_source" | "$rg_bin" -F -o 'NSApplicationWillFinishLaunchingNotification' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$(print -r -- "$method_guard_registration_source" | "$rg_bin" -F -o 'dispatch_async(dispatch_get_main_queue(), ^{' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]] || ! print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseConstructor);' || ! print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseWillFinishLaunching);' || ! print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseMainQueue);'; then
+    fail "method guard does not use exactly constructor, single will-finish, and one main-queue attempts"
 fi
 if ! "$rg_bin" -F -q 'if (status.willFinishLaunchingAttempts != 0)' "$runtime_implementation"; then
     fail "method guard will-finish retry is not explicitly one-shot"
+fi
+if ! "$rg_bin" -F -q 'if (status.mainQueueAttempts != 0)' "$runtime_implementation" || ! "$rg_bin" -F -q 'static const NSUInteger FCPCCCloudContentCompatibilityMaximumAttempts = 3;' "$runtime_implementation"; then
+    fail "method guard main-queue retry or fixed three-attempt bound is missing"
+fi
+runtime_constructor_source="$(/usr/bin/sed -n '/__attribute__((constructor))/,/^}/p' "$runtime_implementation")"
+guard_install_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F 'FCPCCInstallIsolatedCloudContentMethodCompatibility();' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+menu_enqueue_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F '[[FCPCCRuntime sharedRuntime] installMenuWhenReady];' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+if [[ -z "$guard_install_line" || -z "$menu_enqueue_line" || "$guard_install_line" -ge "$menu_enqueue_line" ]]; then
+    fail "guard main-queue scheduling is not registered before menu scheduling"
+fi
+if print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'installMenuWhenReady' || print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'showPanel:' || print -r -- "$method_guard_registration_source" | "$rg_bin" -F -q 'FCPCCLibraryInvariantGate'; then
+    fail "main-queue method-guard block may not show UI or access a library"
 fi
 for forbidden_method_guard_surface in 'dispatch_after' 'NSTimer' 'performSelector:afterDelay:' '@try'; do
     if "$rg_bin" -F -q "$forbidden_method_guard_surface" "$runtime_implementation"; then
@@ -175,7 +187,7 @@ done
 /usr/bin/plutil -lint "$runtime_policy_source" >/dev/null
 /usr/bin/plutil -lint "$runtime_policy_build" >/dev/null
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "2" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
         fail "compatibility policy host or isolated preference domain is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:0' "$policy_path")" != "CloudContentFirstLaunchCompleted" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:1' "$policy_path")" != "FFCloudContentDisabled" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" ]]; then
@@ -217,10 +229,10 @@ expected_replacement_type_encodings=(
 )
 expected_replacement_contracts=(completion_nil_project_local_error return_false return_false void_noop return_false return_false completion_nil_success)
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "will_finish_launching_once" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "will_finish_launching_once" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:2' "$policy_path")" != "main_queue_once" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :MethodGuardLogSubsystem' "$policy_path")" != "com.local.fcpcommandconsole.runtime" || "$(/usr/libexec/PlistBuddy -c 'Print :MethodGuardLogCategory' "$policy_path")" != "cloud_content_method_guard" ]]; then
         fail "compatibility policy method guard mode or install phases are not exact"
     fi
-    if /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:2' "$policy_path" >/dev/null 2>&1; then
+    if /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:3' "$policy_path" >/dev/null 2>&1; then
         fail "compatibility policy permits an extra method-guard install phase"
     fi
     for index in {1..7}; do
@@ -260,7 +272,11 @@ for required_guard_fragment in \
     'FCPCCCloudContentCompleteDemoProjectUnavailable' \
     'FCPCCCloudContentOriginalImplementationMatches' \
     'dladdr((const void *)originalImplementation, &implementationImage)' \
-    'completion(nil, error);'; do
+    'completion(nil, error);' \
+    'FCPCCCloudContentAttemptPhaseMainQueue' \
+    'FCPCCCloudContentCompatibilityMaximumAttempts = 3' \
+    'os_log_create("com.local.fcpcommandconsole.runtime", "cloud_content_method_guard")' \
+    'phase=%{public}s dispositions=%{public}s'; do
     if ! "$rg_bin" -F -q "$required_guard_fragment" "$runtime_implementation"; then
         fail "runtime is missing required fixed method-guard operation: $required_guard_fragment"
     fi
@@ -293,6 +309,9 @@ if [[ "$("$rg_bin" -F -o '"v16@0:8"' "$runtime_implementation" | /usr/bin/wc -l 
 fi
 if "$rg_bin" -F -q 'completion(nil, nil);' "$runtime_implementation"; then
     fail "demo-project compatibility bridge may not report a nil result as success"
+fi
+if [[ "$("$rg_bin" -F -o 'FCPCCLogCloudContentMethodCompatibilityAttempt(phase, status);' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "2" || "$(printf '%s' "$method_guard_registration_source" | "$rg_bin" -F -o 'dispatch_async(dispatch_get_main_queue(), ^{' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
+    fail "method guard diagnostics or main-queue scheduling is not bounded to the reviewed one-shot shape"
 fi
 
 for patcher_script in "$plugin_dir/patcher/patch-copied-fcp" "$plugin_dir/patcher/verify-copied-fcp" "$plugin_dir/patcher/repair-library-validation-entitlement" "$runtime_updater"; do
@@ -362,7 +381,10 @@ for patcher_script in "$runtime_updater" "$plugin_dir/patcher/verify-copied-fcp"
     for required_method_guard_patcher_fragment in \
         'ImmutableCompileTimeAllowlist' \
         'RuntimeDiscoveryAllowed' \
-        'CompatibilityInstallPhases:2' \
+        'CompatibilityInstallPhases:3' \
+        'MaximumMethodGuardAttempts' \
+        'MethodGuardLogSubsystem' \
+        'MethodGuardLogCategory' \
         'ApprovedMethodReplacements:7' \
         'ExpectedHostExecutableSHA256' \
         'ExpectedOriginalImplementationOffsetArm64' \
@@ -381,7 +403,12 @@ for required_verifier_fragment in \
     '_class_replaceMethod' \
     '_method_copyReturnType' \
     '_dladdr' \
+    '_os_log_create' \
     'method_guard_entries=7' \
+    'main_queue_once' \
+    'max_attempts=3' \
+    'log_subsystem=com.local.fcpcommandconsole.runtime' \
+    'log_category=cloud_content_method_guard' \
     'objc_getClassList class_copyMethodList NSClassFromString FFImagePlayground'; do
     if ! "$rg_bin" -F -q "$required_verifier_fragment" "$plugin_dir/patcher/verify-copied-fcp"; then
         fail "copied-artifact verifier is missing required method-guard evidence: $required_verifier_fragment"

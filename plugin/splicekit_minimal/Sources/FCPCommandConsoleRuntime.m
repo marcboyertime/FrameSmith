@@ -9,6 +9,7 @@
 
 #import <dlfcn.h>
 #import <objc/runtime.h>
+#import <os/log.h>
 #import <stdint.h>
 #import <stdlib.h>
 #import <string.h>
@@ -353,7 +354,10 @@ typedef NS_ENUM(NSUInteger, FCPCCCloudContentReplacementDisposition) {
 typedef NS_ENUM(NSUInteger, FCPCCCloudContentAttemptPhase) {
     FCPCCCloudContentAttemptPhaseConstructor = 0,
     FCPCCCloudContentAttemptPhaseWillFinishLaunching = 1,
+    FCPCCCloudContentAttemptPhaseMainQueue = 2,
 };
+
+static const NSUInteger FCPCCCloudContentCompatibilityMaximumAttempts = 3;
 
 typedef struct {
     const char *runtimeClassName;
@@ -528,6 +532,7 @@ static NSString *FCPCCCloudContentReplacementDispositionSummary(FCPCCCloudConten
 @property (nonatomic, strong) NSMutableArray<NSNumber *> *entryDispositions;
 @property (nonatomic) NSUInteger constructorAttempts;
 @property (nonatomic) NSUInteger willFinishLaunchingAttempts;
+@property (nonatomic) NSUInteger mainQueueAttempts;
 @property (nonatomic) BOOL hostVerified;
 - (void)recordDisposition:(FCPCCCloudContentReplacementDisposition)disposition atIndex:(NSUInteger)index;
 - (NSString *)summary;
@@ -564,7 +569,7 @@ static NSString *FCPCCCloudContentReplacementDispositionSummary(FCPCCCloudConten
             installed += 1;
         }
     }
-    NSUInteger attempts = self.constructorAttempts + self.willFinishLaunchingAttempts;
+    NSUInteger attempts = self.constructorAttempts + self.willFinishLaunchingAttempts + self.mainQueueAttempts;
     return [NSString stringWithFormat:@"method_guard=%lu/%lu attempts=%lu",
             (unsigned long)installed,
             (unsigned long)FCPCCCloudContentCompatibilityEntryCount,
@@ -590,6 +595,43 @@ static FCPCCCloudContentMethodCompatibilityStatus *FCPCCCloudContentMethodCompat
         status = [[FCPCCCloudContentMethodCompatibilityStatus alloc] init];
     });
     return status;
+}
+
+static const char *FCPCCCloudContentAttemptPhaseName(FCPCCCloudContentAttemptPhase phase) {
+    switch (phase) {
+        case FCPCCCloudContentAttemptPhaseConstructor:
+            return "constructor";
+        case FCPCCCloudContentAttemptPhaseWillFinishLaunching:
+            return "will_finish_launching_once";
+        case FCPCCCloudContentAttemptPhaseMainQueue:
+            return "main_queue_once";
+    }
+    return "unknown";
+}
+
+static os_log_t FCPCCCloudContentMethodCompatibilityLog(void) {
+    static os_log_t log;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        log = os_log_create("com.local.fcpcommandconsole.runtime", "cloud_content_method_guard");
+    });
+    return log;
+}
+
+// Each phase is hard one-shot, so this produces at most three fixed-shape
+// unified-log records. The audit labels and dispositions come only from the
+// compile-time descriptor array and contain no caller-controlled data.
+static void FCPCCLogCloudContentMethodCompatibilityAttempt(FCPCCCloudContentAttemptPhase phase,
+                                                            FCPCCCloudContentMethodCompatibilityStatus *status) {
+    NSString *dispositions = [[status entryAuditSummaries] componentsJoinedByString:@","];
+    const char *dispositionCString = dispositions.UTF8String;
+    if (dispositionCString == NULL) {
+        dispositionCString = "unavailable";
+    }
+    os_log_info(FCPCCCloudContentMethodCompatibilityLog(),
+                "phase=%{public}s dispositions=%{public}s",
+                FCPCCCloudContentAttemptPhaseName(phase),
+                dispositionCString);
 }
 
 // This evaluates only the predeclared method selected by one fixed descriptor.
@@ -714,21 +756,35 @@ static void FCPCCInstallCloudContentCompatibilityEntry(const FCPCCCloudContentCo
 static void FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhase phase) {
     FCPCCCloudContentMethodCompatibilityStatus *status = FCPCCCloudContentMethodCompatibilityStatusShared();
     @synchronized (status) {
-        if (phase == FCPCCCloudContentAttemptPhaseConstructor) {
-            if (status.constructorAttempts != 0) {
-                return;
-            }
-            status.constructorAttempts = 1;
-        } else {
-            if (status.willFinishLaunchingAttempts != 0) {
-                return;
-            }
-            status.willFinishLaunchingAttempts = 1;
+        NSUInteger attempts = status.constructorAttempts + status.willFinishLaunchingAttempts + status.mainQueueAttempts;
+        if (attempts >= FCPCCCloudContentCompatibilityMaximumAttempts) {
+            return;
+        }
+        switch (phase) {
+            case FCPCCCloudContentAttemptPhaseConstructor:
+                if (status.constructorAttempts != 0) {
+                    return;
+                }
+                status.constructorAttempts = 1;
+                break;
+            case FCPCCCloudContentAttemptPhaseWillFinishLaunching:
+                if (status.willFinishLaunchingAttempts != 0) {
+                    return;
+                }
+                status.willFinishLaunchingAttempts = 1;
+                break;
+            case FCPCCCloudContentAttemptPhaseMainQueue:
+                if (status.mainQueueAttempts != 0) {
+                    return;
+                }
+                status.mainQueueAttempts = 1;
+                break;
         }
 
         FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
         if (!containment.isVerified) {
             status.hostVerified = NO;
+            FCPCCLogCloudContentMethodCompatibilityAttempt(phase, status);
             return;
         }
         status.hostVerified = YES;
@@ -736,6 +792,7 @@ static void FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudConten
         for (NSUInteger index = 0; index < FCPCCCloudContentCompatibilityEntryCount; index += 1) {
             FCPCCInstallCloudContentCompatibilityEntry(&FCPCCCloudContentCompatibilityEntries[index], index, status);
         }
+        FCPCCLogCloudContentMethodCompatibilityAttempt(phase, status);
     }
 }
 
@@ -753,6 +810,12 @@ static void FCPCCInstallIsolatedCloudContentMethodCompatibility(void) {
                                                       usingBlock:^(__unused NSNotification *note) {
             FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseWillFinishLaunching);
         }];
+        // This is enqueued before FCPCCInstallRuntime enqueues menu installation.
+        // It only attempts the fixed compatibility guard; it performs no UI or
+        // library operation and cannot reschedule itself.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            FCPCCAttemptIsolatedCloudContentMethodCompatibility(FCPCCCloudContentAttemptPhaseMainQueue);
+        });
     });
 }
 

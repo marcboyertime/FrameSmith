@@ -30,8 +30,10 @@ x86_64 implementation offset to match the inspected host slice. It completes
 only with (nil, local NSError), matching the bridge’s documented failure shape;
 it never fabricates a project, starts a Swift task, or invokes CloudKit. The
 policy also pins the inspected stock executable SHA-256 and both slice UUIDs.
-Installation remains limited to the exact copied-host containment gate, once in
-the framework constructor and once at will-finish-launching; no class or method
+Installation remains limited to the exact copied-host containment gate, with
+three hard one-shot phases: constructor, will-finish-launching, and one
+main-queue block enqueued before menu setup. Fixed-shape local unified-log
+records report each phase and all seven dispositions once; no class or method
 enumeration is used.
 
 The fixed CloudContent names and contracts were manually transcribed from the
