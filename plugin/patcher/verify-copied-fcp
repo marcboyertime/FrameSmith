@@ -11,6 +11,13 @@ source_executable="$source_app/Contents/MacOS/Final Cut Pro"
 destination_root="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole"
 copied_app="$destination_root/Final Cut Pro - FCPCommandConsole.app"
 copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
+expected_host_bundle_identifier="com.apple.FinalCut"
+expected_copied_host_bundle_path="$copied_app"
+expected_host_version="12.3"
+expected_host_build="450152"
+expected_stock_pre_injection_host_executable_sha256="6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390"
+mas_receipt_relative_path="Contents/_MASReceipt/receipt"
+expected_mas_receipt_sha256="2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e"
 onboarding_framework_relative_executable_path="Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
 source_onboarding_framework="$source_app/$onboarding_framework_relative_executable_path"
 copied_onboarding_framework="$copied_app/$onboarding_framework_relative_executable_path"
@@ -20,10 +27,10 @@ expected_onboarding_framework_arm64_uuid="45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D"
 expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"
 framework_name="FCPCommandConsoleRuntime.framework"
 built_framework="$plugin_dir/build/$framework_name"
-built_compatibility_policy="$built_framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
+built_compatibility_policy="$built_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
 embedded_framework="$copied_app/Contents/Frameworks/$framework_name"
 embedded_runtime="$embedded_framework/Versions/A/FCPCommandConsoleRuntime"
-embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
+embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
 entitlement_verifier="$plugin_dir/build/fcpcc-entitlement-verify"
 allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
 preferences_file="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
@@ -58,6 +65,30 @@ capture_preferences() {
     else
         print -r -- "absent" > "$output_dir/stock-preferences.xml"
         /usr/bin/shasum -a 256 "$output_dir/stock-preferences.xml" | /usr/bin/awk '{print $1}' > "$output_dir/stock-preferences.sha256"
+    fi
+}
+
+capture_receipt() {
+    local app_path="$1"
+    local output_dir="$2"
+    local receipt_path="$app_path/$mas_receipt_relative_path"
+    if [[ ! -f "$receipt_path" || -L "$receipt_path" ]]; then
+        fail "MAS receipt is missing or not a regular file: $app_path"
+    fi
+    /bin/cp "$receipt_path" "$output_dir/receipt"
+    /usr/bin/shasum -a 256 "$receipt_path" | /usr/bin/awk '{print $1}' > "$output_dir/receipt.sha256"
+}
+
+verify_receipt() {
+    local app_path="$1"
+    local label="$2"
+    local receipt_path="$app_path/$mas_receipt_relative_path"
+    if [[ ! -f "$receipt_path" || -L "$receipt_path" ]]; then
+        fail "$label MAS receipt is missing or not a regular file"
+    fi
+    local receipt_sha256="$(/usr/bin/shasum -a 256 "$receipt_path" | /usr/bin/awk '{print $1}')"
+    if [[ "$receipt_sha256" != "$expected_mas_receipt_sha256" ]]; then
+        fail "$label MAS receipt SHA-256 is not the reviewed value"
     fi
 }
 
@@ -138,33 +169,21 @@ verify_compatibility_policy() {
     if ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
         fail "$label compatibility policy is invalid"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "4" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "6" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" ]]; then
         fail "$label compatibility policy host bundle identifier is not exact"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "$expected_host_version" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "$expected_host_build" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "$expected_stock_pre_injection_host_executable_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
         fail "$label compatibility policy host version/build or exact binary identity is not exact"
-    fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
-        fail "$label compatibility policy does not use the current application domain"
-    fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:0' "$policy_path")" != "CloudContentFirstLaunchCompleted" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:1' "$policy_path")" != "FFCloudContentDisabled" ]]; then
-        fail "$label compatibility policy approved key order is not exact"
-    fi
-    if /usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:2' "$policy_path" >/dev/null 2>&1; then
-        fail "$label compatibility policy permits more than two preference keys"
-    fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" ]]; then
-        fail "$label compatibility policy does not require the reviewed true values and synchronization"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "1" ]]; then
         fail "$label compatibility policy method guard mode or phases are not exact"
     fi
-    for removed_policy_key in CompatibilityInstallPhases MethodGuardLogSubsystem MethodGuardLogCategory; do
+    for removed_policy_key in CompatibilityInstallPhases MethodGuardLogSubsystem MethodGuardLogCategory PreferenceDomain ApprovedPreferenceKeys ApprovedPreferenceValues SynchronizeDeterministically; do
         if /usr/libexec/PlistBuddy -c "Print :$removed_policy_key" "$policy_path" >/dev/null 2>&1; then
             fail "$label compatibility policy retains an obsolete scheduler or logger key"
         fi
     done
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "discard_query_block_noop" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "forward_original_setter_async_nil_metadata_provider" ]]; then
         fail "$label compatibility policy single onboarding query setter contract is not exact"
     fi
     if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
@@ -231,7 +250,7 @@ if [[ ! -d "$built_framework" || ! -f "$built_compatibility_policy" || ! -f "$al
 fi
 source_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_app/Contents/Info.plist")"
 source_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$source_app/Contents/Info.plist")"
-if [[ "$source_version" != "12.3" || "$source_build" != "450152" ]]; then
+if [[ "$source_version" != "$expected_host_version" || "$source_build" != "$expected_host_build" ]]; then
     fail "source app version/build guard failed (expected 12.3/450152)"
 fi
 
@@ -243,12 +262,19 @@ fi
 require_not_running "$verify_dir/process-before-verify.txt"
 capture_bundle "$source_app" "$source_executable" "$verify_dir/stock-current"
 capture_preferences "$verify_dir/stock-current"
+capture_receipt "$source_app" "$verify_dir/stock-current"
+verify_receipt "$source_app" "stock-current"
 capture_bundle "$copied_app" "$copied_executable" "$verify_dir/copied-current"
+capture_receipt "$copied_app" "$verify_dir/copied-current"
+verify_receipt "$copied_app" "copied-current"
 capture_onboarding_framework "$source_onboarding_framework" "$verify_dir/stock-current"
 capture_onboarding_framework "$copied_onboarding_framework" "$verify_dir/copied-current"
 verify_onboarding_framework_identity "$verify_dir/stock-current" "stock-current"
 verify_onboarding_framework_identity "$verify_dir/copied-current" "copied-current"
 compare_onboarding_framework_identity "$verify_dir/stock-current" "$verify_dir/copied-current" "copied-current"
+if ! /usr/bin/cmp -s "$verify_dir/stock-current/receipt" "$verify_dir/copied-current/receipt" || ! /usr/bin/cmp -s "$verify_dir/stock-current/receipt.sha256" "$verify_dir/copied-current/receipt.sha256"; then
+    fail "copied MAS receipt differs from stock provenance"
+fi
 verify_onboarding_framework_load_path "$source_executable" "$verify_dir/stock-current" "stock-current"
 verify_onboarding_framework_load_path "$copied_executable" "$verify_dir/copied-current" "copied-current"
 source_executable_sha256="$(/usr/bin/awk '{print $1}' "$verify_dir/stock-current/main-executable.sha256")"
@@ -256,7 +282,7 @@ source_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$verify_dir/st
 source_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$verify_dir/stock-current/main-executable.uuids.txt")"
 copied_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$verify_dir/copied-current/main-executable.uuids.txt")"
 copied_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$verify_dir/copied-current/main-executable.uuids.txt")"
-if [[ "$source_executable_sha256" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$source_arm64_uuid" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$source_x86_64_uuid" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$copied_arm64_uuid" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$copied_x86_64_uuid" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" ]]; then
+if [[ "$source_executable_sha256" != "$expected_stock_pre_injection_host_executable_sha256" || "$source_arm64_uuid" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$source_x86_64_uuid" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$copied_arm64_uuid" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$copied_x86_64_uuid" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" ]]; then
     fail "stock or copied executable does not match the reviewed FCP 12.3 slice identity"
 fi
 print -r -- "stock_executable_sha256=$source_executable_sha256" > "$verify_dir/exact-host-identity.txt"
@@ -267,7 +293,7 @@ print -r -- "copied_x86_64_uuid=$copied_x86_64_uuid" >> "$verify_dir/exact-host-
 
 initial_patch_dir=""
 for candidate in "$provenance_root"/patch-*; do
-    if [[ -f "$candidate/stock-before/main-executable.sha256" && -f "$candidate/stock-before/Info.plist.sha256" && -f "$candidate/stock-before/stock-preferences.sha256" && -f "$candidate/copied-main-executable.pre-injection.sha256" ]]; then
+    if [[ -f "$candidate/stock-before/main-executable.sha256" && -f "$candidate/stock-before/Info.plist.sha256" && -f "$candidate/stock-before/stock-preferences.sha256" && -f "$candidate/stock-before/receipt.sha256" && -f "$candidate/stock-before/receipt" && -f "$candidate/copied-main-executable.pre-injection.sha256" ]]; then
         initial_patch_dir="$candidate"
         break
     fi
@@ -286,6 +312,9 @@ fi
 if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/stock-preferences.sha256" "$verify_dir/stock-current/stock-preferences.sha256"; then
     fail "stock preference export fingerprint differs from initial patch evidence"
 fi
+if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt.sha256" "$verify_dir/stock-current/receipt.sha256" || ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt" "$verify_dir/stock-current/receipt"; then
+    fail "stock MAS receipt fingerprint differs from initial patch evidence"
+fi
 if ! /usr/bin/cmp -s "$initial_patch_dir/copied-main-executable.pre-injection.sha256" "$verify_dir/stock-current/main-executable.sha256"; then
     fail "captured pre-injection copied executable differs from stock fingerprint"
 fi
@@ -294,7 +323,7 @@ copied_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$co
 copied_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$copied_app/Contents/Info.plist")"
 copied_display_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$copied_app/Contents/Info.plist")"
 copied_executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$copied_app/Contents/Info.plist")"
-if [[ "$copied_identifier" != "com.local.fcpcommandconsole.FinalCut" || "$copied_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_display_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_executable_name" != "Final Cut Pro" ]]; then
+if [[ "$copied_app" != "$expected_copied_host_bundle_path" || "$copied_identifier" != "$expected_host_bundle_identifier" || "$copied_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_display_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_executable_name" != "Final Cut Pro" ]]; then
     fail "copied app metadata does not match the approved isolated identity"
 fi
 print -r -- "bundle_identifier=$copied_identifier" > "$verify_dir/copied-identity.txt"
@@ -343,8 +372,6 @@ if /usr/bin/grep -E '(_socket|_bind|_listen|_accept)' "$verify_dir/runtime-undef
     fail "runtime imports a listener primitive"
 fi
 for required_runtime_symbol in \
-    _CFPreferencesSetAppValue \
-    _CFPreferencesAppSynchronize \
     _objc_getClass \
     _sel_registerName \
     _class_getInstanceMethod \
@@ -364,7 +391,7 @@ for required_runtime_symbol in \
     _CC_SHA256_Update \
     _CC_SHA256_Final; do
     if ! /usr/bin/grep -F -q "$required_runtime_symbol" "$verify_dir/runtime-undefined-symbols.txt"; then
-        fail "runtime does not import required isolated preference or exact method-guard symbol: $required_runtime_symbol"
+        fail "runtime does not import required exact method-guard symbol: $required_runtime_symbol"
     fi
 done
 verify_compatibility_policy "$built_compatibility_policy" "built"
@@ -374,24 +401,22 @@ if ! /usr/bin/cmp -s "$built_compatibility_policy" "$embedded_compatibility_poli
 fi
 /usr/bin/strings "$embedded_runtime" > "$verify_dir/runtime-strings.txt"
 for required_runtime_string in \
-    'com.local.fcpcommandconsole.FinalCut' \
+    'com.apple.FinalCut' \
+    '/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app' \
+    'Contents/_MASReceipt/receipt' \
+    '2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e' \
     '12.3' \
     '450152' \
-    'CloudContentFirstLaunchCompleted' \
-    'FFCloudContentDisabled' \
     'Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne' \
     'POFDesktopOnboardingCoordinator' \
     'setQueryDemoProjectInfo:' \
     'v24@0:8@?16' \
     '636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce' \
-    'onboarding_query_gate=installed'; do
+    'onboarding_query_compatibility=installed'; do
     if ! /usr/bin/grep -F -x -q "$required_runtime_string" "$verify_dir/runtime-strings.txt"; then
-        fail "runtime is missing required exact-host, preference, or method-guard string: $required_runtime_string"
+        fail "runtime is missing required exact-host or method-compatibility string: $required_runtime_string"
     fi
 done
-if /usr/bin/grep -F -q 'com.apple.FinalCut' "$verify_dir/runtime-strings.txt"; then
-    fail "runtime contains the production Final Cut preference domain"
-fi
 if /usr/bin/grep -E '(^|/)defaults($| )' "$verify_dir/runtime-strings.txt" >/dev/null; then
     fail "runtime contains a defaults executable invocation surface"
 fi
@@ -417,7 +442,7 @@ for forbidden_runtime_string in \
         fail "runtime contains a forbidden broad-discovery or unrelated-feature string: $forbidden_runtime_string"
     fi
 done
-print -r -- "isolated_compatibility_policy=pass host=com.local.fcpcommandconsole.FinalCut version=12.3 build=450152 stock_host_sha256=6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390 host_arm64_uuid=AD024067-E145-3988-AFF9-BD33391C416D host_x86_64_uuid=2ACCBD11-6965-3D09-BD87-9A900FDC740E onboarding_framework_path=$onboarding_framework_relative_executable_path onboarding_framework_sha256=$expected_onboarding_framework_sha256 onboarding_framework_arm64_uuid=$expected_onboarding_framework_arm64_uuid onboarding_framework_x86_64_uuid=$expected_onboarding_framework_x86_64_uuid query_setter=POFDesktopOnboardingCoordinator:setQueryDemoProjectInfo: query_setter_offsets=arm64:0x1313c,x86_64:0x13cc0 query_setter_type=v24@0:8@?16 writes=2 domain=current_application synchronized=true method_guard_entries=1 phase=constructor max_attempts=1 copied_onboarding_framework=stock_identity_matched" > "$verify_dir/runtime-compatibility-audit.txt"
+print -r -- "onboarding_query_compatibility=pass host=$expected_host_bundle_identifier copied_path=$expected_copied_host_bundle_path version=$expected_host_version build=$expected_host_build stock_pre_injection_host_sha256=$expected_stock_pre_injection_host_executable_sha256 mas_receipt_path=$mas_receipt_relative_path mas_receipt_sha256=$expected_mas_receipt_sha256 host_arm64_uuid=AD024067-E145-3988-AFF9-BD33391C416D host_x86_64_uuid=2ACCBD11-6965-3D09-BD87-9A900FDC740E onboarding_framework_path=$onboarding_framework_relative_executable_path onboarding_framework_sha256=$expected_onboarding_framework_sha256 onboarding_framework_arm64_uuid=$expected_onboarding_framework_arm64_uuid onboarding_framework_x86_64_uuid=$expected_onboarding_framework_x86_64_uuid query_setter=POFDesktopOnboardingCoordinator:setQueryDemoProjectInfo: query_setter_offsets=arm64:0x1313c,x86_64:0x13cc0 query_setter_type=v24@0:8@?16 replacement=forward_original_setter_async_nil_metadata_provider copied_onboarding_framework=stock_identity_matched copied_receipt=stock_receipt_matched" > "$verify_dir/runtime-compatibility-audit.txt"
 
 /usr/sbin/lsof -nP -iTCP -sTCP:LISTEN > "$verify_dir/listener-audit.txt" 2>&1 || true
 require_not_running "$verify_dir/process-after-verify.txt"

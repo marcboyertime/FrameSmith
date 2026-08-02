@@ -3,19 +3,25 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>4</integer>
+    <integer>6</integer>
     <key>ExpectedHostBundleIdentifier</key>
-    <string>com.local.fcpcommandconsole.FinalCut</string>
+    <string>com.apple.FinalCut</string>
+    <key>ExpectedCopiedHostBundlePath</key>
+    <string>/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app</string>
     <key>ExpectedHostVersion</key>
     <string>12.3</string>
     <key>ExpectedHostBuild</key>
     <string>450152</string>
-    <key>ExpectedHostExecutableSHA256</key>
+    <key>ExpectedStockPreInjectionHostExecutableSHA256</key>
     <string>6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390</string>
     <key>ExpectedHostArm64UUID</key>
     <string>AD024067-E145-3988-AFF9-BD33391C416D</string>
     <key>ExpectedHostX86_64UUID</key>
     <string>2ACCBD11-6965-3D09-BD87-9A900FDC740E</string>
+    <key>ExpectedMASReceiptRelativePath</key>
+    <string>Contents/_MASReceipt/receipt</string>
+    <key>ExpectedMASReceiptSHA256</key>
+    <string>2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e</string>
     <key>ExpectedOnboardingFrameworkRelativeExecutablePath</key>
     <string>Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne</string>
     <key>ExpectedOnboardingFrameworkSHA256</key>
@@ -24,22 +30,6 @@
     <string>45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D</string>
     <key>ExpectedOnboardingFrameworkX86_64UUID</key>
     <string>FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7</string>
-    <key>PreferenceDomain</key>
-    <string>kCFPreferencesCurrentApplication</string>
-    <key>ApprovedPreferenceKeys</key>
-    <array>
-        <string>CloudContentFirstLaunchCompleted</string>
-        <string>FFCloudContentDisabled</string>
-    </array>
-    <key>ApprovedPreferenceValues</key>
-    <dict>
-        <key>CloudContentFirstLaunchCompleted</key>
-        <true/>
-        <key>FFCloudContentDisabled</key>
-        <true/>
-    </dict>
-    <key>SynchronizeDeterministically</key>
-    <true/>
     <key>CompatibilityInstallPhase</key>
     <string>constructor</string>
     <key>MaximumMethodGuardAttempts</key>
@@ -68,12 +58,12 @@
             <key>ExpectedOriginalImplementationOffsetX86_64</key>
             <string>0x13cc0</string>
             <key>Replacement</key>
-            <string>discard_query_block_noop</string>
+            <string>forward_original_setter_async_nil_metadata_provider</string>
         </dict>
     </array>
     <key>SourceSnapshotCommit</key>
     <string>f4f6618121309a69b66272b441f34cf8ad57f306</string>
     <key>SourceAttribution</key>
-    <string>Exact Final Cut Pro 12.3 static inspection. The patcher records stock-versus-copied SHA-256 and both UUID slices; the copied runtime independently verifies its active host UUID and the nested ProOnboardingFlowModelOne framework path, SHA-256, active-slice UUID, Objective-C type, and original setter IMP before installing one no-op query-block setter.</string>
+    <string>Exact Final Cut Pro 12.3 static inspection. The stock pre-injection executable SHA-256 is patcher provenance because the copied host receives one reviewed load command and a new signature. The runtime independently requires the exact copied bundle path, receipt-compatible bundle identifier, unchanged MAS receipt path and SHA-256, version, build, active-slice UUID, and nested ProOnboardingFlowModelOne framework path, SHA-256, active-slice UUID, Objective-C type, and original setter IMP before forwarding that setter with one main-queue asynchronous nil-metadata provider.</string>
 </dict>
 </plist>

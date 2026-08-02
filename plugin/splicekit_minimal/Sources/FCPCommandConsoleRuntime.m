@@ -12,7 +12,9 @@
 #import <fcntl.h>
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
+#import <math.h>
 #import <objc/runtime.h>
+#import <sys/stat.h>
 #import <stdint.h>
 #import <stdlib.h>
 #import <string.h>
@@ -20,23 +22,29 @@
 
 NSString * const FCPCCMutationErrorUnsupportedUnverifiedFCP123 = @"unsupported_unverified_fcp_12_3";
 
-static NSString * const FCPCCExpectedHostBundleIdentifier = @"com.local.fcpcommandconsole.FinalCut";
+static NSString * const FCPCCExpectedHostBundleIdentifier = @"com.apple.FinalCut";
 static NSString * const FCPCCExpectedHostVersion = @"12.3";
 static NSString * const FCPCCExpectedHostBuild = @"450152";
+static NSString * const FCPCCExpectedCopiedHostBundlePath = @"/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app";
 static NSString * const FCPCCExpectedRuntimeFrameworkName = @"FCPCommandConsoleRuntime.framework";
-static NSString * const FCPCCCloudContentFirstLaunchCompletedKey = @"CloudContentFirstLaunchCompleted";
-static NSString * const FCPCCFFCloudContentDisabledKey = @"FFCloudContentDisabled";
+static NSString * const FCPCCExpectedMASReceiptRelativePath = @"Contents/_MASReceipt/receipt";
+static const char * const FCPCCExpectedMASReceiptSHA256 = "2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e";
 static NSString * const FCPCCExpectedOnboardingFrameworkRelativeExecutablePath = @"Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne";
 static NSString * const FCPCCExpectedOnboardingCoordinatorClassName = @"POFDesktopOnboardingCoordinator";
 static NSString * const FCPCCExpectedOnboardingQuerySetterName = @"setQueryDemoProjectInfo:";
 static const char * const FCPCCExpectedOnboardingQuerySetterTypeEncoding = "v24@0:8@?16";
 static const char * const FCPCCExpectedOnboardingFrameworkSHA256 = "636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce";
+static NSString * const FCPCCExpectedFlexoFrameworkRelativeExecutablePath = @"Contents/Frameworks/Flexo.framework/Versions/A/Flexo";
+static const char * const FCPCCExpectedFlexoFrameworkSHA256 = "704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e";
+
+static BOOL FCPCCFileSHA256MatchesExpectedHex(NSString *path, const char *expectedHex);
 
 // The copied executable intentionally has one additional LC_LOAD_DYLIB and a
-// new signature, so its whole-file hash cannot equal the stock executable
-// hash. The patcher binds that stock hash before each deployment; the runtime
-// independently verifies the copied host's preserved active-slice UUID and the
-// untouched nested framework's whole-file hash and UUID.
+// new signature, so its whole-file hash cannot equal the stock pre-injection
+// executable hash. The patcher binds that stock hash before each deployment;
+// the runtime independently verifies the exact copied path, its preserved
+// active-slice UUID, its unchanged MAS receipt, and the untouched nested
+// framework's whole-file hash and UUID.
 static const uint8_t FCPCCExpectedHostArm64UUID[16] __attribute__((unused)) = {
     0xAD, 0x02, 0x40, 0x67, 0xE1, 0x45, 0x39, 0x88,
     0xAF, 0xF9, 0xBD, 0x33, 0x39, 0x1C, 0x41, 0x6D,
@@ -53,14 +61,17 @@ static const uint8_t FCPCCExpectedOnboardingFrameworkX86_64UUID[16] __attribute_
     0xFC, 0xAA, 0x9A, 0x11, 0xC6, 0xA5, 0x3E, 0xC9,
     0x9E, 0x65, 0xAD, 0xCA, 0x14, 0xF0, 0x86, 0xF7,
 };
+static const uint8_t FCPCCExpectedFlexoFrameworkArm64UUID[16] __attribute__((unused)) = {
+    0xAE, 0xAE, 0x4C, 0x0B, 0x76, 0x95, 0x37, 0x84,
+    0xA7, 0x94, 0xAF, 0xB4, 0x98, 0x55, 0x25, 0xA8,
+};
+static const uint8_t FCPCCExpectedFlexoFrameworkX86_64UUID[16] __attribute__((unused)) = {
+    0x52, 0x51, 0x66, 0xA8, 0xE6, 0xF4, 0x3D, 0xCA,
+    0xB4, 0xF9, 0xBD, 0x98, 0xF1, 0x6B, 0x65, 0x52,
+};
 
 // Offline-inspected candidates. These values are intentionally fixed and have
 // no execution path in this build.
-static NSString * const FCPCCCandidateSelectorShowLibrary = @"showLibrary";
-static NSString * const FCPCCCandidateSelectorShowLibraryProperties = @"showLibraryProperties:";
-static NSString * const FCPCCCandidateSelectorAddEffects = @"actionAddEffects:withEdits:rootItem:error:";
-static NSString * const FCPCCCandidateSelectorEndTransaction = @"actionEnd:save:error:";
-
 NSString *FCPCCEffectIdentifierForKind(FCPCCEffectKind effectKind) {
     switch (effectKind) {
         case FCPCCEffectKindNativeTargetedRotateZoom:
@@ -106,17 +117,79 @@ typedef NS_ENUM(NSInteger, FCPCCGateDisposition) {
 
 @end
 
-@interface FCPCCLibraryManifest : NSObject
-@property (nonatomic, copy, readonly) NSString *canonicalPath;
-@property (nonatomic, strong, readonly, nullable) NSNumber *expectedDevice;
-@property (nonatomic, strong, readonly, nullable) NSNumber *expectedInode;
-@property (nonatomic, copy, readonly, nullable) NSString *persistentUID;
-@property (nonatomic, copy, readonly) NSString *verificationState;
+static NSString *FCPCCCanonicalFilePath(NSString *path) {
+    if (path.length == 0 || !path.isAbsolutePath) {
+        return nil;
+    }
+    NSString *standardized = [path stringByStandardizingPath];
+    NSString *resolved = [standardized stringByResolvingSymlinksInPath];
+    return resolved.length == 0 ? nil : [resolved stringByStandardizingPath];
+}
+
+static BOOL FCPCCIsExactCanonicalFilePath(NSString *path) {
+    NSString *canonical = FCPCCCanonicalFilePath(path);
+    return canonical != nil && [path isEqualToString:canonical];
+}
+
+static BOOL FCPCCUnsignedIdentityNumberIsValid(NSNumber *number) {
+    if (number == nil || number.objCType == NULL) {
+        return NO;
+    }
+    switch (number.objCType[0]) {
+        case 's':
+        case 'i':
+        case 'l':
+        case 'q':
+            return number.longLongValue > 0;
+        case 'S':
+        case 'I':
+        case 'L':
+        case 'Q':
+            return number.unsignedLongLongValue > 0;
+        default:
+            return NO;
+    }
+}
+
+@interface FCPCCLibraryManifestRecord ()
 + (nullable instancetype)bundledManifest;
-- (BOOL)isComplete;
 @end
 
-@implementation FCPCCLibraryManifest
+@implementation FCPCCLibraryIdentity
+
+- (instancetype)initWithCanonicalPath:(NSString *)canonicalPath
+                               device:(NSNumber *)device
+                                inode:(NSNumber *)inode
+                        persistentUID:(NSString *)persistentUID {
+    self = [super init];
+    if (self != nil) {
+        _canonicalPath = [canonicalPath copy];
+        _device = [device copy];
+        _inode = [inode copy];
+        _persistentUID = [persistentUID copy];
+    }
+    return self;
+}
+
+@end
+
+@implementation FCPCCLibraryManifestRecord
+
+- (instancetype)initWithCanonicalPath:(NSString *)canonicalPath
+                        expectedDevice:(NSNumber *)expectedDevice
+                         expectedInode:(NSNumber *)expectedInode
+                         persistentUID:(NSString *)persistentUID
+                     verificationState:(NSString *)verificationState {
+    self = [super init];
+    if (self != nil) {
+        _canonicalPath = [canonicalPath copy];
+        _expectedDevice = [expectedDevice copy];
+        _expectedInode = [expectedInode copy];
+        _persistentUID = [persistentUID copy];
+        _verificationState = [verificationState copy];
+    }
+    return self;
+}
 
 + (instancetype)bundledManifest {
     NSBundle *runtimeBundle = [NSBundle bundleForClass:self];
@@ -145,43 +218,25 @@ typedef NS_ENUM(NSInteger, FCPCCGateDisposition) {
         return nil;
     }
 
-    FCPCCLibraryManifest *manifest = [[self alloc] init];
-    manifest->_canonicalPath = [path copy];
-    manifest->_expectedDevice = [device isKindOfClass:[NSNumber class]] ? device : nil;
-    manifest->_expectedInode = [inode isKindOfClass:[NSNumber class]] ? inode : nil;
-    manifest->_persistentUID = [uid isKindOfClass:[NSString class]] ? [uid copy] : nil;
-    manifest->_verificationState = [state copy];
-    return manifest;
+    return [[self alloc] initWithCanonicalPath:path
+                                expectedDevice:[device isKindOfClass:[NSNumber class]] ? device : nil
+                                 expectedInode:[inode isKindOfClass:[NSNumber class]] ? inode : nil
+                                 persistentUID:[uid isKindOfClass:[NSString class]] ? uid : nil
+                             verificationState:state];
 }
 
 - (BOOL)isComplete {
-    return self.canonicalPath.length > 0 && self.expectedDevice != nil && self.expectedInode != nil && self.persistentUID.length > 0;
+    return FCPCCIsExactCanonicalFilePath(self.canonicalPath)
+        && FCPCCUnsignedIdentityNumberIsValid(self.expectedDevice)
+        && FCPCCUnsignedIdentityNumberIsValid(self.expectedInode)
+        && self.persistentUID.length > 0;
 }
 
 @end
 
-@interface FCPCCObservedLibrary : NSObject
-@property (nonatomic, copy, readonly) NSString *canonicalPath;
-@property (nonatomic, strong, readonly) NSNumber *device;
-@property (nonatomic, strong, readonly) NSNumber *inode;
-@property (nonatomic, copy, readonly) NSString *persistentUID;
-@end
+@implementation FCPCCReadOnlyLibrarySet
 
-@implementation FCPCCObservedLibrary
-@end
-
-@interface FCPCCOpenLibrarySet : NSObject
-@property (nonatomic, copy, readonly) NSArray<FCPCCObservedLibrary *> *libraries;
-@property (nonatomic, readonly, getter=isCompleteTraversal) BOOL completeTraversal;
-@property (nonatomic, copy, readonly) NSString *reason;
-- (instancetype)initWithLibraries:(NSArray<FCPCCObservedLibrary *> *)libraries
-                completeTraversal:(BOOL)completeTraversal
-                           reason:(NSString *)reason;
-@end
-
-@implementation FCPCCOpenLibrarySet
-
-- (instancetype)initWithLibraries:(NSArray<FCPCCObservedLibrary *> *)libraries
+- (instancetype)initWithLibraries:(NSArray<FCPCCLibraryIdentity *> *)libraries
                 completeTraversal:(BOOL)completeTraversal
                            reason:(NSString *)reason {
     self = [super init];
@@ -195,76 +250,314 @@ typedef NS_ENUM(NSInteger, FCPCCGateDisposition) {
 
 @end
 
-// This is intentionally the only future extension seam for a private-model
-// traversal. The adapter is fixed at compile time and does not use runtime
-// discovery. It returns unverified until a separately reviewed live spike can
-// establish a supported Final Cut 12.3 traversal.
-@interface FCPCCFixedModelTraversalAdapter : NSObject
-- (FCPCCOpenLibrarySet *)enumerateCompleteOpenLibrarySet;
+@interface FCPCCLibraryInvariantResult ()
+- (instancetype)initWithDisposition:(FCPCCLibraryInvariantDisposition)disposition
+                              reason:(NSString *)reason;
 @end
 
-@implementation FCPCCFixedModelTraversalAdapter
+@implementation FCPCCLibraryInvariantResult
 
-- (FCPCCOpenLibrarySet *)enumerateCompleteOpenLibrarySet {
-    (void)FCPCCCandidateSelectorShowLibrary;
-    (void)FCPCCCandidateSelectorShowLibraryProperties;
-    (void)FCPCCCandidateSelectorAddEffects;
-    (void)FCPCCCandidateSelectorEndTransaction;
-    return [[FCPCCOpenLibrarySet alloc] initWithLibraries:@[]
-                                        completeTraversal:NO
-                                                   reason:FCPCCMutationErrorUnsupportedUnverifiedFCP123];
+- (instancetype)initWithDisposition:(FCPCCLibraryInvariantDisposition)disposition
+                              reason:(NSString *)reason {
+    self = [super init];
+    if (self != nil) {
+        _disposition = disposition;
+        _reason = [reason copy];
+        _verified = disposition == FCPCCLibraryInvariantDispositionVerified;
+    }
+    return self;
 }
 
 @end
 
-@interface FCPCCLibraryInvariantGate : NSObject
-- (FCPCCGateStatus *)evaluate;
-@end
-
-@implementation FCPCCLibraryInvariantGate
-
-- (FCPCCGateStatus *)evaluate {
-    FCPCCFixedModelTraversalAdapter *adapter = [[FCPCCFixedModelTraversalAdapter alloc] init];
-    FCPCCOpenLibrarySet *openLibrarySet = [adapter enumerateCompleteOpenLibrarySet];
-    if (!openLibrarySet.isCompleteTraversal) {
-        return [[FCPCCGateStatus alloc] initWithDisposition:FCPCCGateDispositionTraversalUnverified
-                                                    summary:openLibrarySet.reason];
+FCPCCLibraryInvariantResult *FCPCCEvaluateLibraryInvariant(FCPCCReadOnlyLibrarySet *librarySet,
+                                                             FCPCCLibraryManifestRecord *manifest) {
+    if (librarySet == nil || !librarySet.isCompleteTraversal) {
+        NSString *reason = librarySet.reason.length > 0 ? librarySet.reason : @"library_traversal_incomplete";
+        return [[FCPCCLibraryInvariantResult alloc] initWithDisposition:FCPCCLibraryInvariantDispositionTraversalUnsupported
+                                                                   reason:reason];
     }
-
-    if (openLibrarySet.libraries.count != 1) {
-        return [[FCPCCGateStatus alloc] initWithDisposition:FCPCCGateDispositionOpenLibraryCountInvalid
-                                                    summary:@"exactly_one_open_library_required"];
+    if (librarySet.libraries.count != 1) {
+        return [[FCPCCLibraryInvariantResult alloc] initWithDisposition:FCPCCLibraryInvariantDispositionOpenLibraryCountInvalid
+                                                                   reason:@"exactly_one_open_library_required"];
     }
-
-    FCPCCLibraryManifest *manifest = [FCPCCLibraryManifest bundledManifest];
     if (manifest == nil) {
-        return [[FCPCCGateStatus alloc] initWithDisposition:FCPCCGateDispositionManifestAbsent
-                                                    summary:@"library_manifest_absent"];
+        return [[FCPCCLibraryInvariantResult alloc] initWithDisposition:FCPCCLibraryInvariantDispositionManifestAbsent
+                                                                   reason:@"library_manifest_absent"];
     }
-    if (![manifest isComplete]) {
-        return [[FCPCCGateStatus alloc] initWithDisposition:FCPCCGateDispositionManifestUnverifiable
-                                                    summary:manifest.verificationState];
+    if (!manifest.isComplete) {
+        NSString *reason = manifest.verificationState.length > 0 ? manifest.verificationState : @"library_manifest_incomplete";
+        return [[FCPCCLibraryInvariantResult alloc] initWithDisposition:FCPCCLibraryInvariantDispositionManifestIncomplete
+                                                                   reason:reason];
     }
 
-    FCPCCObservedLibrary *observed = openLibrarySet.libraries.firstObject;
-    BOOL matches = [observed.canonicalPath isEqualToString:manifest.canonicalPath]
+    id candidate = librarySet.libraries.firstObject;
+    if (![candidate isKindOfClass:[FCPCCLibraryIdentity class]]) {
+        return [[FCPCCLibraryInvariantResult alloc] initWithDisposition:FCPCCLibraryInvariantDispositionTraversalUnsupported
+                                                                   reason:@"library_traversal_identity_type_unsupported"];
+    }
+    FCPCCLibraryIdentity *observed = candidate;
+    BOOL observedIdentityIsWellFormed = FCPCCIsExactCanonicalFilePath(observed.canonicalPath)
+        && FCPCCUnsignedIdentityNumberIsValid(observed.device)
+        && FCPCCUnsignedIdentityNumberIsValid(observed.inode)
+        && observed.persistentUID.length > 0;
+    BOOL matches = observedIdentityIsWellFormed
+        && [observed.canonicalPath isEqualToString:manifest.canonicalPath]
         && [observed.device isEqualToNumber:manifest.expectedDevice]
         && [observed.inode isEqualToNumber:manifest.expectedInode]
         && [observed.persistentUID isEqualToString:manifest.persistentUID];
     if (!matches) {
-        return [[FCPCCGateStatus alloc] initWithDisposition:FCPCCGateDispositionLibraryIdentityMismatch
-                                                    summary:@"library_path_device_inode_or_persistent_uid_mismatch"];
+        return [[FCPCCLibraryInvariantResult alloc] initWithDisposition:FCPCCLibraryInvariantDispositionIdentityMismatch
+                                                                   reason:@"library_path_device_inode_or_persistent_uid_mismatch"];
     }
 
-    return [[FCPCCGateStatus alloc] initWithDisposition:FCPCCGateDispositionVerified
-                                                summary:@"exactly_one_library_verified"];
+    return [[FCPCCLibraryInvariantResult alloc] initWithDisposition:FCPCCLibraryInvariantDispositionVerified
+                                                               reason:@"exactly_one_library_verified"];
+}
+
+static FCPCCGateStatus *FCPCCGateStatusFromLibraryInvariantResult(FCPCCLibraryInvariantResult *result) {
+    FCPCCGateDisposition disposition = FCPCCGateDispositionTraversalUnverified;
+    switch (result.disposition) {
+        case FCPCCLibraryInvariantDispositionVerified:
+            disposition = FCPCCGateDispositionVerified;
+            break;
+        case FCPCCLibraryInvariantDispositionManifestAbsent:
+            disposition = FCPCCGateDispositionManifestAbsent;
+            break;
+        case FCPCCLibraryInvariantDispositionManifestIncomplete:
+            disposition = FCPCCGateDispositionManifestUnverifiable;
+            break;
+        case FCPCCLibraryInvariantDispositionTraversalUnsupported:
+            disposition = FCPCCGateDispositionTraversalUnverified;
+            break;
+        case FCPCCLibraryInvariantDispositionOpenLibraryCountInvalid:
+            disposition = FCPCCGateDispositionOpenLibraryCountInvalid;
+            break;
+        case FCPCCLibraryInvariantDispositionIdentityMismatch:
+            disposition = FCPCCGateDispositionLibraryIdentityMismatch;
+            break;
+    }
+    return [[FCPCCGateStatus alloc] initWithDisposition:disposition summary:result.reason];
+}
+
+static BOOL FCPCCValidTimelineRange(CMTimeRange range) {
+    return CMTIMERANGE_IS_VALID(range)
+        && CMTIME_IS_VALID(range.start)
+        && CMTIME_IS_VALID(range.duration)
+        && range.duration.value >= 0;
+}
+
+static BOOL FCPCCValidHandleTime(CMTime time) {
+    return CMTIME_IS_VALID(time) && time.value >= 0;
+}
+
+static BOOL FCPCCBoundedNonemptyString(NSString *value) {
+    return value.length > 0 && value.length <= 1024;
+}
+
+static BOOL FCPCCLowercaseSHA256HexStringIsValid(NSString *value) {
+    if (value.length != CC_SHA256_DIGEST_LENGTH * 2) {
+        return NO;
+    }
+    for (NSUInteger index = 0; index < value.length; index += 1) {
+        unichar character = [value characterAtIndex:index];
+        if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
+@implementation FCPCCTimelineItemSnapshot
+
+- (instancetype)initWithStableItemIdentifier:(NSString *)stableItemIdentifier
+                          canonicalSourcePath:(NSString *)canonicalSourcePath
+                                sourceSHA256:(NSString *)sourceSHA256
+                        sourceIdentityReason:(NSString *)sourceIdentityReason
+                       primaryStorylineIndex:(NSInteger)primaryStorylineIndex
+       previousPrimaryStorylineItemIdentifier:(NSString *)previousPrimaryStorylineItemIdentifier
+           nextPrimaryStorylineItemIdentifier:(NSString *)nextPrimaryStorylineItemIdentifier
+                               timelineRange:(CMTimeRange)timelineRange
+                            hasTimelineRange:(BOOL)hasTimelineRange
+                               leadingHandle:(CMTime)leadingHandle
+                        hasLeadingHandle:(BOOL)hasLeadingHandle
+                              trailingHandle:(CMTime)trailingHandle
+                       hasTrailingHandle:(BOOL)hasTrailingHandle {
+    self = [super init];
+    if (self != nil) {
+        BOOL sourceIdentityIsValid = canonicalSourcePath.length > 0
+            && FCPCCIsExactCanonicalFilePath(canonicalSourcePath)
+            && FCPCCLowercaseSHA256HexStringIsValid(sourceSHA256);
+        NSString *normalizedSourceIdentityReason = sourceIdentityIsValid
+            ? @"source_identity_available"
+            : (sourceIdentityReason.length > 0
+            ? sourceIdentityReason
+            : @"source_identity_unavailable");
+        if (!sourceIdentityIsValid && (canonicalSourcePath.length > 0 || sourceSHA256.length > 0)) {
+            normalizedSourceIdentityReason = @"source_identity_unavailable_invalid_canonical_path_or_sha256";
+        }
+        _stableItemIdentifier = [stableItemIdentifier copy];
+        _canonicalSourcePath = sourceIdentityIsValid ? [canonicalSourcePath copy] : nil;
+        _sourceSHA256 = sourceIdentityIsValid ? [sourceSHA256 copy] : nil;
+        _sourceIdentityReason = [normalizedSourceIdentityReason copy];
+        _primaryStorylineIndex = primaryStorylineIndex;
+        _previousPrimaryStorylineItemIdentifier = [previousPrimaryStorylineItemIdentifier copy];
+        _nextPrimaryStorylineItemIdentifier = [nextPrimaryStorylineItemIdentifier copy];
+        _hasTimelineRange = hasTimelineRange && FCPCCValidTimelineRange(timelineRange);
+        _timelineRange = _hasTimelineRange ? timelineRange : kCMTimeRangeInvalid;
+        _hasLeadingHandle = hasLeadingHandle && FCPCCValidHandleTime(leadingHandle);
+        _leadingHandle = _hasLeadingHandle ? leadingHandle : kCMTimeInvalid;
+        _hasTrailingHandle = hasTrailingHandle && FCPCCValidHandleTime(trailingHandle);
+        _trailingHandle = _hasTrailingHandle ? trailingHandle : kCMTimeInvalid;
+    }
+    return self;
 }
 
 @end
 
+@interface FCPCCReadOnlyContextSnapshot ()
+- (instancetype)initWithDisposition:(FCPCCReadOnlyContextDisposition)disposition
+                              reason:(NSString *)reason
+                   activeProjectName:(NSString *)activeProjectName
+                           frameSize:(CGSize)frameSize
+                       hasFrameSize:(BOOL)hasFrameSize
+                       frameDuration:(CMTime)frameDuration
+                   hasFrameDuration:(BOOL)hasFrameDuration
+               selectedTimelineItems:(NSArray<FCPCCTimelineItemSnapshot *> *)selectedTimelineItems
+                   selectionRevision:(NSString *)selectionRevision
+                    timelineRevision:(NSString *)timelineRevision;
+@end
+
+@implementation FCPCCReadOnlyContextSnapshot
+
+- (instancetype)initWithDisposition:(FCPCCReadOnlyContextDisposition)disposition
+                              reason:(NSString *)reason
+                   activeProjectName:(NSString *)activeProjectName
+                           frameSize:(CGSize)frameSize
+                       hasFrameSize:(BOOL)hasFrameSize
+                       frameDuration:(CMTime)frameDuration
+                   hasFrameDuration:(BOOL)hasFrameDuration
+               selectedTimelineItems:(NSArray<FCPCCTimelineItemSnapshot *> *)selectedTimelineItems
+                   selectionRevision:(NSString *)selectionRevision
+                    timelineRevision:(NSString *)timelineRevision {
+    self = [super init];
+    if (self != nil) {
+        NSString *normalizedReason = reason.length > 0 ? reason : @"read_only_context_unavailable";
+        _disposition = disposition;
+        _reason = [normalizedReason copy];
+        _activeProjectName = [activeProjectName copy];
+        _hasFrameSize = hasFrameSize && isfinite(frameSize.width) && isfinite(frameSize.height)
+            && frameSize.width > 0.0 && frameSize.height > 0.0;
+        _frameSize = _hasFrameSize ? frameSize : CGSizeZero;
+        _hasFrameDuration = hasFrameDuration && CMTIME_IS_VALID(frameDuration) && frameDuration.value > 0 && frameDuration.timescale > 0;
+        _frameDuration = _hasFrameDuration ? frameDuration : kCMTimeInvalid;
+        _selectedTimelineItems = [selectedTimelineItems copy];
+        _selectionRevision = [selectionRevision copy];
+        _timelineRevision = [timelineRevision copy];
+        _readOnlyCapable = disposition == FCPCCReadOnlyContextDispositionReady
+            || disposition == FCPCCReadOnlyContextDispositionPartialUnsupported;
+        _mutationCapable = NO;
+    }
+    return self;
+}
+
++ (instancetype)unsupportedWithReason:(NSString *)reason {
+    return [[self alloc] initWithDisposition:FCPCCReadOnlyContextDispositionUnsupportedAPI
+                                      reason:reason
+                           activeProjectName:nil
+                                   frameSize:CGSizeZero
+                               hasFrameSize:NO
+                               frameDuration:kCMTimeInvalid
+                           hasFrameDuration:NO
+                       selectedTimelineItems:@[]
+                           selectionRevision:nil
+                            timelineRevision:nil];
+}
+
++ (instancetype)snapshotWithDisposition:(FCPCCReadOnlyContextDisposition)disposition
+                                  reason:(NSString *)reason
+                       activeProjectName:(NSString *)activeProjectName
+                               frameSize:(CGSize)frameSize
+                           hasFrameSize:(BOOL)hasFrameSize
+                           frameDuration:(CMTime)frameDuration
+                       hasFrameDuration:(BOOL)hasFrameDuration
+                   selectedTimelineItems:(NSArray<FCPCCTimelineItemSnapshot *> *)selectedTimelineItems
+                       selectionRevision:(NSString *)selectionRevision
+                        timelineRevision:(NSString *)timelineRevision {
+    NSArray<FCPCCTimelineItemSnapshot *> *items = [selectedTimelineItems copy] ?: @[];
+    for (id item in items) {
+        if (![item isKindOfClass:[FCPCCTimelineItemSnapshot class]] || !FCPCCBoundedNonemptyString(((FCPCCTimelineItemSnapshot *)item).stableItemIdentifier)) {
+            return [self unsupportedWithReason:@"selected_timeline_item_snapshot_invalid"];
+        }
+    }
+    if ((selectionRevision != nil && !FCPCCBoundedNonemptyString(selectionRevision))
+        || (timelineRevision != nil && !FCPCCBoundedNonemptyString(timelineRevision))) {
+        return [self unsupportedWithReason:@"read_only_revision_invalid"];
+    }
+    if (items.count == 0 && disposition != FCPCCReadOnlyContextDispositionUnsupportedAPI) {
+        return [[self alloc] initWithDisposition:FCPCCReadOnlyContextDispositionNoSelection
+                                          reason:@"no_timeline_selection"
+                               activeProjectName:activeProjectName
+                                       frameSize:frameSize
+                                   hasFrameSize:hasFrameSize
+                                   frameDuration:frameDuration
+                               hasFrameDuration:hasFrameDuration
+                           selectedTimelineItems:@[]
+                               selectionRevision:nil
+                                timelineRevision:timelineRevision];
+    }
+    return [[self alloc] initWithDisposition:disposition
+                                      reason:reason
+                           activeProjectName:activeProjectName
+                                   frameSize:frameSize
+                               hasFrameSize:hasFrameSize
+                               frameDuration:frameDuration
+                           hasFrameDuration:hasFrameDuration
+                       selectedTimelineItems:items
+                           selectionRevision:selectionRevision
+                            timelineRevision:timelineRevision];
+}
+
+@end
+
+FCPCCReadOnlyContextSnapshot *FCPCCValidateReadOnlySnapshotAgainstTimelineRevision(
+    FCPCCReadOnlyContextSnapshot *snapshot,
+    NSString *currentTimelineRevision) {
+    if (snapshot == nil) {
+        return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:@"read_only_snapshot_absent"];
+    }
+    if (!snapshot.isReadOnlyCapable) {
+        return snapshot;
+    }
+    if (snapshot.timelineRevision.length == 0 || currentTimelineRevision.length == 0
+        || ![snapshot.timelineRevision isEqualToString:currentTimelineRevision]) {
+        return [FCPCCReadOnlyContextSnapshot snapshotWithDisposition:FCPCCReadOnlyContextDispositionStaleRevision
+                                                               reason:@"timeline_revision_stale_or_unavailable"
+                                                    activeProjectName:snapshot.activeProjectName
+                                                            frameSize:snapshot.frameSize
+                                                        hasFrameSize:snapshot.hasFrameSize
+                                                        frameDuration:snapshot.frameDuration
+                                                    hasFrameDuration:snapshot.hasFrameDuration
+                                                selectedTimelineItems:snapshot.selectedTimelineItems
+                                                    selectionRevision:snapshot.selectionRevision
+                                                     timelineRevision:snapshot.timelineRevision];
+    }
+    return snapshot;
+}
+
 @interface FCPCCRuntimeContainmentGate : NSObject
 - (FCPCCGateStatus *)evaluate;
 @end
+
+static BOOL FCPCCCopiedHostMASReceiptMatches(void) {
+    NSString *hostBundlePath = [NSBundle.mainBundle.bundlePath stringByStandardizingPath];
+    NSString *expectedHostBundlePath = [FCPCCExpectedCopiedHostBundlePath stringByStandardizingPath];
+    if (hostBundlePath.length == 0 || ![hostBundlePath isEqualToString:expectedHostBundlePath]) {
+        return NO;
+    }
+    NSString *receiptPath = [[expectedHostBundlePath stringByAppendingPathComponent:FCPCCExpectedMASReceiptRelativePath] stringByStandardizingPath];
+    return FCPCCFileSHA256MatchesExpectedHex(receiptPath, FCPCCExpectedMASReceiptSHA256);
+}
 
 @implementation FCPCCRuntimeContainmentGate
 
@@ -273,13 +566,18 @@ typedef NS_ENUM(NSInteger, FCPCCGateDisposition) {
     NSString *hostIdentifier = hostBundle.bundleIdentifier ?: @"";
     NSString *hostVersion = [hostBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"";
     NSString *hostBuild = [hostBundle objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"";
+    NSString *hostBundlePath = [hostBundle.bundlePath stringByStandardizingPath];
     NSString *runtimePath = [[NSBundle bundleForClass:[self class]].bundlePath stringByStandardizingPath];
-    NSString *requiredSuffix = [@"/Contents/Frameworks/" stringByAppendingString:FCPCCExpectedRuntimeFrameworkName];
-    BOOL contained = [runtimePath hasSuffix:requiredSuffix];
+    NSString *expectedHostBundlePath = [FCPCCExpectedCopiedHostBundlePath stringByStandardizingPath];
+    NSString *expectedRuntimePath = [[expectedHostBundlePath stringByAppendingPathComponent:@"Contents/Frameworks"] stringByAppendingPathComponent:FCPCCExpectedRuntimeFrameworkName];
+    BOOL exactCopiedHostPath = hostBundlePath.length > 0 && [hostBundlePath isEqualToString:expectedHostBundlePath];
+    BOOL exactRuntimePath = runtimePath.length > 0 && [[runtimePath stringByStandardizingPath] isEqualToString:[expectedRuntimePath stringByStandardizingPath]];
     BOOL valid = [hostIdentifier isEqualToString:FCPCCExpectedHostBundleIdentifier]
         && [hostVersion isEqualToString:FCPCCExpectedHostVersion]
         && [hostBuild isEqualToString:FCPCCExpectedHostBuild]
-        && contained;
+        && exactCopiedHostPath
+        && exactRuntimePath
+        && FCPCCCopiedHostMASReceiptMatches();
     if (!valid) {
         return [[FCPCCGateStatus alloc] initWithDisposition:FCPCCGateDispositionHostUnverified
                                                     summary:@"copied_app_or_runtime_containment_unverified"];
@@ -290,78 +588,14 @@ typedef NS_ENUM(NSInteger, FCPCCGateDisposition) {
 
 @end
 
-typedef NS_ENUM(NSInteger, FCPCCCloudContentCompatibilityDisposition) {
-    FCPCCCloudContentCompatibilityDispositionSynchronized = 0,
-    FCPCCCloudContentCompatibilityDispositionHostUnverified = 1,
-    FCPCCCloudContentCompatibilityDispositionSynchronizationFailed = 2,
-};
-
-@interface FCPCCCloudContentCompatibilityStatus : NSObject
-@property (nonatomic, readonly) FCPCCCloudContentCompatibilityDisposition disposition;
-@property (nonatomic, copy, readonly) NSString *summary;
-@property (nonatomic, readonly, getter=isSynchronized) BOOL synchronized;
-- (instancetype)initWithDisposition:(FCPCCCloudContentCompatibilityDisposition)disposition summary:(NSString *)summary;
-@end
-
-@implementation FCPCCCloudContentCompatibilityStatus
-
-- (instancetype)initWithDisposition:(FCPCCCloudContentCompatibilityDisposition)disposition summary:(NSString *)summary {
-    self = [super init];
-    if (self != nil) {
-        _disposition = disposition;
-        _summary = [summary copy];
-        _synchronized = disposition == FCPCCCloudContentCompatibilityDispositionSynchronized;
-    }
-    return self;
-}
-
-@end
-
-// These fixed, manually transcribed flags are the only compatibility writes in
-// this runtime. They are applied only after the exact copied-host and runtime
-// containment gate succeeds. kCFPreferencesCurrentApplication resolves to the
-// running isolated app domain; no production Final Cut preference domain is named.
-static FCPCCCloudContentCompatibilityStatus *FCPCCInitializeIsolatedCloudContentCompatibility(void) {
-    static FCPCCCloudContentCompatibilityStatus *status;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
-        if (!containment.isVerified) {
-            status = [[FCPCCCloudContentCompatibilityStatus alloc] initWithDisposition:FCPCCCloudContentCompatibilityDispositionHostUnverified
-                                                                                summary:@"isolated_cloud_content_host_unverified"];
-            return;
-        }
-
-        CFPreferencesSetAppValue((__bridge CFStringRef)FCPCCCloudContentFirstLaunchCompletedKey,
-                                 kCFBooleanTrue,
-                                 kCFPreferencesCurrentApplication);
-        CFPreferencesSetAppValue((__bridge CFStringRef)FCPCCFFCloudContentDisabledKey,
-                                 kCFBooleanTrue,
-                                 kCFPreferencesCurrentApplication);
-        Boolean synchronized = CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication);
-        Boolean firstLaunchValueIsValid = false;
-        Boolean firstLaunchCompleted = CFPreferencesGetAppBooleanValue((__bridge CFStringRef)FCPCCCloudContentFirstLaunchCompletedKey,
-                                                                        kCFPreferencesCurrentApplication,
-                                                                        &firstLaunchValueIsValid);
-        Boolean disabledValueIsValid = false;
-        Boolean cloudContentDisabled = CFPreferencesGetAppBooleanValue((__bridge CFStringRef)FCPCCFFCloudContentDisabledKey,
-                                                                         kCFPreferencesCurrentApplication,
-                                                                         &disabledValueIsValid);
-        if (synchronized && firstLaunchValueIsValid && firstLaunchCompleted && disabledValueIsValid && cloudContentDisabled) {
-            status = [[FCPCCCloudContentCompatibilityStatus alloc] initWithDisposition:FCPCCCloudContentCompatibilityDispositionSynchronized
-                                                                                summary:@"isolated_cloud_content_flags_synchronized"];
-            return;
-        }
-        status = [[FCPCCCloudContentCompatibilityStatus alloc] initWithDisposition:FCPCCCloudContentCompatibilityDispositionSynchronizationFailed
-                                                                            summary:@"isolated_cloud_content_flag_synchronization_failed"];
-    });
-    return status;
-}
-
-// This is one fixed ObjC caller gate, not a general CloudContent hook. The
-// runtime never derives a selector or class name from input or a bundled
-// resource. It simply discards the reviewed optional query block after every
-// image, ABI, and implementation check below has passed.
+// This is one fixed ObjC caller compatibility bridge. The runtime never
+// derives a selector or class name from
+// input or a bundled resource. After every image, ABI, and implementation
+// check below has passed, it retains the reviewed setter implementation and
+// substitutes only its outer query provider with a provider that asynchronously
+// completes with nil demo metadata. That preserves the coordinator's setter
+// and completion progression without invoking the copied app's network-backed
+// demo metadata query path.
 typedef NS_ENUM(NSUInteger, FCPCCOnboardingFrameworkIdentityDisposition) {
     FCPCCOnboardingFrameworkIdentityDispositionMatches = 0,
     FCPCCOnboardingFrameworkIdentityDispositionImageUnavailable = 1,
@@ -493,7 +727,7 @@ static BOOL FCPCCCopiedHostImageUUIDMatches(void) {
     const char *mainImageName = _dyld_get_image_name(0);
     const struct mach_header *mainImageHeader = _dyld_get_image_header(0);
     const uint8_t *expectedUUID = FCPCCExpectedCurrentArchitectureHostUUID();
-    NSString *expectedPath = [NSBundle.mainBundle.executablePath stringByStandardizingPath];
+    NSString *expectedPath = [[FCPCCExpectedCopiedHostBundlePath stringByAppendingPathComponent:@"Contents/MacOS/Final Cut Pro"] stringByStandardizingPath];
     NSString *loadedPath = mainImageName == NULL ? nil : [[NSString alloc] initWithUTF8String:mainImageName];
     if (expectedUUID == NULL || expectedPath.length == 0 || loadedPath == nil
         || ![[loadedPath stringByStandardizingPath] isEqualToString:expectedPath]) {
@@ -533,46 +767,74 @@ static FCPCCOnboardingFrameworkIdentityDisposition FCPCCOnboardingFrameworkIdent
     return FCPCCOnboardingFrameworkIdentityDispositionMatches;
 }
 
-static void FCPCCDiscardOnboardingQueryDemoProjectInfo(id self, SEL command, id queryDemoProjectInfo) {
-    (void)self;
-    (void)command;
-    (void)queryDemoProjectInfo;
+typedef void (^FCPCCOnboardingDemoProjectInfoCompletion)(NSDictionary<NSString *, id> * _Nullable demoProjectInfo);
+typedef void (^FCPCCOnboardingQueryDemoProjectInfoProvider)(FCPCCOnboardingDemoProjectInfoCompletion _Nullable completion);
+typedef void (*FCPCCOnboardingQueryDemoProjectInfoSetter)(id, SEL, FCPCCOnboardingQueryDemoProjectInfoProvider);
+
+static FCPCCOnboardingQueryDemoProjectInfoSetter FCPCCVerifiedOnboardingQueryDemoProjectInfoSetter = NULL;
+
+// The reviewed property has Swift shape
+// ((([String: Any]?) -> ()) -> ())?. Keep the completion asynchronous on the
+// main queue so the replacement preserves the original provider's async
+// contract. A nil payload denotes no demo metadata; it is not a fabricated
+// project or error.
+static void FCPCCCompleteOnboardingDemoProjectInfoAsyncWithNil(FCPCCOnboardingDemoProjectInfoCompletion completion) {
+    if (completion == nil) {
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        completion(nil);
+    });
 }
 
-static NSString *FCPCCInstallOnboardingQueryGate(void) {
+static void FCPCCForwardOnboardingQueryDemoProjectInfoSetterWithAsyncNilMetadata(id self,
+                                                                                   SEL command,
+                                                                                   id queryDemoProjectInfo) {
+    (void)queryDemoProjectInfo;
+    FCPCCOnboardingQueryDemoProjectInfoSetter originalSetter = FCPCCVerifiedOnboardingQueryDemoProjectInfoSetter;
+    if (originalSetter == NULL) {
+        return;
+    }
+    FCPCCOnboardingQueryDemoProjectInfoProvider nilMetadataProvider = ^(FCPCCOnboardingDemoProjectInfoCompletion completion) {
+        FCPCCCompleteOnboardingDemoProjectInfoAsyncWithNil(completion);
+    };
+    originalSetter(self, command, nilMetadataProvider);
+}
+
+static NSString *FCPCCInstallOnboardingQueryCompatibility(void) {
     static NSString *summary;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
         if (!containment.isVerified) {
-            summary = @"onboarding_query_gate=host_containment_unverified";
+            summary = @"onboarding_query_compatibility=host_containment_unverified";
             return;
         }
         if (!FCPCCCopiedHostImageUUIDMatches()) {
-            summary = @"onboarding_query_gate=host_uuid_unverified";
+            summary = @"onboarding_query_compatibility=host_uuid_unverified";
             return;
         }
 
         Class targetClass = objc_getClass(FCPCCExpectedOnboardingCoordinatorClassName.UTF8String);
         if (targetClass == Nil) {
-            summary = @"onboarding_query_gate=class_unavailable";
+            summary = @"onboarding_query_compatibility=class_unavailable";
             return;
         }
         SEL selector = sel_registerName(FCPCCExpectedOnboardingQuerySetterName.UTF8String);
         if (selector == NULL) {
-            summary = @"onboarding_query_gate=selector_unavailable";
+            summary = @"onboarding_query_compatibility=selector_unavailable";
             return;
         }
 
         Method method = class_getInstanceMethod(targetClass, selector);
         if (method == NULL) {
             summary = class_getClassMethod(targetClass, selector) == NULL
-                ? @"onboarding_query_gate=method_unavailable"
-                : @"onboarding_query_gate=method_placement_mismatch";
+                ? @"onboarding_query_compatibility=method_unavailable"
+                : @"onboarding_query_compatibility=method_placement_mismatch";
             return;
         }
         if (method_getNumberOfArguments(method) != 3) {
-            summary = @"onboarding_query_gate=argument_count_mismatch";
+            summary = @"onboarding_query_compatibility=argument_count_mismatch";
             return;
         }
         char *returnType = method_copyReturnType(method);
@@ -581,12 +843,12 @@ static NSString *FCPCCInstallOnboardingQueryGate(void) {
             free(returnType);
         }
         if (!returnTypeMatches) {
-            summary = @"onboarding_query_gate=return_type_mismatch";
+            summary = @"onboarding_query_compatibility=return_type_mismatch";
             return;
         }
         const char *typeEncoding = method_getTypeEncoding(method);
         if (typeEncoding == NULL || strcmp(typeEncoding, FCPCCExpectedOnboardingQuerySetterTypeEncoding) != 0) {
-            summary = @"onboarding_query_gate=type_encoding_mismatch";
+            summary = @"onboarding_query_compatibility=type_encoding_mismatch";
             return;
         }
 
@@ -595,53 +857,754 @@ static NSString *FCPCCInstallOnboardingQueryGate(void) {
             case FCPCCOnboardingFrameworkIdentityDispositionMatches:
                 break;
             case FCPCCOnboardingFrameworkIdentityDispositionImageUnavailable:
-                summary = @"onboarding_query_gate=framework_image_unavailable";
+                summary = @"onboarding_query_compatibility=framework_image_unavailable";
                 return;
             case FCPCCOnboardingFrameworkIdentityDispositionPathMismatch:
-                summary = @"onboarding_query_gate=framework_path_mismatch";
+                summary = @"onboarding_query_compatibility=framework_path_mismatch";
                 return;
             case FCPCCOnboardingFrameworkIdentityDispositionHashMismatch:
-                summary = @"onboarding_query_gate=framework_hash_mismatch";
+                summary = @"onboarding_query_compatibility=framework_hash_mismatch";
                 return;
             case FCPCCOnboardingFrameworkIdentityDispositionUUIDMismatch:
-                summary = @"onboarding_query_gate=framework_uuid_mismatch";
+                summary = @"onboarding_query_compatibility=framework_uuid_mismatch";
                 return;
             case FCPCCOnboardingFrameworkIdentityDispositionImplementationMismatch:
-                summary = @"onboarding_query_gate=original_imp_mismatch";
+                summary = @"onboarding_query_compatibility=original_imp_mismatch";
                 return;
         }
 
+        FCPCCVerifiedOnboardingQueryDemoProjectInfoSetter = (FCPCCOnboardingQueryDemoProjectInfoSetter)originalImplementation;
         class_replaceMethod(targetClass,
                             selector,
-                            (IMP)FCPCCDiscardOnboardingQueryDemoProjectInfo,
+                            (IMP)FCPCCForwardOnboardingQueryDemoProjectInfoSetterWithAsyncNilMetadata,
                             FCPCCExpectedOnboardingQuerySetterTypeEncoding);
         Method installedMethod = class_getInstanceMethod(targetClass, selector);
         const char *installedTypeEncoding = installedMethod == NULL ? NULL : method_getTypeEncoding(installedMethod);
         if (installedMethod == NULL
-            || method_getImplementation(installedMethod) != (IMP)FCPCCDiscardOnboardingQueryDemoProjectInfo
+            || method_getImplementation(installedMethod) != (IMP)FCPCCForwardOnboardingQueryDemoProjectInfoSetterWithAsyncNilMetadata
             || method_getNumberOfArguments(installedMethod) != 3
             || installedTypeEncoding == NULL
             || strcmp(installedTypeEncoding, FCPCCExpectedOnboardingQuerySetterTypeEncoding) != 0) {
-            summary = @"onboarding_query_gate=post_replacement_verification_failed";
+            summary = @"onboarding_query_compatibility=post_replacement_verification_failed";
             return;
         }
-        summary = @"onboarding_query_gate=installed";
+        summary = @"onboarding_query_compatibility=installed";
     });
-    return summary ?: @"onboarding_query_gate=unavailable";
+    return summary ?: @"onboarding_query_compatibility=unavailable";
 }
+
+// Read-only model access is deliberately a closed list of contracts captured
+// from the locked SpliceKit reference and the local Final Cut Pro 12.3
+// binaries. This resolver performs direct lookups of those literal contracts;
+// it never enumerates classes, methods, or caller-provided selector names.
+typedef NS_ENUM(NSUInteger, FCPCCFixedMethodImage) {
+    FCPCCFixedMethodImageCopiedHost = 0,
+    FCPCCFixedMethodImageFlexo = 1,
+};
+
+typedef struct {
+    const char *className;
+    const char *selectorName;
+    const char *typeEncoding;
+    const char *returnType;
+    NSUInteger argumentCount;
+    BOOL classMethod;
+    FCPCCFixedMethodImage image;
+    uintptr_t arm64ImplementationOffset;
+    uintptr_t x86_64ImplementationOffset;
+} FCPCCFixedObjCMethodContract;
+
+typedef struct {
+    Class targetClass;
+    SEL selector;
+    IMP implementation;
+} FCPCCValidatedFixedMethod;
+
+typedef id (*FCPCCObjectGetter)(id, SEL);
+typedef CFTypeRef (*FCPCCCopiedObjectGetter)(id, SEL);
+typedef id (*FCPCCSelectedItemsGetter)(id, SEL, BOOL, BOOL);
+typedef CGSize (*FCPCCCGSizeGetter)(id, SEL);
+typedef CMTime (*FCPCCCMTimeGetter)(id, SEL);
+typedef CMTimeRange (*FCPCCCMTimeRangeGetter)(id, SEL);
+
+static const char * const FCPCCExpectedObjectGetterTypeEncoding = "@16@0:8";
+#if defined(__arm64__)
+static const char * const FCPCCExpectedSelectedItemsGetterTypeEncoding = "@24@0:8B16B20";
+#elif defined(__x86_64__)
+static const char * const FCPCCExpectedSelectedItemsGetterTypeEncoding = "@24@0:8c16c20";
+#else
+static const char * const FCPCCExpectedSelectedItemsGetterTypeEncoding = "";
+#endif
+
+static const FCPCCFixedObjCMethodContract FCPCCCopyActiveLibrariesContract = {
+    "FFLibraryDocument", "copyActiveLibraries", "@16@0:8", "@", 2, YES, FCPCCFixedMethodImageFlexo, 0x1d776c, 0x2a9b80,
+};
+static const FCPCCFixedObjCMethodContract FCPCCLibraryDocumentContract = {
+    "FFLibrary", "libraryDocument", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0x1bfe88, 0x288910,
+};
+static const FCPCCFixedObjCMethodContract FCPCCPersistentFileIDContract = {
+    "FFLibraryDocument", "persistentFileID", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0x1e3b08, 0x2b9af0,
+};
+static const FCPCCFixedObjCMethodContract FCPCCActiveEditorContainerContract = {
+    "PEAppController", "activeEditorContainer", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageCopiedHost, 0x3e3b0, 0x53210,
+};
+static const FCPCCFixedObjCMethodContract FCPCCEditorTimelineModuleContract = {
+    "PEEditorContainerModule", "timelineModule", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageCopiedHost, 0xc278, 0xea90,
+};
+static const FCPCCFixedObjCMethodContract FCPCCTimelineSequenceContract = {
+    "FFAnchoredTimelineModule", "sequence", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0xaaef98, 0xe93780,
+};
+static const FCPCCFixedObjCMethodContract FCPCCSelectedItemsContract = {
+    "FFAnchoredTimelineModule", "selectedItems:includeItemBeforePlayheadIfLast:", FCPCCExpectedSelectedItemsGetterTypeEncoding, "@", 4, NO, FCPCCFixedMethodImageFlexo, 0xace8ec, 0xec25b0,
+};
+static const FCPCCFixedObjCMethodContract FCPCCPrimaryObjectContract = {
+    "FFAnchoredSequence", "primaryObject", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0xe422c, 0x13f470,
+};
+static const FCPCCFixedObjCMethodContract FCPCCContainedItemsContract = {
+    "FFAnchoredCollection", "containedItems", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0x9194c, 0xc7e30,
+};
+static const FCPCCFixedObjCMethodContract FCPCCDisplayNameContract = {
+    "FFAnchoredObject", "displayName", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0xa77f8, 0xe7260,
+};
+static const FCPCCFixedObjCMethodContract FCPCCIdentifierContract = {
+    "FFAnchoredObject", "identifier", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0xa7a50, 0xe75d0,
+};
+static const FCPCCFixedObjCMethodContract FCPCCFrameSizeContract = {
+    "FFAnchoredObject", "frameSize", "{CGSize=dd}16@0:8", "{CGSize=dd}", 2, NO, FCPCCFixedMethodImageFlexo, 0xb95d8, 0x101140,
+};
+static const FCPCCFixedObjCMethodContract FCPCCFrameDurationContract = {
+    "FFAnchoredObject", "frameDuration", "{?=qiIq}16@0:8", "{?=qiIq}", 2, NO, FCPCCFixedMethodImageFlexo, 0xb95f8, 0x101190,
+};
+static const FCPCCFixedObjCMethodContract FCPCCRangeContract = {
+    "FFAnchoredObject", "timelineRange", "{?={?=qiIq}{?=qiIq}}16@0:8", "{?={?=qiIq}{?=qiIq}}", 2, NO, FCPCCFixedMethodImageFlexo, 0xaed00, 0xf1740,
+};
+
+static const uint8_t *FCPCCExpectedCurrentArchitectureFlexoFrameworkUUID(void) {
+#if defined(__arm64__)
+    return FCPCCExpectedFlexoFrameworkArm64UUID;
+#elif defined(__x86_64__)
+    return FCPCCExpectedFlexoFrameworkX86_64UUID;
+#else
+    return NULL;
+#endif
+}
+
+static uintptr_t FCPCCExpectedCurrentArchitectureMethodOffset(const FCPCCFixedObjCMethodContract *contract) {
+#if defined(__arm64__)
+    return contract->arm64ImplementationOffset;
+#elif defined(__x86_64__)
+    return contract->x86_64ImplementationOffset;
+#else
+    return 0;
+#endif
+}
+
+static NSString *FCPCCExpectedFlexoFrameworkExecutablePath(void) {
+    NSString *hostBundlePath = [NSBundle.mainBundle.bundlePath stringByStandardizingPath];
+    if (hostBundlePath.length == 0) {
+        return nil;
+    }
+    return [[hostBundlePath stringByAppendingPathComponent:FCPCCExpectedFlexoFrameworkRelativeExecutablePath] stringByStandardizingPath];
+}
+
+static BOOL FCPCCFlexoFrameworkImageIdentityMatches(const Dl_info *image) {
+    if (image == NULL || image->dli_fbase == NULL || image->dli_fname == NULL) {
+        return NO;
+    }
+    NSString *expectedPath = FCPCCExpectedFlexoFrameworkExecutablePath();
+    NSString *loadedPath = [[NSString alloc] initWithUTF8String:image->dli_fname];
+    if (expectedPath == nil || loadedPath == nil
+        || ![[loadedPath stringByStandardizingPath] isEqualToString:expectedPath]) {
+        return NO;
+    }
+
+    static dispatch_once_t onceToken;
+    static BOOL verifiedImageIdentity;
+    dispatch_once(&onceToken, ^{
+        const uint8_t *expectedUUID = FCPCCExpectedCurrentArchitectureFlexoFrameworkUUID();
+        verifiedImageIdentity = expectedUUID != NULL
+            && FCPCCFileSHA256MatchesExpectedHex(loadedPath, FCPCCExpectedFlexoFrameworkSHA256)
+            && FCPCCLoadedMachOImageHasExpectedUUID((const struct mach_header *)image->dli_fbase, expectedUUID);
+    });
+    return verifiedImageIdentity;
+}
+
+static BOOL FCPCCFlexoImplementationMatchesContract(IMP implementation, uintptr_t expectedOffset) {
+    Dl_info image = {0};
+    if (implementation == NULL
+        || expectedOffset == 0
+        || dladdr((const void *)implementation, &image) == 0
+        || !FCPCCFlexoFrameworkImageIdentityMatches(&image)) {
+        return NO;
+    }
+    return (uintptr_t)implementation - (uintptr_t)image.dli_fbase == expectedOffset;
+}
+
+static BOOL FCPCCCopiedHostImplementationMatchesContract(IMP implementation, uintptr_t expectedOffset) {
+    Dl_info image = {0};
+    if (implementation == NULL
+        || expectedOffset == 0
+        || !FCPCCCopiedHostImageUUIDMatches()
+        || dladdr((const void *)implementation, &image) == 0
+        || image.dli_fbase == NULL
+        || image.dli_fname == NULL) {
+        return NO;
+    }
+    NSString *expectedPath = [NSBundle.mainBundle.executablePath stringByStandardizingPath];
+    NSString *loadedPath = [[NSString alloc] initWithUTF8String:image.dli_fname];
+    if (expectedPath.length == 0 || loadedPath == nil
+        || ![[loadedPath stringByStandardizingPath] isEqualToString:expectedPath]
+        || image.dli_fbase != _dyld_get_image_header(0)) {
+        return NO;
+    }
+    return (uintptr_t)implementation - (uintptr_t)image.dli_fbase == expectedOffset;
+}
+
+static NSString *FCPCCFixedContractFailureReason(const FCPCCFixedObjCMethodContract *contract, const char *failure) {
+    return [NSString stringWithFormat:@"fcp_12_3_fixed_contract_%s_%s_%s", contract->className, contract->selectorName, failure];
+}
+
+static BOOL FCPCCResolveFixedMethod(const FCPCCFixedObjCMethodContract *contract,
+                                    FCPCCValidatedFixedMethod *resolved,
+                                    NSString **reason) {
+    Class targetClass = objc_getClass(contract->className);
+    if (targetClass == Nil) {
+        *reason = FCPCCFixedContractFailureReason(contract, "class_unavailable");
+        return NO;
+    }
+    SEL selector = sel_registerName(contract->selectorName);
+    if (selector == NULL) {
+        *reason = FCPCCFixedContractFailureReason(contract, "selector_unavailable");
+        return NO;
+    }
+    Method method = contract->classMethod
+        ? class_getClassMethod(targetClass, selector)
+        : class_getInstanceMethod(targetClass, selector);
+    if (method == NULL) {
+        *reason = FCPCCFixedContractFailureReason(contract, "method_placement_mismatch");
+        return NO;
+    }
+    if (method_getNumberOfArguments(method) != contract->argumentCount) {
+        *reason = FCPCCFixedContractFailureReason(contract, "argument_count_mismatch");
+        return NO;
+    }
+    char *returnType = method_copyReturnType(method);
+    BOOL returnTypeMatches = returnType != NULL && strcmp(returnType, contract->returnType) == 0;
+    if (returnType != NULL) {
+        free(returnType);
+    }
+    if (!returnTypeMatches) {
+        *reason = FCPCCFixedContractFailureReason(contract, "return_type_mismatch");
+        return NO;
+    }
+    const char *typeEncoding = method_getTypeEncoding(method);
+    if (typeEncoding == NULL || strcmp(typeEncoding, contract->typeEncoding) != 0) {
+        *reason = FCPCCFixedContractFailureReason(contract, "type_encoding_mismatch");
+        return NO;
+    }
+    IMP implementation = method_getImplementation(method);
+    uintptr_t expectedOffset = FCPCCExpectedCurrentArchitectureMethodOffset(contract);
+    BOOL imageMatches = contract->image == FCPCCFixedMethodImageFlexo
+        ? FCPCCFlexoImplementationMatchesContract(implementation, expectedOffset)
+        : FCPCCCopiedHostImplementationMatchesContract(implementation, expectedOffset);
+    if (!imageMatches) {
+        *reason = FCPCCFixedContractFailureReason(contract, "image_uuid_hash_or_implementation_mismatch");
+        return NO;
+    }
+    resolved->targetClass = targetClass;
+    resolved->selector = selector;
+    resolved->implementation = implementation;
+    return YES;
+}
+
+static BOOL FCPCCReceiverUsesValidatedMethod(id receiver,
+                                             const FCPCCValidatedFixedMethod *method,
+                                             NSString **reason) {
+    if (receiver == nil || ![receiver isKindOfClass:method->targetClass]) {
+        *reason = @"fcp_12_3_fixed_contract_receiver_class_mismatch";
+        return NO;
+    }
+    Class dynamicClass = object_getClass(receiver);
+    Method resolvedMethod = dynamicClass == Nil ? NULL : class_getInstanceMethod(dynamicClass, method->selector);
+    if (resolvedMethod == NULL || method_getImplementation(resolvedMethod) != method->implementation) {
+        *reason = @"fcp_12_3_fixed_contract_receiver_implementation_mismatch";
+        return NO;
+    }
+    return YES;
+}
+
+static BOOL FCPCCResolvePublicLibraryDocumentFileURLGetter(Class libraryDocumentClass,
+                                                           FCPCCValidatedFixedMethod *resolved,
+                                                           NSString **reason) {
+    SEL selector = sel_registerName("fileURL");
+    Method documentMethod = selector == NULL ? NULL : class_getInstanceMethod(libraryDocumentClass, selector);
+    Method publicMethod = selector == NULL ? NULL : class_getInstanceMethod([NSDocument class], selector);
+    if (documentMethod == NULL || publicMethod == NULL) {
+        *reason = @"library_file_url_public_contract_unavailable";
+        return NO;
+    }
+    const char *typeEncoding = method_getTypeEncoding(documentMethod);
+    if (method_getNumberOfArguments(documentMethod) != 2
+        || typeEncoding == NULL
+        || strcmp(typeEncoding, FCPCCExpectedObjectGetterTypeEncoding) != 0
+        || method_getImplementation(documentMethod) != method_getImplementation(publicMethod)) {
+        *reason = @"library_file_url_public_contract_changed";
+        return NO;
+    }
+    resolved->targetClass = libraryDocumentClass;
+    resolved->selector = selector;
+    resolved->implementation = method_getImplementation(documentMethod);
+    return YES;
+}
+
+static NSString *FCPCCNormalizedTypedIdentifier(id value) {
+    NSString *identifier = nil;
+    if ([value isKindOfClass:[NSString class]]) {
+        identifier = value;
+    } else if ([value isKindOfClass:[NSUUID class]]) {
+        identifier = [value UUIDString];
+    }
+    return FCPCCBoundedNonemptyString(identifier) ? [identifier copy] : nil;
+}
+
+static BOOL FCPCCReadOnlyHostGatePasses(NSString **reason) {
+    FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
+    if (!containment.isVerified) {
+        *reason = containment.summary;
+        return NO;
+    }
+    if (!FCPCCCopiedHostImageUUIDMatches()) {
+        *reason = @"copied_host_uuid_unverified";
+        return NO;
+    }
+    return YES;
+}
+
+@interface FCPCCFixedModelTraversalAdapter : NSObject
+- (FCPCCReadOnlyLibrarySet *)enumerateCompleteOpenLibrarySet;
+@end
+
+@implementation FCPCCFixedModelTraversalAdapter
+
+- (FCPCCReadOnlyLibrarySet *)enumerateCompleteOpenLibrarySet {
+    NSString *reason = nil;
+    if (!FCPCCReadOnlyHostGatePasses(&reason)) {
+        return [[FCPCCReadOnlyLibrarySet alloc] initWithLibraries:@[] completeTraversal:NO reason:reason];
+    }
+
+    FCPCCValidatedFixedMethod copyActiveLibraries = {0};
+    FCPCCValidatedFixedMethod libraryDocument = {0};
+    FCPCCValidatedFixedMethod persistentFileID = {0};
+    FCPCCValidatedFixedMethod fileURL = {0};
+    if (!FCPCCResolveFixedMethod(&FCPCCCopyActiveLibrariesContract, &copyActiveLibraries, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCLibraryDocumentContract, &libraryDocument, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCPersistentFileIDContract, &persistentFileID, &reason)
+        || !FCPCCResolvePublicLibraryDocumentFileURLGetter(copyActiveLibraries.targetClass, &fileURL, &reason)) {
+        return [[FCPCCReadOnlyLibrarySet alloc] initWithLibraries:@[] completeTraversal:NO reason:reason];
+    }
+
+    CFTypeRef copiedLibraries = ((FCPCCCopiedObjectGetter)copyActiveLibraries.implementation)((id)copyActiveLibraries.targetClass,
+                                                                                                  copyActiveLibraries.selector);
+    id activeLibraries = copiedLibraries == NULL ? nil : CFBridgingRelease(copiedLibraries);
+    if (![activeLibraries isKindOfClass:[NSArray class]]) {
+        return [[FCPCCReadOnlyLibrarySet alloc] initWithLibraries:@[] completeTraversal:NO reason:@"active_library_set_type_unsupported"];
+    }
+
+    NSMutableArray<FCPCCLibraryIdentity *> *observedLibraries = [[NSMutableArray alloc] initWithCapacity:[activeLibraries count]];
+    for (id library in activeLibraries) {
+        if (!FCPCCReceiverUsesValidatedMethod(library, &libraryDocument, &reason)) {
+            return [[FCPCCReadOnlyLibrarySet alloc] initWithLibraries:@[] completeTraversal:NO reason:reason];
+        }
+        id document = ((FCPCCObjectGetter)libraryDocument.implementation)(library, libraryDocument.selector);
+        if (!FCPCCReceiverUsesValidatedMethod(document, &persistentFileID, &reason)
+            || !FCPCCReceiverUsesValidatedMethod(document, &fileURL, &reason)) {
+            return [[FCPCCReadOnlyLibrarySet alloc] initWithLibraries:@[] completeTraversal:NO reason:reason];
+        }
+        NSString *persistentUID = FCPCCNormalizedTypedIdentifier(((FCPCCObjectGetter)persistentFileID.implementation)(document,
+                                                                                                                           persistentFileID.selector));
+        id fileURLValue = ((FCPCCObjectGetter)fileURL.implementation)(document, fileURL.selector);
+        if (persistentUID == nil || ![fileURLValue isKindOfClass:[NSURL class]] || ![fileURLValue isFileURL]) {
+            return [[FCPCCReadOnlyLibrarySet alloc] initWithLibraries:@[] completeTraversal:NO reason:@"library_persistent_identity_or_file_url_unsupported"];
+        }
+        NSString *canonicalPath = FCPCCCanonicalFilePath([fileURLValue path]);
+        struct stat metadata = {0};
+        if (canonicalPath == nil || stat(canonicalPath.fileSystemRepresentation, &metadata) != 0
+            || metadata.st_dev == 0 || metadata.st_ino == 0) {
+            return [[FCPCCReadOnlyLibrarySet alloc] initWithLibraries:@[] completeTraversal:NO reason:@"library_canonical_path_device_or_inode_unavailable"];
+        }
+        FCPCCLibraryIdentity *identity = [[FCPCCLibraryIdentity alloc] initWithCanonicalPath:canonicalPath
+                                                                                        device:@((unsigned long long)metadata.st_dev)
+                                                                                         inode:@((unsigned long long)metadata.st_ino)
+                                                                                 persistentUID:persistentUID];
+        [observedLibraries addObject:identity];
+    }
+    return [[FCPCCReadOnlyLibrarySet alloc] initWithLibraries:observedLibraries
+                                            completeTraversal:YES
+                                                       reason:@"active_library_set_complete"];
+}
+
+@end
+
+static NSString *FCPCCCanonicalCMTimeToken(CMTime time) {
+    return [NSString stringWithFormat:@"%lld/%d/%u/%lld",
+            (long long)time.value,
+            (int)time.timescale,
+            (unsigned int)time.flags,
+            (long long)time.epoch];
+}
+
+static NSString *FCPCCCanonicalCMTimeRangeToken(CMTimeRange range) {
+    return [NSString stringWithFormat:@"%@|%@",
+            FCPCCCanonicalCMTimeToken(range.start),
+            FCPCCCanonicalCMTimeToken(range.duration)];
+}
+
+static void FCPCCAppendLengthDelimitedRevisionToken(NSMutableString *material, NSString *token) {
+    [material appendFormat:@"%lu:", (unsigned long)token.length];
+    [material appendString:token];
+}
+
+static NSString *FCPCCSHA256HexForRevisionMaterial(NSString *material) {
+    NSData *data = [material dataUsingEncoding:NSUTF8StringEncoding];
+    if (data == nil) {
+        return nil;
+    }
+    uint8_t digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(data.bytes, (CC_LONG)data.length, digest);
+    static const char hexadecimal[] = "0123456789abcdef";
+    char characters[CC_SHA256_DIGEST_LENGTH * 2 + 1] = {0};
+    for (NSUInteger index = 0; index < CC_SHA256_DIGEST_LENGTH; index += 1) {
+        characters[index * 2] = hexadecimal[(digest[index] >> 4) & 0x0F];
+        characters[index * 2 + 1] = hexadecimal[digest[index] & 0x0F];
+    }
+    return [[NSString alloc] initWithBytes:characters length:sizeof(characters) - 1 encoding:NSASCIIStringEncoding];
+}
+
+static NSString *FCPCCStableIdentifierForAnchoredObject(id object,
+                                                         const FCPCCValidatedFixedMethod *identifierMethod,
+                                                         NSString **reason) {
+    if (!FCPCCReceiverUsesValidatedMethod(object, identifierMethod, reason)) {
+        return nil;
+    }
+    NSString *identifier = FCPCCNormalizedTypedIdentifier(((FCPCCObjectGetter)identifierMethod->implementation)(object,
+                                                                                                                   identifierMethod->selector));
+    if (identifier == nil) {
+        *reason = @"selected_timeline_item_identifier_type_or_length_unsupported";
+    }
+    return identifier;
+}
+
+static BOOL FCPCCTimelineRangeForAnchoredObject(id object,
+                                                const FCPCCValidatedFixedMethod *rangeMethod,
+                                                CMTimeRange *range,
+                                                NSString **reason) {
+    if (!FCPCCReceiverUsesValidatedMethod(object, rangeMethod, reason)) {
+        return NO;
+    }
+    CMTimeRange observedRange = ((FCPCCCMTimeRangeGetter)rangeMethod->implementation)(object, rangeMethod->selector);
+    if (!FCPCCValidTimelineRange(observedRange)) {
+        *reason = @"timeline_item_range_invalid";
+        return NO;
+    }
+    *range = observedRange;
+    return YES;
+}
+
+static NSString *FCPCCDerivedSelectionRevision(NSArray<FCPCCTimelineItemSnapshot *> *selectedItems) {
+    if (selectedItems.count == 0) {
+        return nil;
+    }
+    NSMutableString *material = [[NSMutableString alloc] initWithString:@"selection-v1|"];
+    for (FCPCCTimelineItemSnapshot *item in selectedItems) {
+        if (!FCPCCBoundedNonemptyString(item.stableItemIdentifier)) {
+            return nil;
+        }
+        FCPCCAppendLengthDelimitedRevisionToken(material, item.stableItemIdentifier);
+        FCPCCAppendLengthDelimitedRevisionToken(material, item.hasTimelineRange
+            ? FCPCCCanonicalCMTimeRangeToken(item.timelineRange)
+            : @"range-unavailable");
+        [material appendFormat:@"%ld;", (long)item.primaryStorylineIndex];
+    }
+    return FCPCCSHA256HexForRevisionMaterial(material);
+}
+
+static NSString *FCPCCDerivedTimelineRevision(NSArray *primaryItems,
+                                              NSString *projectName,
+                                              CGSize frameSize,
+                                              CMTime frameDuration,
+                                              const FCPCCValidatedFixedMethod *identifierMethod,
+                                              const FCPCCValidatedFixedMethod *rangeMethod,
+                                              NSString **reason) {
+    if (primaryItems == nil || !FCPCCBoundedNonemptyString(projectName)) {
+        *reason = @"timeline_revision_primary_storyline_or_project_unavailable";
+        return nil;
+    }
+    NSMutableString *material = [[NSMutableString alloc] initWithString:@"timeline-v1|"];
+    FCPCCAppendLengthDelimitedRevisionToken(material, projectName);
+    [material appendFormat:@"%.17g/%.17g|", frameSize.width, frameSize.height];
+    FCPCCAppendLengthDelimitedRevisionToken(material, FCPCCCanonicalCMTimeToken(frameDuration));
+    for (id item in primaryItems) {
+        NSString *itemIdentifier = FCPCCStableIdentifierForAnchoredObject(item, identifierMethod, reason);
+        if (itemIdentifier == nil) {
+            return nil;
+        }
+        CMTimeRange itemRange = kCMTimeRangeInvalid;
+        if (!FCPCCTimelineRangeForAnchoredObject(item, rangeMethod, &itemRange, reason)) {
+            return nil;
+        }
+        FCPCCAppendLengthDelimitedRevisionToken(material, itemIdentifier);
+        FCPCCAppendLengthDelimitedRevisionToken(material, FCPCCCanonicalCMTimeRangeToken(itemRange));
+    }
+    NSString *revision = FCPCCSHA256HexForRevisionMaterial(material);
+    if (!FCPCCLowercaseSHA256HexStringIsValid(revision)) {
+        *reason = @"timeline_revision_hash_unavailable";
+        return nil;
+    }
+    return revision;
+}
+
+@interface FCPCCFixedModelTraversalAdapter (ContextCapture)
+- (FCPCCReadOnlyContextSnapshot *)captureContextForVerifiedLibraryInvariant:(FCPCCLibraryInvariantResult *)libraryInvariant;
+@end
+
+@implementation FCPCCFixedModelTraversalAdapter (ContextCapture)
+
+- (FCPCCReadOnlyContextSnapshot *)captureContextForVerifiedLibraryInvariant:(FCPCCLibraryInvariantResult *)libraryInvariant {
+    if (libraryInvariant == nil || !libraryInvariant.isVerified) {
+        NSString *reason = libraryInvariant.reason.length > 0
+            ? [@"library_invariant_" stringByAppendingString:libraryInvariant.reason]
+            : @"library_invariant_unverified";
+        return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:reason];
+    }
+
+    NSString *reason = nil;
+    if (!FCPCCReadOnlyHostGatePasses(&reason)) {
+        return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:reason];
+    }
+
+    FCPCCValidatedFixedMethod activeEditorContainer = {0};
+    FCPCCValidatedFixedMethod editorTimelineModule = {0};
+    FCPCCValidatedFixedMethod timelineSequence = {0};
+    FCPCCValidatedFixedMethod selectedItems = {0};
+    FCPCCValidatedFixedMethod primaryObject = {0};
+    FCPCCValidatedFixedMethod containedItems = {0};
+    FCPCCValidatedFixedMethod displayName = {0};
+    FCPCCValidatedFixedMethod identifier = {0};
+    FCPCCValidatedFixedMethod frameSize = {0};
+    FCPCCValidatedFixedMethod frameDuration = {0};
+    FCPCCValidatedFixedMethod timelineRange = {0};
+    if (!FCPCCResolveFixedMethod(&FCPCCActiveEditorContainerContract, &activeEditorContainer, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCEditorTimelineModuleContract, &editorTimelineModule, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCTimelineSequenceContract, &timelineSequence, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCSelectedItemsContract, &selectedItems, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCPrimaryObjectContract, &primaryObject, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCContainedItemsContract, &containedItems, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCDisplayNameContract, &displayName, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCIdentifierContract, &identifier, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCFrameSizeContract, &frameSize, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCFrameDurationContract, &frameDuration, &reason)
+        || !FCPCCResolveFixedMethod(&FCPCCRangeContract, &timelineRange, &reason)) {
+        return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:reason];
+    }
+
+    id appController = NSApp.delegate;
+    if (!FCPCCReceiverUsesValidatedMethod(appController, &activeEditorContainer, &reason)) {
+        return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:reason];
+    }
+    id editorContainer = ((FCPCCObjectGetter)activeEditorContainer.implementation)(appController, activeEditorContainer.selector);
+    if (!FCPCCReceiverUsesValidatedMethod(editorContainer, &editorTimelineModule, &reason)) {
+        return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:reason];
+    }
+    id timelineModule = ((FCPCCObjectGetter)editorTimelineModule.implementation)(editorContainer, editorTimelineModule.selector);
+    if (!FCPCCReceiverUsesValidatedMethod(timelineModule, &timelineSequence, &reason)
+        || !FCPCCReceiverUsesValidatedMethod(timelineModule, &selectedItems, &reason)) {
+        return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:reason];
+    }
+    id sequence = ((FCPCCObjectGetter)timelineSequence.implementation)(timelineModule, timelineSequence.selector);
+    if (!FCPCCReceiverUsesValidatedMethod(sequence, &primaryObject, &reason)
+        || !FCPCCReceiverUsesValidatedMethod(sequence, &displayName, &reason)
+        || !FCPCCReceiverUsesValidatedMethod(sequence, &frameSize, &reason)
+        || !FCPCCReceiverUsesValidatedMethod(sequence, &frameDuration, &reason)) {
+        return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:reason];
+    }
+
+    id projectNameValue = ((FCPCCObjectGetter)displayName.implementation)(sequence, displayName.selector);
+    NSString *projectName = [projectNameValue isKindOfClass:[NSString class]] && FCPCCBoundedNonemptyString(projectNameValue)
+        ? [projectNameValue copy]
+        : nil;
+    CGSize observedFrameSize = ((FCPCCCGSizeGetter)frameSize.implementation)(sequence, frameSize.selector);
+    CMTime observedFrameDuration = ((FCPCCCMTimeGetter)frameDuration.implementation)(sequence, frameDuration.selector);
+    if (projectName == nil
+        || !isfinite(observedFrameSize.width)
+        || !isfinite(observedFrameSize.height)
+        || observedFrameSize.width <= 0.0
+        || observedFrameSize.height <= 0.0
+        || !CMTIME_IS_VALID(observedFrameDuration)
+        || observedFrameDuration.value <= 0
+        || observedFrameDuration.timescale <= 0) {
+        return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:@"active_project_name_resolution_or_frame_rate_unavailable"];
+    }
+
+    id selectedItemsValue = ((FCPCCSelectedItemsGetter)selectedItems.implementation)(timelineModule,
+                                                                                         selectedItems.selector,
+                                                                                         NO,
+                                                                                         NO);
+    if (![selectedItemsValue isKindOfClass:[NSArray class]]) {
+        return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:@"timeline_selection_type_unsupported"];
+    }
+
+    id primaryObjectValue = ((FCPCCObjectGetter)primaryObject.implementation)(sequence, primaryObject.selector);
+    NSArray *primaryItems = nil;
+    NSString *primaryStorylineReason = nil;
+    if (FCPCCReceiverUsesValidatedMethod(primaryObjectValue, &containedItems, &primaryStorylineReason)) {
+        id primaryItemsValue = ((FCPCCObjectGetter)containedItems.implementation)(primaryObjectValue, containedItems.selector);
+        if ([primaryItemsValue isKindOfClass:[NSArray class]]) {
+            primaryItems = primaryItemsValue;
+        } else {
+            primaryStorylineReason = @"primary_storyline_items_type_unsupported";
+        }
+    }
+
+    if ([selectedItemsValue count] == 0) {
+        return [FCPCCReadOnlyContextSnapshot snapshotWithDisposition:FCPCCReadOnlyContextDispositionNoSelection
+                                                               reason:@"no_timeline_selection"
+                                                    activeProjectName:projectName
+                                                            frameSize:observedFrameSize
+                                                        hasFrameSize:YES
+                                                        frameDuration:observedFrameDuration
+                                                    hasFrameDuration:YES
+                                                selectedTimelineItems:@[]
+                                                    selectionRevision:nil
+                                                     timelineRevision:nil];
+    }
+
+    NSMutableArray<FCPCCTimelineItemSnapshot *> *snapshots = [[NSMutableArray alloc] initWithCapacity:[selectedItemsValue count]];
+    BOOL selectedRangesComplete = YES;
+    BOOL primaryNeighborsComplete = primaryItems != nil;
+    for (id selectedItem in selectedItemsValue) {
+        NSString *stableIdentifier = FCPCCStableIdentifierForAnchoredObject(selectedItem, &identifier, &reason);
+        if (stableIdentifier == nil) {
+            return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:reason];
+        }
+
+        CMTimeRange itemRange = kCMTimeRangeInvalid;
+        NSString *rangeReason = nil;
+        BOOL hasRange = FCPCCTimelineRangeForAnchoredObject(selectedItem, &timelineRange, &itemRange, &rangeReason);
+        if (!hasRange) {
+            selectedRangesComplete = NO;
+        }
+
+        NSInteger primaryIndex = (NSInteger)NSNotFound;
+        NSString *previousIdentifier = nil;
+        NSString *nextIdentifier = nil;
+        if (primaryItems != nil) {
+            NSUInteger selectedIndex = [primaryItems indexOfObjectIdenticalTo:selectedItem];
+            if (selectedIndex != NSNotFound) {
+                primaryIndex = (NSInteger)selectedIndex;
+                if (selectedIndex > 0) {
+                    NSString *neighborReason = nil;
+                    previousIdentifier = FCPCCStableIdentifierForAnchoredObject(primaryItems[selectedIndex - 1], &identifier, &neighborReason);
+                    if (previousIdentifier == nil) {
+                        primaryNeighborsComplete = NO;
+                    }
+                }
+                if (selectedIndex + 1 < primaryItems.count) {
+                    NSString *neighborReason = nil;
+                    nextIdentifier = FCPCCStableIdentifierForAnchoredObject(primaryItems[selectedIndex + 1], &identifier, &neighborReason);
+                    if (nextIdentifier == nil) {
+                        primaryNeighborsComplete = NO;
+                    }
+                }
+            }
+        }
+
+        FCPCCTimelineItemSnapshot *snapshot = [[FCPCCTimelineItemSnapshot alloc]
+            initWithStableItemIdentifier:stableIdentifier
+                       canonicalSourcePath:nil
+                             sourceSHA256:nil
+                     sourceIdentityReason:@"source_identity_unavailable_media_url_contract_not_admitted"
+                    primaryStorylineIndex:primaryIndex
+    previousPrimaryStorylineItemIdentifier:previousIdentifier
+        nextPrimaryStorylineItemIdentifier:nextIdentifier
+                            timelineRange:itemRange
+                         hasTimelineRange:hasRange
+                            leadingHandle:kCMTimeInvalid
+                     hasLeadingHandle:NO
+                           trailingHandle:kCMTimeInvalid
+                    hasTrailingHandle:NO];
+        [snapshots addObject:snapshot];
+    }
+
+    NSString *selectionRevision = FCPCCDerivedSelectionRevision(snapshots);
+    if (selectionRevision == nil) {
+        return [FCPCCReadOnlyContextSnapshot unsupportedWithReason:@"selection_revision_unavailable"];
+    }
+    NSString *timelineRevisionReason = nil;
+    NSString *timelineRevision = FCPCCDerivedTimelineRevision(primaryItems,
+                                                               projectName,
+                                                               observedFrameSize,
+                                                               observedFrameDuration,
+                                                               &identifier,
+                                                               &timelineRange,
+                                                               &timelineRevisionReason);
+    NSString *partialReason = @"partial_unsupported_source_identity_unavailable_media_url_contract_not_admitted_and_handles_unavailable_no_exact_contract";
+    BOOL timelineRevisionUnavailable = timelineRevision == nil || timelineRevisionReason.length > 0;
+    if (!selectedRangesComplete || !primaryNeighborsComplete || timelineRevisionUnavailable) {
+        partialReason = @"partial_unsupported_source_identity_unavailable_media_url_contract_not_admitted_handles_unavailable_no_exact_contract_and_primary_storyline_or_timeline_revision_unavailable";
+    }
+    FCPCCReadOnlyContextSnapshot *snapshot = [FCPCCReadOnlyContextSnapshot
+        snapshotWithDisposition:FCPCCReadOnlyContextDispositionPartialUnsupported
+                          reason:partialReason
+               activeProjectName:projectName
+                       frameSize:observedFrameSize
+                   hasFrameSize:YES
+                   frameDuration:observedFrameDuration
+               hasFrameDuration:YES
+           selectedTimelineItems:snapshots
+               selectionRevision:selectionRevision
+                timelineRevision:timelineRevision];
+    if (snapshot.timelineRevision.length > 0) {
+        return FCPCCValidateReadOnlySnapshotAgainstTimelineRevision(snapshot, snapshot.timelineRevision);
+    }
+    return snapshot;
+}
+
+@end
 
 @interface FCPCCCapabilityStatus : NSObject
 @property (nonatomic, copy, readonly) NSString *selectionSummary;
 @property (nonatomic, copy, readonly) NSString *capabilitySummary;
-+ (instancetype)unverifiedPlaceholder;
++ (instancetype)statusForReadOnlySnapshot:(FCPCCReadOnlyContextSnapshot *)snapshot;
 @end
 
 @implementation FCPCCCapabilityStatus
 
-+ (instancetype)unverifiedPlaceholder {
++ (instancetype)statusForReadOnlySnapshot:(FCPCCReadOnlyContextSnapshot *)snapshot {
     FCPCCCapabilityStatus *status = [[self alloc] init];
-    status->_selectionSummary = @"Current selection: unavailable until a live capability probe is approved.";
-    status->_capabilitySummary = @"Capabilities: unsupported_unverified_fcp_12_3";
+    NSString *projectName = snapshot.activeProjectName ?: @"unavailable";
+    switch (snapshot.disposition) {
+        case FCPCCReadOnlyContextDispositionNoSelection:
+            status->_selectionSummary = [NSString stringWithFormat:@"Current project: %@; selection: no_timeline_selection.", projectName];
+            break;
+        case FCPCCReadOnlyContextDispositionReady:
+        case FCPCCReadOnlyContextDispositionPartialUnsupported: {
+            NSString *format = @"format unavailable";
+            if (snapshot.hasFrameSize && snapshot.hasFrameDuration) {
+                double framesPerSecond = (double)snapshot.frameDuration.timescale / (double)snapshot.frameDuration.value;
+                format = [NSString stringWithFormat:@"%.0f×%.0f %.3f fps", snapshot.frameSize.width, snapshot.frameSize.height, framesPerSecond];
+            }
+            status->_selectionSummary = [NSString stringWithFormat:@"Current project: %@; selection: %lu item(s); %@.",
+                                        projectName,
+                                        (unsigned long)snapshot.selectedTimelineItems.count,
+                                        format];
+            break;
+        }
+        case FCPCCReadOnlyContextDispositionStaleRevision:
+        case FCPCCReadOnlyContextDispositionUnsupportedAPI:
+            status->_selectionSummary = [NSString stringWithFormat:@"Current selection: unavailable (%@).", snapshot.reason];
+            break;
+    }
+    status->_capabilitySummary = [NSString stringWithFormat:@"Capabilities: read_only_context=%@; planning_apply_undo=disabled.", snapshot.reason];
     return status;
 }
 
@@ -697,6 +1660,7 @@ static NSString *FCPCCInstallOnboardingQueryGate(void) {
 @property (nonatomic, strong) NSButton *applyButton;
 @property (nonatomic, strong) NSButton *undoButton;
 @property (nonatomic, strong) FCPCCMutationController *mutationController;
+- (void)refreshContext;
 - (void)showPanel:(id)sender;
 @end
 
@@ -731,15 +1695,11 @@ static NSString *FCPCCInstallOnboardingQueryGate(void) {
     CGFloat width = content.bounds.size.width;
     [content addSubview:[self label:@"FCP Command Console — isolated runtime shell" frame:NSMakeRect(20, 500, width - 40, 24) weight:NSFontWeightSemibold]];
 
-    FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
-    FCPCCCloudContentCompatibilityStatus *compatibility = FCPCCInitializeIsolatedCloudContentCompatibility();
-    NSString *onboardingQueryGate = FCPCCInstallOnboardingQueryGate();
-    FCPCCGateStatus *library = [[[FCPCCLibraryInvariantGate alloc] init] evaluate];
-    FCPCCCapabilityStatus *capabilities = FCPCCCapabilityStatus.unverifiedPlaceholder;
-    self.containmentField = [self label:[@"Copied app/runtime: " stringByAppendingString:containment.summary] frame:NSMakeRect(20, 462, width - 40, 30) weight:NSFontWeightRegular];
-    self.compatibilityField = [self label:[NSString stringWithFormat:@"Isolated cloud compatibility: %@; %@", compatibility.summary, onboardingQueryGate] frame:NSMakeRect(20, 426, width - 40, 30) weight:NSFontWeightRegular];
-    self.libraryField = [self label:[@"Library invariant: " stringByAppendingString:library.summary] frame:NSMakeRect(20, 390, width - 40, 30) weight:NSFontWeightRegular];
-    self.capabilityField = [self label:[capabilities.selectionSummary stringByAppendingFormat:@"\n%@", capabilities.capabilitySummary] frame:NSMakeRect(20, 346, width - 40, 38) weight:NSFontWeightRegular];
+    NSString *onboardingQueryCompatibility = FCPCCInstallOnboardingQueryCompatibility();
+    self.containmentField = [self label:@"Copied app/runtime: not_yet_refreshed" frame:NSMakeRect(20, 462, width - 40, 30) weight:NSFontWeightRegular];
+    self.compatibilityField = [self label:[@"Onboarding compatibility: " stringByAppendingString:onboardingQueryCompatibility] frame:NSMakeRect(20, 426, width - 40, 30) weight:NSFontWeightRegular];
+    self.libraryField = [self label:@"Library invariant: not_yet_refreshed" frame:NSMakeRect(20, 390, width - 40, 30) weight:NSFontWeightRegular];
+    self.capabilityField = [self label:@"Current selection: not_yet_refreshed\nCapabilities: read_only_context=not_yet_refreshed; planning_apply_undo=disabled." frame:NSMakeRect(20, 346, width - 40, 38) weight:NSFontWeightRegular];
     [content addSubview:self.containmentField];
     [content addSubview:self.compatibilityField];
     [content addSubview:self.libraryField];
@@ -751,13 +1711,13 @@ static NSString *FCPCCInstallOnboardingQueryGate(void) {
     [content addSubview:commandField];
 
     [content addSubview:[self label:@"Plan / editability" frame:NSMakeRect(20, 250, 160, 18) weight:NSFontWeightMedium]];
-    NSTextField *planField = [self label:@"No edit plan is available. The live capability and exactly-one-library gates remain unverified." frame:NSMakeRect(20, 216, width - 40, 30) weight:NSFontWeightRegular];
+    NSTextField *planField = [self label:@"No edit plan is available. Canonical source path and SHA-256 are required before planning, and Apply/Undo remain disabled." frame:NSMakeRect(20, 216, width - 40, 30) weight:NSFontWeightRegular];
     [content addSubview:planField];
 
     [content addSubview:[self label:@"Target point: unavailable" frame:NSMakeRect(20, 184, width - 40, 18) weight:NSFontWeightMedium]];
     [content addSubview:[self label:@"Preview: unavailable until a separately reviewed live spike." frame:NSMakeRect(20, 158, width - 40, 18) weight:NSFontWeightRegular]];
 
-    self.historyField = [self label:@"History / error: unsupported_unverified_fcp_12_3" frame:NSMakeRect(20, 106, width - 40, 38) weight:NSFontWeightRegular];
+    self.historyField = [self label:@"History / error: read_only_context_not_yet_refreshed" frame:NSMakeRect(20, 106, width - 40, 38) weight:NSFontWeightRegular];
     [content addSubview:self.historyField];
 
     self.applyButton = [[NSButton alloc] initWithFrame:NSMakeRect(width - 270, 28, 80, 30)];
@@ -781,8 +1741,25 @@ static NSString *FCPCCInstallOnboardingQueryGate(void) {
     [content addSubview:cancelButton];
 }
 
+- (void)refreshContext {
+    FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
+    FCPCCFixedModelTraversalAdapter *modelAdapter = [[FCPCCFixedModelTraversalAdapter alloc] init];
+    FCPCCReadOnlyLibrarySet *librarySet = [modelAdapter enumerateCompleteOpenLibrarySet];
+    FCPCCLibraryInvariantResult *libraryInvariant = FCPCCEvaluateLibraryInvariant(librarySet, [FCPCCLibraryManifestRecord bundledManifest]);
+    FCPCCGateStatus *library = FCPCCGateStatusFromLibraryInvariantResult(libraryInvariant);
+    FCPCCReadOnlyContextSnapshot *contextSnapshot = [modelAdapter captureContextForVerifiedLibraryInvariant:libraryInvariant];
+    FCPCCCapabilityStatus *capabilities = [FCPCCCapabilityStatus statusForReadOnlySnapshot:contextSnapshot];
+    self.containmentField.stringValue = [@"Copied app/runtime: " stringByAppendingString:containment.summary];
+    self.libraryField.stringValue = [@"Library invariant: " stringByAppendingString:library.summary];
+    self.capabilityField.stringValue = [capabilities.selectionSummary stringByAppendingFormat:@"\n%@", capabilities.capabilitySummary];
+    self.historyField.stringValue = [@"History / error: " stringByAppendingString:contextSnapshot.reason];
+    [self.applyButton setEnabled:NO];
+    [self.undoButton setEnabled:NO];
+}
+
 - (void)showPanel:(id)sender {
     (void)sender;
+    [self refreshContext];
     [self showWindow:nil];
     [self.window makeKeyAndOrderFront:nil];
 }
@@ -825,6 +1802,10 @@ static NSString *FCPCCInstallOnboardingQueryGate(void) {
 }
 
 - (void)installMenuWhenReady {
+    FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
+    if (!containment.isVerified) {
+        return;
+    }
     if (NSApp == nil || NSApp.mainMenu == nil) {
         [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidFinishLaunchingNotification
                                                           object:nil
@@ -859,8 +1840,11 @@ static NSString *FCPCCInstallOnboardingQueryGate(void) {
 
 __attribute__((constructor))
 static void FCPCCInstallRuntime(void) {
-    (void)FCPCCInitializeIsolatedCloudContentCompatibility();
-    (void)FCPCCInstallOnboardingQueryGate();
+    FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
+    if (!containment.isVerified) {
+        return;
+    }
+    (void)FCPCCInstallOnboardingQueryCompatibility();
     dispatch_async(dispatch_get_main_queue(), ^{
         [[FCPCCRuntime sharedRuntime] installMenuWhenReady];
     });

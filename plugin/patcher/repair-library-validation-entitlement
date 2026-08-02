@@ -12,9 +12,21 @@ source_executable="$source_app/Contents/MacOS/Final Cut Pro"
 destination_root="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole"
 copied_app="$destination_root/Final Cut Pro - FCPCommandConsole.app"
 copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
+expected_host_bundle_identifier="com.apple.FinalCut"
+expected_copied_host_bundle_path="$copied_app"
+expected_host_version="12.3"
+expected_host_build="450152"
+expected_stock_pre_injection_host_executable_sha256="6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390"
+mas_receipt_relative_path="Contents/_MASReceipt/receipt"
+expected_mas_receipt_sha256="2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e"
+onboarding_framework_relative_executable_path="Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
+expected_onboarding_framework_sha256="636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce"
+expected_onboarding_framework_arm64_uuid="45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D"
+expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"
 framework_name="FCPCommandConsoleRuntime.framework"
 embedded_framework="$copied_app/Contents/Frameworks/$framework_name"
 embedded_runtime="$embedded_framework/Versions/A/FCPCommandConsoleRuntime"
+embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
 entitlement_verifier="$plugin_dir/build/fcpcc-entitlement-verify"
 allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
 preferences_file="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
@@ -49,6 +61,54 @@ capture_preferences() {
     else
         print -r -- "absent" > "$output_dir/stock-preferences.xml"
         /usr/bin/shasum -a 256 "$output_dir/stock-preferences.xml" | /usr/bin/awk '{print $1}' > "$output_dir/stock-preferences.sha256"
+    fi
+}
+
+capture_receipt() {
+    local app_path="$1"
+    local output_dir="$2"
+    local receipt_path="$app_path/$mas_receipt_relative_path"
+    if [[ ! -f "$receipt_path" || -L "$receipt_path" ]]; then
+        fail "MAS receipt is missing or not a regular file: $app_path"
+    fi
+    /bin/cp "$receipt_path" "$output_dir/receipt"
+    /usr/bin/shasum -a 256 "$receipt_path" | /usr/bin/awk '{print $1}' > "$output_dir/receipt.sha256"
+}
+
+verify_receipt() {
+    local app_path="$1"
+    local label="$2"
+    local receipt_path="$app_path/$mas_receipt_relative_path"
+    if [[ ! -f "$receipt_path" || -L "$receipt_path" ]]; then
+        fail "$label MAS receipt is missing or not a regular file"
+    fi
+    local receipt_sha256="$(/usr/bin/shasum -a 256 "$receipt_path" | /usr/bin/awk '{print $1}')"
+    if [[ "$receipt_sha256" != "$expected_mas_receipt_sha256" ]]; then
+        fail "$label MAS receipt SHA-256 is not the reviewed value"
+    fi
+}
+
+verify_compatibility_policy() {
+    local policy_path="$1"
+    if [[ ! -f "$policy_path" ]] || ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
+        fail "embedded onboarding compatibility policy is missing or invalid"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "6" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "$expected_host_version" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "$expected_host_build" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "$expected_stock_pre_injection_host_executable_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+        fail "embedded onboarding compatibility policy host, receipt, or binary identity is not exact"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "1" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "forward_original_setter_async_nil_metadata_provider" ]]; then
+        fail "embedded onboarding compatibility policy guard or replacement contract is not exact"
+    fi
+    for removed_policy_key in CompatibilityInstallPhases MethodGuardLogSubsystem MethodGuardLogCategory PreferenceDomain ApprovedPreferenceKeys ApprovedPreferenceValues SynchronizeDeterministically; do
+        if /usr/libexec/PlistBuddy -c "Print :$removed_policy_key" "$policy_path" >/dev/null 2>&1; then
+            fail "embedded onboarding compatibility policy retains a retired scheduler, logger, or preference key"
+        fi
+    done
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" ]]; then
+        fail "embedded onboarding compatibility policy setter contract is not exact"
+    fi
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
+        fail "embedded onboarding compatibility policy permits an extra method replacement"
     fi
 }
 
@@ -110,10 +170,10 @@ verify_load_commands() {
     fi
 }
 
-if [[ ! -d "$source_app" || ! -f "$source_executable" ]]; then
+if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_app/$mas_receipt_relative_path" ]]; then
     fail "required stock app is missing"
 fi
-if [[ ! -d "$copied_app" || -L "$copied_app" || ! -f "$copied_executable" || ! -d "$embedded_framework" || ! -f "$embedded_runtime" ]]; then
+if [[ ! -d "$copied_app" || -L "$copied_app" || "$copied_app" != "$expected_copied_host_bundle_path" || ! -f "$copied_executable" || ! -d "$embedded_framework" || ! -f "$embedded_runtime" || ! -f "$embedded_compatibility_policy" ]]; then
     fail "approved copied-app path or embedded runtime baseline is missing"
 fi
 if [[ ! -f "$allowlist" || ! -x "$entitlement_verifier" ]]; then
@@ -124,14 +184,14 @@ source_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString'
 source_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$source_app/Contents/Info.plist")"
 copied_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$copied_app/Contents/Info.plist")"
 copied_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$copied_app/Contents/Info.plist")"
-if [[ "$source_version" != "12.3" || "$source_build" != "450152" || "$copied_version" != "12.3" || "$copied_build" != "450152" ]]; then
+if [[ "$source_version" != "$expected_host_version" || "$source_build" != "$expected_host_build" || "$copied_version" != "$expected_host_version" || "$copied_build" != "$expected_host_build" ]]; then
     fail "stock or copied app version/build guard failed (expected 12.3/450152)"
 fi
 copied_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copied_app/Contents/Info.plist")"
 copied_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$copied_app/Contents/Info.plist")"
 copied_display_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$copied_app/Contents/Info.plist")"
 copied_executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$copied_app/Contents/Info.plist")"
-if [[ "$copied_identifier" != "com.local.fcpcommandconsole.FinalCut" || "$copied_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_display_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_executable_name" != "Final Cut Pro" ]]; then
+if [[ "$copied_identifier" != "$expected_host_bundle_identifier" || "$copied_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_display_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_executable_name" != "Final Cut Pro" ]]; then
     fail "copied app metadata does not match the approved isolated identity"
 fi
 
@@ -151,13 +211,25 @@ print -r -- "executable_name=$copied_executable_name" >> "$repair_dir/copied-ide
 require_not_running "$repair_dir/process-before-repair.txt"
 capture_bundle "$source_app" "$source_executable" "$repair_dir/stock-before"
 capture_preferences "$repair_dir/stock-before"
+capture_receipt "$source_app" "$repair_dir/stock-before"
+verify_receipt "$source_app" "stock-before"
 capture_bundle "$copied_app" "$copied_executable" "$repair_dir/copied-before"
+capture_receipt "$copied_app" "$repair_dir/copied-before"
+verify_receipt "$copied_app" "copied-before"
+if ! /usr/bin/cmp -s "$repair_dir/stock-before/receipt" "$repair_dir/copied-before/receipt" || ! /usr/bin/cmp -s "$repair_dir/stock-before/receipt.sha256" "$repair_dir/copied-before/receipt.sha256"; then
+    fail "copied MAS receipt differs from stock provenance"
+fi
+verify_compatibility_policy "$embedded_compatibility_policy"
 /usr/bin/shasum -a 256 "$embedded_runtime" | /usr/bin/awk '{print $1}' > "$repair_dir/embedded-runtime-before.sha256"
 
 initial_patch_dir=""
+initial_patch_receipt_provenance="false"
 for candidate in "$provenance_root"/patch-*; do
     if [[ -f "$candidate/stock-before/main-executable.sha256" && -f "$candidate/stock-before/Info.plist.sha256" && -f "$candidate/stock-before/stock-preferences.sha256" && -f "$candidate/copied-main-executable.pre-injection.sha256" ]]; then
         initial_patch_dir="$candidate"
+        if [[ -f "$candidate/stock-before/receipt.sha256" && -f "$candidate/stock-before/receipt" ]]; then
+            initial_patch_receipt_provenance="true"
+        fi
         break
     fi
 done
@@ -168,6 +240,7 @@ if [[ ! -f "$initial_patch_dir/signing.txt" ]]; then
     fail "initial patch signing provenance is missing"
 fi
 print -r -- "initial_patch_provenance=$initial_patch_dir" > "$repair_dir/initial-provenance.txt"
+print -r -- "initial_patch_receipt_provenance=$initial_patch_receipt_provenance" >> "$repair_dir/initial-provenance.txt"
 if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/main-executable.sha256" "$repair_dir/stock-before/main-executable.sha256"; then
     fail "stock main executable fingerprint differs from initial patch evidence"
 fi
@@ -176,6 +249,13 @@ if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/Info.plist.sha256" "$repai
 fi
 if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/stock-preferences.sha256" "$repair_dir/stock-before/stock-preferences.sha256"; then
     fail "stock preference export fingerprint differs from initial patch evidence"
+fi
+if [[ "$initial_patch_receipt_provenance" == "true" ]]; then
+    if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt.sha256" "$repair_dir/stock-before/receipt.sha256" || ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt" "$repair_dir/stock-before/receipt"; then
+        fail "stock MAS receipt fingerprint differs from initial patch evidence"
+    fi
+else
+    print -r -- "legacy_receipt_provenance=rebound_to_current_stock_copy_proof" >> "$repair_dir/initial-provenance.txt"
 fi
 if ! /usr/bin/cmp -s "$initial_patch_dir/copied-main-executable.pre-injection.sha256" "$repair_dir/stock-before/main-executable.sha256"; then
     fail "captured pre-injection copied executable differs from stock fingerprint"
@@ -244,6 +324,15 @@ fi
 /usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$repair_dir/codesign-verify-after.txt" 2>&1
 /usr/bin/codesign --verify --strict --verbose=4 "$embedded_framework" > "$repair_dir/runtime-codesign-verify-after.txt" 2>&1
 capture_bundle "$copied_app" "$copied_executable" "$repair_dir/copied-after"
+capture_receipt "$copied_app" "$repair_dir/copied-after"
+verify_receipt "$copied_app" "copied-after"
+verify_compatibility_policy "$embedded_compatibility_policy"
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copied_app/Contents/Info.plist")" != "$expected_host_bundle_identifier" ]]; then
+    fail "copied app bundle identifier changed during entitlement repair"
+fi
+if ! /usr/bin/cmp -s "$repair_dir/copied-before/receipt" "$repair_dir/copied-after/receipt" || ! /usr/bin/cmp -s "$repair_dir/copied-before/receipt.sha256" "$repair_dir/copied-after/receipt.sha256"; then
+    fail "copied MAS receipt changed during entitlement repair"
+fi
 /usr/bin/shasum -a 256 "$embedded_runtime" | /usr/bin/awk '{print $1}' > "$repair_dir/embedded-runtime-after.sha256"
 if ! /usr/bin/cmp -s "$repair_dir/embedded-runtime-before.sha256" "$repair_dir/embedded-runtime-after.sha256"; then
     fail "embedded runtime changed during top-level repair"
@@ -261,6 +350,8 @@ verify_load_commands "after"
 
 capture_bundle "$source_app" "$source_executable" "$repair_dir/stock-after"
 capture_preferences "$repair_dir/stock-after"
+capture_receipt "$source_app" "$repair_dir/stock-after"
+verify_receipt "$source_app" "stock-after"
 require_not_running "$repair_dir/process-after-repair.txt"
 if ! /usr/bin/cmp -s "$repair_dir/stock-before/main-executable.sha256" "$repair_dir/stock-after/main-executable.sha256"; then
     fail "stock main executable fingerprint changed"
@@ -271,8 +362,12 @@ fi
 if ! /usr/bin/cmp -s "$repair_dir/stock-before/stock-preferences.sha256" "$repair_dir/stock-after/stock-preferences.sha256"; then
     fail "stock preference export fingerprint changed"
 fi
+if ! /usr/bin/cmp -s "$repair_dir/stock-before/receipt.sha256" "$repair_dir/stock-after/receipt.sha256" || ! /usr/bin/cmp -s "$repair_dir/stock-before/receipt" "$repair_dir/stock-after/receipt"; then
+    fail "stock MAS receipt fingerprint changed"
+fi
 print -r -- "stock_app=unchanged" > "$repair_dir/stock-integrity.txt"
 print -r -- "stock_preferences=unchanged" >> "$repair_dir/stock-integrity.txt"
+print -r -- "stock_mas_receipt=unchanged" >> "$repair_dir/stock-integrity.txt"
 
 print -r -- "status=repaired"
 print -r -- "copied_app=$copied_app"

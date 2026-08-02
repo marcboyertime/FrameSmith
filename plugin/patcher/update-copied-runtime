@@ -12,6 +12,14 @@ source_executable="$source_app/Contents/MacOS/Final Cut Pro"
 destination_root="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole"
 copied_app="$destination_root/Final Cut Pro - FCPCommandConsole.app"
 copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
+expected_host_bundle_identifier="com.apple.FinalCut"
+legacy_host_bundle_identifier="com.local.fcpcommandconsole.FinalCut"
+expected_copied_host_bundle_path="$copied_app"
+expected_host_version="12.3"
+expected_host_build="450152"
+expected_stock_pre_injection_host_executable_sha256="6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390"
+mas_receipt_relative_path="Contents/_MASReceipt/receipt"
+expected_mas_receipt_sha256="2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e"
 onboarding_framework_relative_executable_path="Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
 source_onboarding_framework="$source_app/$onboarding_framework_relative_executable_path"
 copied_onboarding_framework="$copied_app/$onboarding_framework_relative_executable_path"
@@ -22,10 +30,11 @@ expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"
 framework_name="FCPCommandConsoleRuntime.framework"
 built_framework="$plugin_dir/build/$framework_name"
 built_runtime="$built_framework/Versions/A/FCPCommandConsoleRuntime"
-built_compatibility_policy="$built_framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
+built_compatibility_policy="$built_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
 embedded_framework="$copied_app/Contents/Frameworks/$framework_name"
 embedded_runtime="$embedded_framework/Versions/A/FCPCommandConsoleRuntime"
-embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
+embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
+legacy_embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 entitlement_verifier="$plugin_dir/build/fcpcc-entitlement-verify"
 allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
 preferences_file="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
@@ -52,6 +61,48 @@ fail() {
     exit 1
 }
 
+mutation_started="false"
+rollback_complete="false"
+rollback_dir=""
+
+rollback_on_exit() {
+    local exit_status="$?"
+    if [[ "$exit_status" -eq 0 || "$mutation_started" != "true" || "$rollback_complete" == "true" ]]; then
+        return
+    fi
+    set +e
+    print -r -- "rollback=started exit_status=$exit_status" >> "$rollback_dir/rollback.txt"
+    if [[ -f "$rollback_dir/Info.plist" ]]; then
+        /bin/cp "$rollback_dir/Info.plist" "$copied_app/Contents/Info.plist"
+    fi
+    if [[ -e "$embedded_framework" ]]; then
+        /bin/mv "$embedded_framework" "$rollback_dir/current-embedded-framework"
+    fi
+    if [[ -d "$rollback_dir/embedded-framework" ]]; then
+        /usr/bin/ditto "$rollback_dir/embedded-framework" "$embedded_framework"
+    fi
+    local code_signature_path="$copied_app/Contents/_CodeSignature"
+    if [[ -e "$code_signature_path" ]]; then
+        /bin/mv "$code_signature_path" "$rollback_dir/current-code-signature"
+    fi
+    if [[ -f "$rollback_dir/code-signature-absent" ]]; then
+        :
+    elif [[ -d "$rollback_dir/code-signature" ]]; then
+        /usr/bin/ditto "$rollback_dir/code-signature" "$code_signature_path"
+    fi
+    /usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$rollback_dir/codesign-verify-rollback.txt" 2>&1
+    local verify_status="$?"
+    if [[ "$verify_status" -eq 0 ]]; then
+        print -r -- "rollback=restored_previous_copy_signature" >> "$rollback_dir/rollback.txt"
+    else
+        print -r -- "rollback=failed_previous_copy_signature_verification status=$verify_status" >> "$rollback_dir/rollback.txt"
+    fi
+    rollback_complete="true"
+    set -e
+}
+
+trap rollback_on_exit EXIT
+
 capture_preferences() {
     local output_dir="$1"
     if [[ -f "$preferences_file" ]]; then
@@ -60,6 +111,30 @@ capture_preferences() {
     else
         print -r -- "absent" > "$output_dir/stock-preferences.xml"
         /usr/bin/shasum -a 256 "$output_dir/stock-preferences.xml" | /usr/bin/awk '{print $1}' > "$output_dir/stock-preferences.sha256"
+    fi
+}
+
+capture_receipt() {
+    local app_path="$1"
+    local output_dir="$2"
+    local receipt_path="$app_path/$mas_receipt_relative_path"
+    if [[ ! -f "$receipt_path" || -L "$receipt_path" ]]; then
+        fail "MAS receipt is missing or not a regular file: $app_path"
+    fi
+    /bin/cp "$receipt_path" "$output_dir/receipt"
+    /usr/bin/shasum -a 256 "$receipt_path" | /usr/bin/awk '{print $1}' > "$output_dir/receipt.sha256"
+}
+
+verify_receipt() {
+    local app_path="$1"
+    local label="$2"
+    local receipt_path="$app_path/$mas_receipt_relative_path"
+    if [[ ! -f "$receipt_path" || -L "$receipt_path" ]]; then
+        fail "$label MAS receipt is missing or not a regular file"
+    fi
+    local receipt_sha256="$(/usr/bin/shasum -a 256 "$receipt_path" | /usr/bin/awk '{print $1}')"
+    if [[ "$receipt_sha256" != "$expected_mas_receipt_sha256" ]]; then
+        fail "$label MAS receipt SHA-256 is not the reviewed value"
     fi
 }
 
@@ -168,41 +243,46 @@ verify_compatibility_policy() {
     if ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
         fail "$label compatibility policy is invalid"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "4" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "6" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" ]]; then
         fail "$label compatibility policy host bundle identifier is not exact"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "$expected_host_version" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "$expected_host_build" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "$expected_stock_pre_injection_host_executable_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
         fail "$label compatibility policy host version/build or exact binary identity is not exact"
-    fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
-        fail "$label compatibility policy does not use the current application domain"
-    fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:0' "$policy_path")" != "CloudContentFirstLaunchCompleted" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:1' "$policy_path")" != "FFCloudContentDisabled" ]]; then
-        fail "$label compatibility policy approved key order is not exact"
-    fi
-    if /usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:2' "$policy_path" >/dev/null 2>&1; then
-        fail "$label compatibility policy permits more than two preference keys"
-    fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" ]]; then
-        fail "$label compatibility policy does not require the reviewed true values and synchronization"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "1" ]]; then
         fail "$label compatibility policy method guard mode or phases are not exact"
     fi
-    for removed_policy_key in CompatibilityInstallPhases MethodGuardLogSubsystem MethodGuardLogCategory; do
+    for removed_policy_key in CompatibilityInstallPhases MethodGuardLogSubsystem MethodGuardLogCategory PreferenceDomain ApprovedPreferenceKeys ApprovedPreferenceValues SynchronizeDeterministically; do
         if /usr/libexec/PlistBuddy -c "Print :$removed_policy_key" "$policy_path" >/dev/null 2>&1; then
             fail "$label compatibility policy retains an obsolete scheduler or logger key"
         fi
     done
-    if /usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:2' "$policy_path" >/dev/null 2>&1; then
-        fail "$label compatibility policy permits more than two preference keys"
-    fi
-
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "discard_query_block_noop" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "forward_original_setter_async_nil_metadata_provider" ]]; then
         fail "$label compatibility policy single onboarding query setter contract is not exact"
     fi
     if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
         fail "$label compatibility policy permits an extra method replacement"
+    fi
+}
+
+# The legacy policy is accepted only as a one-time migration input. It is
+# never installed or treated as a current runtime policy.
+verify_legacy_compatibility_policy() {
+    local policy_path="$1"
+    if [[ ! -f "$policy_path" ]] || ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
+        fail "legacy copied runtime policy is missing or invalid"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "4" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$legacy_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "$expected_host_version" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "$expected_host_build" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "$expected_stock_pre_injection_host_executable_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+        fail "legacy copied runtime policy host or binary identity is not exact"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:0' "$policy_path")" != "CloudContentFirstLaunchCompleted" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:1' "$policy_path")" != "FFCloudContentDisabled" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "1" ]]; then
+        fail "legacy copied runtime policy preference or guard contract is not exact"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "discard_query_block_noop" ]]; then
+        fail "legacy copied runtime policy onboarding setter contract is not exact"
+    fi
+    if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
+        fail "legacy copied runtime policy permits an extra method replacement"
     fi
 }
 
@@ -220,15 +300,22 @@ source_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString'
 source_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$source_app/Contents/Info.plist")"
 copied_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$copied_app/Contents/Info.plist")"
 copied_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$copied_app/Contents/Info.plist")"
-if [[ "$source_version" != "12.3" || "$source_build" != "450152" || "$copied_version" != "12.3" || "$copied_build" != "450152" ]]; then
+if [[ "$source_version" != "$expected_host_version" || "$source_build" != "$expected_host_build" || "$copied_version" != "$expected_host_version" || "$copied_build" != "$expected_host_build" ]]; then
     fail "stock or copied app version/build guard failed (expected 12.3/450152)"
 fi
 copied_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copied_app/Contents/Info.plist")"
 copied_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$copied_app/Contents/Info.plist")"
 copied_display_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$copied_app/Contents/Info.plist")"
 copied_executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$copied_app/Contents/Info.plist")"
-if [[ "$copied_identifier" != "com.local.fcpcommandconsole.FinalCut" || "$copied_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_display_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_executable_name" != "Final Cut Pro" ]]; then
+if [[ "$copied_identifier" != "$expected_host_bundle_identifier" && "$copied_identifier" != "$legacy_host_bundle_identifier" ]]; then
+    fail "copied app bundle identifier is neither the receipt-compatible Apple ID nor the one-time legacy migration ID"
+fi
+if [[ "$copied_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_display_name" != "Final Cut Pro - FCPCommandConsole" || "$copied_executable_name" != "Final Cut Pro" ]]; then
     fail "copied app metadata does not match the approved isolated identity"
+fi
+migration_required="false"
+if [[ "$copied_identifier" == "$legacy_host_bundle_identifier" ]]; then
+    migration_required="true"
 fi
 
 /bin/mkdir -p "$provenance_root"
@@ -241,18 +328,26 @@ print -r -- "source_build=$source_build" >> "$update_dir/source-version-build.tx
 print -r -- "copied_version=$copied_version" >> "$update_dir/source-version-build.txt"
 print -r -- "copied_build=$copied_build" >> "$update_dir/source-version-build.txt"
 print -r -- "bundle_identifier=$copied_identifier" > "$update_dir/copied-identity.txt"
+print -r -- "migration_required=$migration_required" >> "$update_dir/copied-identity.txt"
 print -r -- "bundle_name=$copied_name" >> "$update_dir/copied-identity.txt"
 print -r -- "display_name=$copied_display_name" >> "$update_dir/copied-identity.txt"
 print -r -- "executable_name=$copied_executable_name" >> "$update_dir/copied-identity.txt"
 require_not_running "$update_dir/process-before-update.txt"
 capture_bundle "$source_app" "$source_executable" "$update_dir/stock-before"
 capture_preferences "$update_dir/stock-before"
+capture_receipt "$source_app" "$update_dir/stock-before"
+verify_receipt "$source_app" "stock-before"
 capture_bundle "$copied_app" "$copied_executable" "$update_dir/copied-before"
+capture_receipt "$copied_app" "$update_dir/copied-before"
+verify_receipt "$copied_app" "copied-before"
 capture_onboarding_framework "$source_onboarding_framework" "$update_dir/stock-before"
 capture_onboarding_framework "$copied_onboarding_framework" "$update_dir/copied-before"
 verify_onboarding_framework_identity "$update_dir/stock-before" "stock-before"
 verify_onboarding_framework_identity "$update_dir/copied-before" "copied-before"
 compare_onboarding_framework_identity "$update_dir/stock-before" "$update_dir/copied-before" "copied-before"
+if ! /usr/bin/cmp -s "$update_dir/stock-before/receipt" "$update_dir/copied-before/receipt" || ! /usr/bin/cmp -s "$update_dir/stock-before/receipt.sha256" "$update_dir/copied-before/receipt.sha256"; then
+    fail "copied MAS receipt differs from stock provenance"
+fi
 verify_onboarding_framework_load_path "$source_executable" "$update_dir/stock-before" "stock-before"
 verify_onboarding_framework_load_path "$copied_executable" "$update_dir/copied-before" "copied-before"
 /usr/bin/shasum -a 256 "$embedded_runtime" | /usr/bin/awk '{print $1}' > "$update_dir/embedded-runtime-before.sha256"
@@ -261,7 +356,7 @@ source_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$update_dir/st
 source_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$update_dir/stock-before/main-executable.uuids.txt")"
 copied_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$update_dir/copied-before/main-executable.uuids.txt")"
 copied_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$update_dir/copied-before/main-executable.uuids.txt")"
-if [[ "$source_executable_sha256" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$source_arm64_uuid" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$source_x86_64_uuid" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$copied_arm64_uuid" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$copied_x86_64_uuid" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" ]]; then
+if [[ "$source_executable_sha256" != "$expected_stock_pre_injection_host_executable_sha256" || "$source_arm64_uuid" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$source_x86_64_uuid" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$copied_arm64_uuid" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$copied_x86_64_uuid" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" ]]; then
     fail "stock or copied executable does not match the reviewed FCP 12.3 slice identity"
 fi
 print -r -- "stock_executable_sha256=$source_executable_sha256" > "$update_dir/exact-host-identity.txt"
@@ -269,11 +364,16 @@ print -r -- "stock_arm64_uuid=$source_arm64_uuid" >> "$update_dir/exact-host-ide
 print -r -- "stock_x86_64_uuid=$source_x86_64_uuid" >> "$update_dir/exact-host-identity.txt"
 print -r -- "copied_arm64_uuid=$copied_arm64_uuid" >> "$update_dir/exact-host-identity.txt"
 print -r -- "copied_x86_64_uuid=$copied_x86_64_uuid" >> "$update_dir/exact-host-identity.txt"
+print -r -- "stock_receipt_sha256=$(cat "$update_dir/stock-before/receipt.sha256")" >> "$update_dir/exact-host-identity.txt"
 
 initial_patch_dir=""
+initial_patch_receipt_provenance="false"
 for candidate in "$provenance_root"/patch-*; do
     if [[ -f "$candidate/stock-before/main-executable.sha256" && -f "$candidate/stock-before/Info.plist.sha256" && -f "$candidate/stock-before/stock-preferences.sha256" && -f "$candidate/copied-main-executable.pre-injection.sha256" ]]; then
         initial_patch_dir="$candidate"
+        if [[ -f "$candidate/stock-before/receipt.sha256" && -f "$candidate/stock-before/receipt" ]]; then
+            initial_patch_receipt_provenance="true"
+        fi
         break
     fi
 done
@@ -281,13 +381,42 @@ if [[ -z "$initial_patch_dir" || ! -f "$initial_patch_dir/signing.txt" ]]; then
     fail "initial patch provenance or signing evidence is missing"
 fi
 print -r -- "initial_patch_provenance=$initial_patch_dir" > "$update_dir/initial-provenance.txt"
+print -r -- "initial_patch_receipt_provenance=$initial_patch_receipt_provenance" >> "$update_dir/initial-provenance.txt"
 if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/main-executable.sha256" "$update_dir/stock-before/main-executable.sha256" || ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/Info.plist.sha256" "$update_dir/stock-before/Info.plist.sha256" || ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/stock-preferences.sha256" "$update_dir/stock-before/stock-preferences.sha256" || ! /usr/bin/cmp -s "$initial_patch_dir/copied-main-executable.pre-injection.sha256" "$update_dir/stock-before/main-executable.sha256"; then
     fail "stock app or production preference baseline differs from initial patch evidence"
+fi
+if [[ "$initial_patch_receipt_provenance" == "true" ]]; then
+    if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt.sha256" "$update_dir/stock-before/receipt.sha256" || ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/receipt" "$update_dir/stock-before/receipt"; then
+        fail "stock MAS receipt differs from receipt provenance captured by the initial patch"
+    fi
+elif [[ "$migration_required" == "true" ]]; then
+    print -r -- "legacy_receipt_provenance=rebound_to_current_stock_copy_proof" >> "$update_dir/initial-provenance.txt"
+else
+    fail "current copied app update requires receipt provenance from the initial patch"
 fi
 
 /usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$update_dir/codesign-verify-before.txt" 2>&1
 /usr/bin/codesign --verify --strict --verbose=4 "$embedded_framework" > "$update_dir/runtime-codesign-verify-before.txt" 2>&1
 verify_load_commands "before"
+if [[ "$copied_app" != "$expected_copied_host_bundle_path" ]]; then
+    fail "copied app path is not the exact approved isolated path"
+fi
+if [[ "$migration_required" == "true" ]]; then
+    if [[ ! -f "$legacy_embedded_compatibility_policy" || -e "$embedded_compatibility_policy" ]]; then
+        fail "legacy copied runtime must contain only the retired compatibility policy before migration"
+    fi
+    verify_legacy_compatibility_policy "$legacy_embedded_compatibility_policy"
+    print -r -- "legacy_policy=verified_for_one_time_migration" > "$update_dir/migration-gate.txt"
+    if [[ "$initial_patch_receipt_provenance" == "false" ]]; then
+        print -r -- "legacy_receipt_provenance=rebound_to_current_stock_copy_proof" >> "$update_dir/migration-gate.txt"
+    fi
+else
+    if [[ ! -f "$embedded_compatibility_policy" || -e "$legacy_embedded_compatibility_policy" ]]; then
+        fail "current copied runtime must contain only the schema6 compatibility policy"
+    fi
+    verify_compatibility_policy "$embedded_compatibility_policy" "current"
+    print -r -- "legacy_policy=not_applicable" > "$update_dir/migration-gate.txt"
+fi
 
 for forbidden_added_key in com.apple.security.get-task-allow com.apple.security.cs.debugger com.apple.security.cs.allow-dyld-environment-variables; do
     if /usr/libexec/PlistBuddy -c "Print :$forbidden_added_key" "$update_dir/copied-before/entitlements.plist" >/dev/null 2>&1; then
@@ -308,6 +437,7 @@ verify_compatibility_policy "$built_compatibility_policy" "built"
 /usr/bin/shasum -a 256 "$built_runtime" | /usr/bin/awk '{print $1}' > "$update_dir/built-runtime.sha256"
 /usr/bin/shasum -a 256 "$built_compatibility_policy" | /usr/bin/awk '{print $1}' > "$update_dir/built-compatibility-policy.sha256"
 
+# Resolve and bind the signing identity before any copied-app mutation.
 signing_identity="$(/usr/bin/security find-identity -v -p codesigning | /usr/bin/awk '/"Apple Development:/ {print $2; exit}')"
 if [[ -z "$signing_identity" ]]; then
     fail "the required Apple Development signing identity is unavailable"
@@ -316,6 +446,30 @@ initial_identity="$(/usr/bin/awk -F= '/^identity_fingerprint=/{print $2; exit}' 
 if [[ -z "$initial_identity" || "$signing_identity" != "$initial_identity" ]]; then
     fail "the available Apple Development identity does not match the initial copied-app signing evidence"
 fi
+
+rollback_dir="$update_dir/rollback-backup"
+/bin/mkdir "$rollback_dir"
+/bin/cp "$copied_app/Contents/Info.plist" "$rollback_dir/Info.plist"
+/usr/bin/ditto "$embedded_framework" "$rollback_dir/embedded-framework"
+if [[ -d "$copied_app/Contents/_CodeSignature" ]]; then
+    /usr/bin/ditto "$copied_app/Contents/_CodeSignature" "$rollback_dir/code-signature"
+else
+    print -r -- "absent" > "$rollback_dir/code-signature-absent"
+fi
+print -r -- "rollback_backup=Info.plist,embedded-framework,top-level-CodeSignature" > "$rollback_dir/backup.txt"
+print -r -- "rollback_pending=true" >> "$rollback_dir/backup.txt"
+
+if [[ "$migration_required" == "true" ]]; then
+    mutation_started="true"
+    /usr/bin/shasum -a 256 "$copied_app/Contents/Info.plist" | /usr/bin/awk '{print $1}' > "$update_dir/Info.plist.legacy-before.sha256"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $expected_host_bundle_identifier" "$copied_app/Contents/Info.plist"
+    /usr/bin/plutil -lint "$copied_app/Contents/Info.plist" >/dev/null
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copied_app/Contents/Info.plist")" != "$expected_host_bundle_identifier" ]]; then
+        fail "legacy copied app bundle identifier migration did not produce the receipt-compatible Apple ID"
+    fi
+    print -r -- "bundle_identifier_migration=$legacy_host_bundle_identifier->$expected_host_bundle_identifier" >> "$update_dir/migration-gate.txt"
+fi
+
 print -r -- "signing_mode=apple_development" > "$update_dir/signing.txt"
 print -r -- "identity_fingerprint=$signing_identity" >> "$update_dir/signing.txt"
 print -r -- "runtime_signature_operation=project_owned_framework_only" >> "$update_dir/signing.txt"
@@ -323,9 +477,17 @@ print -r -- "app_signature_operation=top_level_copied_app_only" >> "$update_dir/
 print -r -- "deep_signing=false" >> "$update_dir/signing.txt"
 
 require_not_running "$update_dir/process-before-runtime-copy.txt"
+mutation_started="true"
+if [[ -e "$legacy_embedded_compatibility_policy" ]]; then
+    /bin/mv "$legacy_embedded_compatibility_policy" "$rollback_dir/retired-policy-before-copy"
+    print -r -- "retired_policy_moved=true" >> "$rollback_dir/backup.txt"
+fi
 /usr/bin/ditto "$built_framework" "$embedded_framework"
 if ! /usr/bin/cmp -s "$built_runtime" "$embedded_runtime" || ! /usr/bin/cmp -s "$built_compatibility_policy" "$embedded_compatibility_policy"; then
     fail "fresh built framework was not copied exactly into the approved copied app"
+fi
+if [[ -e "$legacy_embedded_compatibility_policy" ]]; then
+    fail "retired compatibility policy was not removed during schema6 runtime installation"
 fi
 verify_compatibility_policy "$embedded_compatibility_policy" "embedded"
 require_not_running "$update_dir/process-before-signing.txt"
@@ -341,6 +503,8 @@ fi
 /usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$update_dir/codesign-verify-after.txt" 2>&1
 /usr/bin/codesign --verify --strict --verbose=4 "$embedded_framework" > "$update_dir/runtime-codesign-verify-after.txt" 2>&1
 capture_bundle "$copied_app" "$copied_executable" "$update_dir/copied-after"
+capture_receipt "$copied_app" "$update_dir/copied-after"
+verify_receipt "$copied_app" "copied-after"
 capture_onboarding_framework "$copied_onboarding_framework" "$update_dir/copied-after"
 verify_onboarding_framework_identity "$update_dir/copied-after" "copied-after"
 compare_onboarding_framework_identity "$update_dir/stock-before" "$update_dir/copied-after" "copied-after"
@@ -354,21 +518,43 @@ verify_compatibility_policy "$embedded_compatibility_policy" "embedded-after-sig
 if ! /usr/bin/cmp -s "$built_compatibility_policy" "$embedded_compatibility_policy"; then
     fail "embedded compatibility policy changed during signing"
 fi
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$copied_app/Contents/Info.plist")" != "$expected_host_bundle_identifier" || "$copied_app" != "$expected_copied_host_bundle_path" ]]; then
+    fail "copied app did not retain the exact receipt-compatible Apple ID and approved path"
+fi
+if [[ "$migration_required" == "false" ]] && ! /usr/bin/cmp -s "$update_dir/copied-before/Info.plist.sha256" "$update_dir/copied-after/Info.plist.sha256"; then
+    fail "non-migration copied app Info.plist changed during runtime-only update"
+fi
+if [[ "$migration_required" == "true" ]]; then
+    print -r -- "Info.plist.legacy_before_sha256=$(cat "$update_dir/Info.plist.legacy-before.sha256")" >> "$update_dir/migration-gate.txt"
+    print -r -- "Info.plist.after_sha256=$(cat "$update_dir/copied-after/Info.plist.sha256")" >> "$update_dir/migration-gate.txt"
+fi
+if ! /usr/bin/cmp -s "$update_dir/stock-before/receipt" "$update_dir/copied-after/receipt" || ! /usr/bin/cmp -s "$update_dir/stock-before/receipt.sha256" "$update_dir/copied-after/receipt.sha256"; then
+    fail "copied MAS receipt changed during runtime update"
+fi
 "$entitlement_verifier" "$update_dir/stock-before/entitlements.plist" "$expected_entitlements" "$update_dir/copied-after/entitlements.plist" "$allowlist" > "$update_dir/entitlement-allowlist-after.txt"
 /usr/bin/shasum -a 256 "$embedded_runtime" | /usr/bin/awk '{print $1}' > "$update_dir/embedded-runtime-after-signing.sha256"
 /usr/bin/shasum -a 256 "$embedded_compatibility_policy" | /usr/bin/awk '{print $1}' > "$update_dir/embedded-compatibility-policy-after-signing.sha256"
 
 capture_bundle "$source_app" "$source_executable" "$update_dir/stock-after"
 capture_preferences "$update_dir/stock-after"
+capture_receipt "$source_app" "$update_dir/stock-after"
+verify_receipt "$source_app" "stock-after"
 capture_onboarding_framework "$source_onboarding_framework" "$update_dir/stock-after"
 verify_onboarding_framework_identity "$update_dir/stock-after" "stock-after"
 compare_onboarding_framework_identity "$update_dir/stock-before" "$update_dir/stock-after" "stock-after"
 require_not_running "$update_dir/process-after-update.txt"
-if ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.sha256" "$update_dir/stock-after/main-executable.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.uuids.txt" "$update_dir/stock-after/main-executable.uuids.txt" || ! /usr/bin/cmp -s "$update_dir/stock-before/Info.plist.sha256" "$update_dir/stock-after/Info.plist.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/stock-preferences.sha256" "$update_dir/stock-after/stock-preferences.sha256"; then
+if ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.sha256" "$update_dir/stock-after/main-executable.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/main-executable.uuids.txt" "$update_dir/stock-after/main-executable.uuids.txt" || ! /usr/bin/cmp -s "$update_dir/stock-before/Info.plist.sha256" "$update_dir/stock-after/Info.plist.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/stock-preferences.sha256" "$update_dir/stock-after/stock-preferences.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/receipt.sha256" "$update_dir/stock-after/receipt.sha256" || ! /usr/bin/cmp -s "$update_dir/stock-before/receipt" "$update_dir/stock-after/receipt"; then
     fail "stock app or production preference fingerprint changed"
 fi
 print -r -- "stock_app=unchanged" > "$update_dir/stock-integrity.txt"
 print -r -- "stock_preferences=unchanged" >> "$update_dir/stock-integrity.txt"
+print -r -- "stock_info_plist=unchanged" >> "$update_dir/stock-integrity.txt"
+print -r -- "stock_mas_receipt=unchanged" >> "$update_dir/stock-integrity.txt"
+print -r -- "rollback=not_needed_verified" >> "$rollback_dir/rollback.txt"
+print -r -- "rollback_pending=false" >> "$rollback_dir/backup.txt"
+rollback_complete="true"
+mutation_started="false"
+trap - EXIT
 
 print -r -- "status=updated"
 print -r -- "copied_app=$copied_app"

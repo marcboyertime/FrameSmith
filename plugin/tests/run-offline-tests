@@ -9,8 +9,10 @@ repo_dir="$(/usr/bin/dirname "$plugin_dir")"
 runtime_source="$plugin_dir/splicekit_minimal/Sources"
 runtime_implementation="$runtime_source/FCPCommandConsoleRuntime.m"
 runtime_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
-runtime_policy_source="$plugin_dir/splicekit_minimal/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
-runtime_policy_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
+runtime_policy_source="$plugin_dir/splicekit_minimal/Resources/FCPCCOnboardingQueryCompatibility.plist"
+runtime_policy_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
+retired_runtime_policy_source="$plugin_dir/splicekit_minimal/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
+retired_runtime_policy_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 injector="$plugin_dir/build/fcpcc-insert-dylib"
 entitlement_verifier="$plugin_dir/build/fcpcc-entitlement-verify"
 runtime_updater="$plugin_dir/patcher/update-copied-runtime"
@@ -22,11 +24,13 @@ source_app="/Applications/Final Cut Pro.app"
 source_executable="$source_app/Contents/MacOS/Final Cut Pro"
 onboarding_framework_relative_executable_path="Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
 source_onboarding_framework="$source_app/$onboarding_framework_relative_executable_path"
+mas_receipt_relative_path="Contents/_MASReceipt/receipt"
+source_mas_receipt="$source_app/$mas_receipt_relative_path"
 onboarding_framework_load_path="@rpath/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
 expected_onboarding_framework_sha256="636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce"
 expected_onboarding_framework_arm64_uuid="45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D"
 expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"
-preferences_file="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
+expected_mas_receipt_sha256="2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e"
 test_dir="$(/usr/bin/mktemp -d /tmp/fcpcc-offline-tests.XXXXXX)"
 load_path="@rpath/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
 rg_bin="$(command -v rg || true)"
@@ -59,7 +63,7 @@ fi
 if [[ -z "$rg_bin" ]]; then
     fail "rg is required for source audits"
 fi
-if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboarding_framework" ]]; then
+if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboarding_framework" || ! -f "$source_mas_receipt" ]]; then
     fail "required source app or reviewed onboarding framework is missing"
 fi
 
@@ -69,7 +73,8 @@ stock_onboarding_before="$(/usr/bin/shasum -a 256 "$source_onboarding_framework"
 /usr/bin/dwarfdump --uuid "$source_onboarding_framework" > "$test_dir/stock-onboarding-framework.uuids.txt"
 stock_onboarding_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$test_dir/stock-onboarding-framework.uuids.txt")"
 stock_onboarding_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$test_dir/stock-onboarding-framework.uuids.txt")"
-if [[ "$stock_onboarding_before" != "$expected_onboarding_framework_sha256" || "$stock_onboarding_arm64_uuid" != "$expected_onboarding_framework_arm64_uuid" || "$stock_onboarding_x86_64_uuid" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+stock_mas_receipt_before="$(/usr/bin/shasum -a 256 "$source_mas_receipt" | /usr/bin/awk '{print $1}')"
+if [[ "$stock_onboarding_before" != "$expected_onboarding_framework_sha256" || "$stock_onboarding_arm64_uuid" != "$expected_onboarding_framework_arm64_uuid" || "$stock_onboarding_x86_64_uuid" != "$expected_onboarding_framework_x86_64_uuid" || "$stock_mas_receipt_before" != "$expected_mas_receipt_sha256" ]]; then
     fail "stock onboarding framework hash or slice UUID does not match the reviewed contract"
 fi
 for architecture in arm64 x86_64; do
@@ -79,13 +84,6 @@ for architecture in arm64 x86_64; do
         fail "stock main executable does not directly load exactly one reviewed onboarding framework in $architecture"
     fi
 done
-if [[ -f "$preferences_file" ]]; then
-    /usr/bin/plutil -convert xml1 -o "$test_dir/preferences-before.xml" "$preferences_file"
-else
-    print -r -- "absent" > "$test_dir/preferences-before.xml"
-fi
-preferences_before="$(/usr/bin/shasum -a 256 "$test_dir/preferences-before.xml" | /usr/bin/awk '{print $1}')"
-
 for forbidden in \
     'NSSelectorFromString' \
     'performSelector' \
@@ -144,26 +142,20 @@ for manifest_field in canonical_path expected_device expected_inode persistent_u
     require_fragment "$manifest_field" "$repo_dir/config/fcpcommandconsole-library-manifest.json" "library manifest"
 done
 
-if "$rg_bin" -n -i -F 'com.apple.FinalCut' "$runtime_source" >/dev/null; then
-    fail "runtime contains the production Final Cut preference domain"
-fi
 if "$rg_bin" -n -i -F 'defaults' "$runtime_source" >/dev/null; then
     fail "runtime invokes or names defaults"
 fi
-preference_write_count="$("$rg_bin" -F -c 'CFPreferencesSetAppValue' "$runtime_implementation")"
-if [[ "$preference_write_count" != "2" ]]; then
-    fail "runtime does not have exactly two isolated preference writes"
-fi
-preference_write_lines="$("$rg_bin" -n -F 'CFPreferencesSetAppValue' "$runtime_implementation")"
-if ! print -r -- "$preference_write_lines" | "$rg_bin" -F -q 'FCPCCCloudContentFirstLaunchCompletedKey' || ! print -r -- "$preference_write_lines" | "$rg_bin" -F -q 'FCPCCFFCloudContentDisabledKey'; then
-    fail "runtime preference writes are not restricted to the two approved fixed keys"
-fi
-preference_gate_line="$("$rg_bin" -n -F 'FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];' "$runtime_implementation" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-preference_guard_line="$("$rg_bin" -n -F 'if (!containment.isVerified)' "$runtime_implementation" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-first_preference_write_line="$(print -r -- "$preference_write_lines" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-synchronize_line="$("$rg_bin" -n -F 'CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication)' "$runtime_implementation" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-if [[ -z "$preference_gate_line" || -z "$preference_guard_line" || -z "$first_preference_write_line" || -z "$synchronize_line" || "$preference_gate_line" -ge "$preference_guard_line" || "$preference_guard_line" -ge "$first_preference_write_line" || "$first_preference_write_line" -ge "$synchronize_line" ]]; then
-    fail "exact-host containment gate does not precede isolated preference writes and synchronization"
+for forbidden_preference_surface in \
+    'CFPreferences' \
+    'CloudContentFirstLaunchCompleted' \
+    'FFCloudContentDisabled' \
+    'kCFPreferencesCurrentApplication'; do
+    if "$rg_bin" -F -q "$forbidden_preference_surface" "$runtime_implementation"; then
+        fail "runtime retains a shared Final Cut preference surface: $forbidden_preference_surface"
+    fi
+done
+if ! "$rg_bin" -F -q 'FCPCCExpectedHostBundleIdentifier = @"com.apple.FinalCut"' "$runtime_implementation" || ! "$rg_bin" -F -q 'FCPCCExpectedCopiedHostBundlePath' "$runtime_implementation"; then
+    fail "runtime does not require the receipt-compatible identifier and exact copied path"
 fi
 
 for required_runtime_fragment in \
@@ -171,6 +163,8 @@ for required_runtime_fragment in \
     'FCPCCExpectedOnboardingCoordinatorClassName' \
     'FCPCCExpectedOnboardingQuerySetterName' \
     'FCPCCExpectedOnboardingQuerySetterTypeEncoding' \
+    'FCPCCExpectedMASReceiptRelativePath' \
+    'FCPCCExpectedMASReceiptSHA256' \
     '636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce' \
     'FCPCCExpectedOnboardingFrameworkArm64UUID' \
     'FCPCCExpectedOnboardingFrameworkX86_64UUID' \
@@ -180,19 +174,38 @@ for required_runtime_fragment in \
     'FCPCCFileSHA256MatchesExpectedHex' \
     'FCPCCCopiedHostImageUUIDMatches' \
     'FCPCCOnboardingFrameworkIdentityForImplementation' \
-    'FCPCCDiscardOnboardingQueryDemoProjectInfo' \
-    'FCPCCInstallOnboardingQueryGate'; do
-    require_fragment "$required_runtime_fragment" "$runtime_implementation" "runtime exact onboarding gate"
+    'FCPCCOnboardingDemoProjectInfoCompletion' \
+    'FCPCCOnboardingQueryDemoProjectInfoProvider' \
+    'FCPCCOnboardingQueryDemoProjectInfoSetter' \
+    'FCPCCVerifiedOnboardingQueryDemoProjectInfoSetter' \
+    'FCPCCCompleteOnboardingDemoProjectInfoAsyncWithNil' \
+    'FCPCCForwardOnboardingQueryDemoProjectInfoSetterWithAsyncNilMetadata' \
+    'FCPCCInstallOnboardingQueryCompatibility'; do
+    require_fragment "$required_runtime_fragment" "$runtime_implementation" "runtime exact onboarding compatibility"
 done
 host_identity_source="$(/usr/bin/sed -n '/static BOOL FCPCCCopiedHostImageUUIDMatches/,/^}/p' "$runtime_implementation")"
 for required_host_identity_fragment in \
     '_dyld_get_image_name(0)' \
     '_dyld_get_image_header(0)' \
     'FCPCCExpectedCurrentArchitectureHostUUID()' \
-    'NSBundle.mainBundle.executablePath' \
+    'FCPCCExpectedCopiedHostBundlePath' \
+    'Contents/MacOS/Final Cut Pro' \
     'FCPCCLoadedMachOImageHasExpectedUUID'; do
     if ! print -r -- "$host_identity_source" | "$rg_bin" -F -q "$required_host_identity_fragment"; then
         fail "runtime copied-host identity check is missing: $required_host_identity_fragment"
+    fi
+done
+containment_gate_source="$(/usr/bin/sed -n '/static BOOL FCPCCCopiedHostMASReceiptMatches/,/@end/p' "$runtime_implementation")"
+for required_containment_gate_fragment in \
+    'NSBundle.mainBundle.bundlePath' \
+    'FCPCCExpectedCopiedHostBundlePath' \
+    'FCPCCExpectedMASReceiptRelativePath' \
+    'FCPCCFileSHA256MatchesExpectedHex(receiptPath, FCPCCExpectedMASReceiptSHA256)' \
+    'exactCopiedHostPath' \
+    'exactRuntimePath' \
+    'FCPCCCopiedHostMASReceiptMatches()'; do
+    if ! print -r -- "$containment_gate_source" | "$rg_bin" -F -q "$required_containment_gate_fragment"; then
+        fail "runtime copied-host containment check is missing: $required_containment_gate_fragment"
     fi
 done
 framework_identity_source="$(/usr/bin/sed -n '/static FCPCCOnboardingFrameworkIdentityDisposition FCPCCOnboardingFrameworkIdentityForImplementation/,/^}/p' "$runtime_implementation")"
@@ -212,13 +225,15 @@ runtime_constructor_source="$(/usr/bin/sed -n '/__attribute__((constructor))/,/^
 if print -r -- "$runtime_constructor_source" | "$rg_bin" -F -q 'showPanel:' || print -r -- "$runtime_constructor_source" | "$rg_bin" -F -q 'showWindow:' || print -r -- "$runtime_constructor_source" | "$rg_bin" -F -q 'makeKeyAndOrderFront:'; then
     fail "runtime constructor auto-shows the panel"
 fi
-gate_install_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F '(void)FCPCCInstallOnboardingQueryGate();' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+compatibility_install_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F '(void)FCPCCInstallOnboardingQueryCompatibility();' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
 menu_enqueue_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F '[[FCPCCRuntime sharedRuntime] installMenuWhenReady];' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
-if [[ -z "$gate_install_line" || -z "$menu_enqueue_line" || "$gate_install_line" -ge "$menu_enqueue_line" ]]; then
-    fail "single onboarding query gate is not installed before menu scheduling"
+constructor_containment_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F 'FCPCCRuntimeContainmentGate alloc' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+constructor_reject_line="$(print -r -- "$runtime_constructor_source" | "$rg_bin" -n -F 'if (!containment.isVerified)' | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)"
+if [[ -z "$constructor_containment_line" || -z "$constructor_reject_line" || -z "$compatibility_install_line" || -z "$menu_enqueue_line" || "$constructor_containment_line" -ge "$constructor_reject_line" || "$constructor_reject_line" -ge "$compatibility_install_line" || "$compatibility_install_line" -ge "$menu_enqueue_line" ]]; then
+    fail "exact copied-host containment does not precede the compatibility bridge and menu scheduling"
 fi
-query_gate_source="$(/usr/bin/sed -n '/static NSString \*FCPCCInstallOnboardingQueryGate/,/^}/p' "$runtime_implementation")"
-for required_query_gate_fragment in \
+query_compatibility_source="$(/usr/bin/sed -n '/static NSString \*FCPCCInstallOnboardingQueryCompatibility/,/^}/p' "$runtime_implementation")"
+for required_query_compatibility_fragment in \
     'dispatch_once(&onceToken, ^{' \
     'FCPCCRuntimeContainmentGate alloc' \
     'FCPCCCopiedHostImageUUIDMatches()' \
@@ -231,22 +246,30 @@ for required_query_gate_fragment in \
     'method_getTypeEncoding(method)' \
     'method_getImplementation(method)' \
     'FCPCCOnboardingFrameworkIdentityForImplementation(originalImplementation)' \
+    'FCPCCVerifiedOnboardingQueryDemoProjectInfoSetter = (FCPCCOnboardingQueryDemoProjectInfoSetter)originalImplementation;' \
     'class_replaceMethod(targetClass,' \
-    'FCPCCDiscardOnboardingQueryDemoProjectInfo' \
-    'onboarding_query_gate=installed'; do
-    if ! print -r -- "$query_gate_source" | "$rg_bin" -F -q "$required_query_gate_fragment"; then
-        fail "runtime single onboarding query gate is missing: $required_query_gate_fragment"
+    'FCPCCForwardOnboardingQueryDemoProjectInfoSetterWithAsyncNilMetadata' \
+    'onboarding_query_compatibility=installed'; do
+    if ! print -r -- "$query_compatibility_source" | "$rg_bin" -F -q "$required_query_compatibility_fragment"; then
+        fail "runtime single onboarding query compatibility is missing: $required_query_compatibility_fragment"
     fi
 done
-if print -r -- "$query_gate_source" | "$rg_bin" -F -q 'dispatch_async' || print -r -- "$query_gate_source" | "$rg_bin" -F -q 'NSApplicationWillFinishLaunchingNotification'; then
-    fail "onboarding query gate contains a delayed or launch-notification retry"
+if print -r -- "$query_compatibility_source" | "$rg_bin" -F -q 'dispatch_async' || print -r -- "$query_compatibility_source" | "$rg_bin" -F -q 'NSApplicationWillFinishLaunchingNotification'; then
+    fail "onboarding query compatibility contains a delayed or launch-notification retry"
 fi
-if [[ "$(print -r -- "$query_gate_source" | "$rg_bin" -F -o 'class_replaceMethod' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$(print -r -- "$query_gate_source" | "$rg_bin" -F -o 'objc_getClass(' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$(print -r -- "$query_gate_source" | "$rg_bin" -F -o 'sel_registerName(' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
-    fail "onboarding query gate is not limited to one exact replacement path"
+if [[ "$(print -r -- "$query_compatibility_source" | "$rg_bin" -F -o 'class_replaceMethod' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$(print -r -- "$query_compatibility_source" | "$rg_bin" -F -o 'objc_getClass(' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$(print -r -- "$query_compatibility_source" | "$rg_bin" -F -o 'sel_registerName(' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
+    fail "onboarding query compatibility is not limited to one exact replacement path"
 fi
-discard_query_source="$(/usr/bin/sed -n '/static void FCPCCDiscardOnboardingQueryDemoProjectInfo/,/^}/p' "$runtime_implementation")"
-if ! print -r -- "$discard_query_source" | "$rg_bin" -F -q '(void)queryDemoProjectInfo;' || print -r -- "$discard_query_source" | "$rg_bin" -F -q 'originalImplementation' || print -r -- "$discard_query_source" | "$rg_bin" -F -q 'completion('; then
-    fail "replacement does not remain an isolated no-op for the query block"
+query_completion_source="$(/usr/bin/sed -n '/static void FCPCCCompleteOnboardingDemoProjectInfoAsyncWithNil/,/^}/p' "$runtime_implementation")"
+if ! print -r -- "$query_completion_source" | "$rg_bin" -F -q 'dispatch_async(dispatch_get_main_queue(), ^{' || ! print -r -- "$query_completion_source" | "$rg_bin" -F -q 'completion(nil);' || print -r -- "$query_completion_source" | "$rg_bin" -F -q 'NSError' || print -r -- "$query_completion_source" | "$rg_bin" -F -q 'CloudContent'; then
+    fail "query completion does not remain the reviewed asynchronous nil-metadata path"
+fi
+query_setter_wrapper_source="$(/usr/bin/sed -n '/static void FCPCCForwardOnboardingQueryDemoProjectInfoSetterWithAsyncNilMetadata/,/^}/p' "$runtime_implementation")"
+if ! print -r -- "$query_setter_wrapper_source" | "$rg_bin" -F -q '(void)queryDemoProjectInfo;' || ! print -r -- "$query_setter_wrapper_source" | "$rg_bin" -F -q 'FCPCCVerifiedOnboardingQueryDemoProjectInfoSetter' || ! print -r -- "$query_setter_wrapper_source" | "$rg_bin" -F -q 'originalSetter(self, command, nilMetadataProvider);'; then
+    fail "query compatibility wrapper does not retain and invoke the verified original setter"
+fi
+if "$rg_bin" -n -i -F 'FCPCCDiscardOnboardingQueryDemoProjectInfo' "$runtime_implementation" >/dev/null || "$rg_bin" -n -i -F 'discard_query_block_noop' "$runtime_implementation" "$runtime_policy_source" >/dev/null; then
+    fail "retired query-discard behavior remains reachable"
 fi
 for forbidden_runtime_surface in \
     'FCPCCCloudContentCompatibilityEntry' \
@@ -278,25 +301,22 @@ done
 
 /usr/bin/plutil -lint "$runtime_policy_source" >/dev/null
 /usr/bin/plutil -lint "$runtime_policy_build" >/dev/null
+if [[ -e "$retired_runtime_policy_source" || -e "$retired_runtime_policy_build" ]]; then
+    fail "retired isolated preference policy remains present"
+fi
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "4" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
-        fail "compatibility policy host, framework, or isolated preference identity is not exact"
-    fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:0' "$policy_path")" != "CloudContentFirstLaunchCompleted" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:1' "$policy_path")" != "FFCloudContentDisabled" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" ]]; then
-        fail "compatibility policy does not contain exactly the two reviewed true values"
-    fi
-    if /usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:2' "$policy_path" >/dev/null 2>&1; then
-        fail "compatibility policy permits more than two preference keys"
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "6" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+        fail "compatibility policy copied-host, receipt, or onboarding identity is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "1" ]]; then
         fail "compatibility policy single constructor gate mode is not exact"
     fi
-    for removed_policy_key in CompatibilityInstallPhases MethodGuardLogSubsystem MethodGuardLogCategory; do
+    for removed_policy_key in CompatibilityInstallPhases MethodGuardLogSubsystem MethodGuardLogCategory PreferenceDomain ApprovedPreferenceKeys ApprovedPreferenceValues SynchronizeDeterministically; do
         if /usr/libexec/PlistBuddy -c "Print :$removed_policy_key" "$policy_path" >/dev/null 2>&1; then
-            fail "compatibility policy retains an obsolete scheduler or logger key"
+            fail "compatibility policy retains an obsolete scheduler, logger, or preference key"
         fi
     done
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "discard_query_block_noop" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "forward_original_setter_async_nil_metadata_provider" ]]; then
         fail "compatibility policy single onboarding query setter contract is not exact"
     fi
     if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
@@ -309,19 +329,30 @@ fi
 
 /usr/bin/strings "$runtime_build" > "$test_dir/runtime-binary-strings.txt"
 for required_runtime_binary_string in \
-    'com.local.fcpcommandconsole.FinalCut' \
+    'com.apple.FinalCut' \
+    '/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app' \
     '12.3' \
     '450152' \
-    'CloudContentFirstLaunchCompleted' \
-    'FFCloudContentDisabled' \
+    'Contents/_MASReceipt/receipt' \
+    '2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e' \
     'Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne' \
     'POFDesktopOnboardingCoordinator' \
     'setQueryDemoProjectInfo:' \
     'v24@0:8@?16' \
     '636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce' \
-    'onboarding_query_gate=installed'; do
+    'onboarding_query_compatibility=installed'; do
     if ! /usr/bin/grep -F -x -q "$required_runtime_binary_string" "$test_dir/runtime-binary-strings.txt"; then
         fail "built runtime is missing required exact binary string: $required_runtime_binary_string"
+    fi
+done
+for retired_runtime_binary_string in \
+    'com.local.fcpcommandconsole.FinalCut' \
+    'CloudContentFirstLaunchCompleted' \
+    'FFCloudContentDisabled' \
+    'onboarding_query_gate=installed' \
+    'discard_query_block_noop'; do
+    if /usr/bin/grep -F -x -q "$retired_runtime_binary_string" "$test_dir/runtime-binary-strings.txt"; then
+        fail "built runtime retains retired compatibility binary string: $retired_runtime_binary_string"
     fi
 done
 
@@ -353,22 +384,98 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         require_fragment "$required_provenance_fragment" "$patcher_script" "onboarding framework provenance patcher"
     done
 done
-for patcher_script in "$runtime_updater" "$runtime_verifier"; do
-    for required_policy_fragment in \
-        "SchemaVersion' \"\$policy_path\")\" != \"4" \
+for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier" "$repair_patcher"; do
+    for required_receipt_aware_patcher_fragment in \
+        'expected_host_bundle_identifier="com.apple.FinalCut"' \
+        'expected_copied_host_bundle_path="$copied_app"' \
+        'expected_stock_pre_injection_host_executable_sha256="6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390"' \
+        'mas_receipt_relative_path="Contents/_MASReceipt/receipt"' \
+        'expected_mas_receipt_sha256="2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e"' \
+        'FCPCCOnboardingQueryCompatibility.plist' \
+        'capture_receipt' \
+        'verify_receipt' \
+        'verify_compatibility_policy'; do
+        require_fragment "$required_receipt_aware_patcher_fragment" "$patcher_script" "receipt-aware copied-app patcher"
+    done
+
+    current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$patcher_script")"
+    for required_current_policy_fragment in \
+        'Print :SchemaVersion' \
+        '" != "6"' \
+        'ExpectedHostBundleIdentifier' \
+        'ExpectedCopiedHostBundlePath' \
+        'ExpectedHostVersion' \
+        'ExpectedHostBuild' \
+        'ExpectedStockPreInjectionHostExecutableSHA256' \
+        'ExpectedHostArm64UUID' \
+        'ExpectedHostX86_64UUID' \
+        'ExpectedMASReceiptRelativePath' \
+        'ExpectedMASReceiptSHA256' \
         'ExpectedOnboardingFrameworkRelativeExecutablePath' \
         'ExpectedOnboardingFrameworkSHA256' \
         'ExpectedOnboardingFrameworkArm64UUID' \
         'ExpectedOnboardingFrameworkX86_64UUID' \
         'CompatibilityInstallPhase' \
         'MaximumMethodGuardAttempts' \
-        'ApprovedMethodReplacements:1' \
+        'for removed_policy_key in' \
+        'PreferenceDomain' \
+        'ApprovedPreferenceKeys' \
+        'ApprovedPreferenceValues' \
+        'SynchronizeDeterministically' \
         'POFDesktopOnboardingCoordinator' \
         'setQueryDemoProjectInfo:' \
         '0x1313c' \
-        '0x13cc0'; do
-        require_fragment "$required_policy_fragment" "$patcher_script" "single setter policy patcher"
+        '0x13cc0' \
+        'forward_original_setter_async_nil_metadata_provider'; do
+        if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q "$required_current_policy_fragment"; then
+            fail "patcher current schema-6 policy contract is missing: $required_current_policy_fragment"
+        fi
     done
+    if print -r -- "$current_policy_source" | "$rg_bin" -F -q 'discard_query_block_noop'; then
+        fail "patcher current schema-6 policy retains the retired query-discard contract"
+    fi
+done
+
+legacy_policy_source="$(/usr/bin/sed -n '/^verify_legacy_compatibility_policy()/,/^}/p' "$runtime_updater")"
+for required_legacy_policy_fragment in \
+    'Print :SchemaVersion' \
+    '" != "4"' \
+    'legacy_host_bundle_identifier' \
+    'ExpectedHostExecutableSHA256' \
+    'PreferenceDomain' \
+    'ApprovedPreferenceKeys:0' \
+    'ApprovedPreferenceKeys:1' \
+    'CloudContentFirstLaunchCompleted' \
+    'FFCloudContentDisabled' \
+    'SynchronizeDeterministically' \
+    'discard_query_block_noop'; do
+    if ! print -r -- "$legacy_policy_source" | "$rg_bin" -F -q "$required_legacy_policy_fragment"; then
+        fail "updater one-time schema-4 migration contract is missing: $required_legacy_policy_fragment"
+    fi
+done
+updater_current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$runtime_updater")"
+for retired_current_updater_fragment in \
+    'legacy_host_bundle_identifier' \
+    'ExpectedHostExecutableSHA256' \
+    'CloudContentFirstLaunchCompleted' \
+    'FFCloudContentDisabled' \
+    'discard_query_block_noop'; do
+    if print -r -- "$updater_current_policy_source" | "$rg_bin" -F -q "$retired_current_updater_fragment"; then
+        fail "updater current policy accepts a legacy-only field: $retired_current_updater_fragment"
+    fi
+done
+for required_migration_fragment in \
+    'FCPCCIsolatedCloudContentCompatibility.plist' \
+    'migration_required="false"' \
+    'if [[ "$copied_identifier" == "$legacy_host_bundle_identifier" ]]; then' \
+    'verify_legacy_compatibility_policy' \
+    'legacy_policy=verified_for_one_time_migration' \
+    'legacy_policy=not_applicable' \
+    'Set :CFBundleIdentifier $expected_host_bundle_identifier' \
+    'bundle_identifier_migration=$legacy_host_bundle_identifier->$expected_host_bundle_identifier' \
+    'verify_compatibility_policy "$embedded_compatibility_policy" "embedded"' \
+    'copied MAS receipt changed during runtime update'; do
+    require_fragment "$required_migration_fragment" "$runtime_updater" "one-time receipt-compatible bundle-identifier migration"
 done
 if ! "$rg_bin" -F -q 'copied_onboarding_framework=stock_identity_matched' "$runtime_verifier" || ! "$rg_bin" -F -q 'query_setter_offsets=arm64:0x1313c,x86_64:0x13cc0' "$runtime_verifier"; then
     fail "copied-artifact verifier does not record exact framework provenance and setter offsets"
@@ -381,19 +488,59 @@ if print -r -- "$runtime_string_loop_source" | "$rg_bin" -F -q "'constructor'"; 
     fail "copied-artifact verifier incorrectly treats the policy-only constructor phase as a runtime binary string"
 fi
 for required_runtime_binary_string in \
-    'com.local.fcpcommandconsole.FinalCut' \
+    'com.apple.FinalCut' \
+    '/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app' \
     '12.3' \
     '450152' \
-    'CloudContentFirstLaunchCompleted' \
-    'FFCloudContentDisabled' \
+    'Contents/_MASReceipt/receipt' \
+    '2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e' \
     'Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne' \
     'POFDesktopOnboardingCoordinator' \
     'setQueryDemoProjectInfo:' \
     'v24@0:8@?16' \
     '636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce' \
-    'onboarding_query_gate=installed'; do
+    'onboarding_query_compatibility=installed'; do
     if ! print -r -- "$runtime_string_loop_source" | "$rg_bin" -F -q "'$required_runtime_binary_string'"; then
         fail "copied-artifact verifier is missing required literalized runtime binary string: $required_runtime_binary_string"
+    fi
+done
+for retired_runtime_binary_string in \
+    'com.local.fcpcommandconsole.FinalCut' \
+    'CloudContentFirstLaunchCompleted' \
+    'FFCloudContentDisabled' \
+    'onboarding_query_gate=installed' \
+    'discard_query_block_noop'; do
+    if print -r -- "$runtime_string_loop_source" | "$rg_bin" -F -q "'$retired_runtime_binary_string'"; then
+        fail "copied-artifact verifier still expects a retired runtime binary string: $retired_runtime_binary_string"
+    fi
+done
+runtime_symbol_loop_source="$(/usr/bin/sed -n '/for required_runtime_symbol in/,/^done/p' "$runtime_verifier")"
+for forbidden_runtime_symbol in _CFPreferencesSetAppValue _CFPreferencesAppSynchronize; do
+    if print -r -- "$runtime_symbol_loop_source" | "$rg_bin" -F -q "$forbidden_runtime_symbol"; then
+        fail "copied-artifact verifier still expects a shared Final Cut preference symbol: $forbidden_runtime_symbol"
+    fi
+done
+for required_runtime_symbol in \
+    _objc_getClass \
+    _sel_registerName \
+    _class_getInstanceMethod \
+    _class_getClassMethod \
+    _class_replaceMethod \
+    _method_getNumberOfArguments \
+    _method_copyReturnType \
+    _method_getTypeEncoding \
+    _method_getImplementation \
+    _dladdr \
+    _dyld_get_image_header \
+    _dyld_get_image_name \
+    _open \
+    _read \
+    _close \
+    _CC_SHA256_Init \
+    _CC_SHA256_Update \
+    _CC_SHA256_Final; do
+    if ! print -r -- "$runtime_symbol_loop_source" | "$rg_bin" -F -q "$required_runtime_symbol"; then
+        fail "copied-artifact verifier omits a required exact-gate runtime symbol: $required_runtime_symbol"
     fi
 done
 if ! /bin/zsh -f -c 'set -o nomatch; for expected in '"'"'v24@0:8@?16'"'"'; do [[ "$expected" == "v24@0:8@?16" ]] || exit 1; done'; then
@@ -502,14 +649,9 @@ fi
 stock_main_after="$(/usr/bin/shasum -a 256 "$source_executable" | /usr/bin/awk '{print $1}')"
 stock_info_after="$(/usr/bin/shasum -a 256 "$source_app/Contents/Info.plist" | /usr/bin/awk '{print $1}')"
 stock_onboarding_after="$(/usr/bin/shasum -a 256 "$source_onboarding_framework" | /usr/bin/awk '{print $1}')"
-if [[ -f "$preferences_file" ]]; then
-    /usr/bin/plutil -convert xml1 -o "$test_dir/preferences-after.xml" "$preferences_file"
-else
-    print -r -- "absent" > "$test_dir/preferences-after.xml"
-fi
-preferences_after="$(/usr/bin/shasum -a 256 "$test_dir/preferences-after.xml" | /usr/bin/awk '{print $1}')"
-if [[ "$stock_main_before" != "$stock_main_after" || "$stock_info_before" != "$stock_info_after" || "$stock_onboarding_before" != "$stock_onboarding_after" || "$preferences_before" != "$preferences_after" ]]; then
-    fail "offline tests changed a stock app, onboarding framework, or exported preference fingerprint"
+stock_mas_receipt_after="$(/usr/bin/shasum -a 256 "$source_mas_receipt" | /usr/bin/awk '{print $1}')"
+if [[ "$stock_main_before" != "$stock_main_after" || "$stock_info_before" != "$stock_info_after" || "$stock_onboarding_before" != "$stock_onboarding_after" || "$stock_mas_receipt_before" != "$stock_mas_receipt_after" ]]; then
+    fail "offline tests changed a stock app, onboarding framework, or MAS receipt"
 fi
 
 print -r -- "offline_tests=pass"

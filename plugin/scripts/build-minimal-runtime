@@ -15,6 +15,10 @@ framework_dir="$build_dir/FCPCommandConsoleRuntime.framework"
 runtime_binary="$framework_dir/Versions/A/FCPCommandConsoleRuntime"
 injector_binary="$build_dir/fcpcc-insert-dylib"
 entitlement_verifier="$build_dir/fcpcc-entitlement-verify"
+compatibility_policy_name="FCPCCOnboardingQueryCompatibility.plist"
+runtime_policy_source="$runtime_dir/Resources/$compatibility_policy_name"
+runtime_policy_build="$framework_dir/Versions/A/Resources/$compatibility_policy_name"
+retired_runtime_policy_build="$framework_dir/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 
 fail() {
   print -u2 -r -- "build-minimal-runtime: $1"
@@ -24,24 +28,18 @@ fail() {
 verify_compatibility_policy() {
   local policy_path="$1"
   /usr/bin/plutil -lint "$policy_path" >/dev/null || fail "compatibility policy is invalid"
-  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "4" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.local.fcpcommandconsole.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7" || "$(/usr/libexec/PlistBuddy -c 'Print :PreferenceDomain' "$policy_path")" != "kCFPreferencesCurrentApplication" ]]; then
-    fail "compatibility policy host or preference domain is not exact"
+  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "6" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "Contents/_MASReceipt/receipt" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7" ]]; then
+    fail "compatibility policy copied-host, receipt, or onboarding identity is not exact"
   fi
   if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$policy_path")" != "constructor" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "1" ]]; then
     fail "compatibility policy guard mode or phases are not exact"
   fi
-  for removed_policy_key in CompatibilityInstallPhases MethodGuardLogSubsystem MethodGuardLogCategory; do
+  for removed_policy_key in CompatibilityInstallPhases MethodGuardLogSubsystem MethodGuardLogCategory PreferenceDomain ApprovedPreferenceKeys ApprovedPreferenceValues SynchronizeDeterministically; do
     if /usr/libexec/PlistBuddy -c "Print :$removed_policy_key" "$policy_path" >/dev/null 2>&1; then
-      fail "compatibility policy retains an obsolete scheduler or logger key"
+      fail "compatibility policy retains an obsolete scheduler, logger, or preference key"
     fi
   done
-  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:0' "$policy_path")" != "CloudContentFirstLaunchCompleted" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:1' "$policy_path")" != "FFCloudContentDisabled" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:CloudContentFirstLaunchCompleted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceValues:FFCloudContentDisabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :SynchronizeDeterministically' "$policy_path")" != "true" ]]; then
-    fail "compatibility policy preference contract is not exact"
-  fi
-  if /usr/libexec/PlistBuddy -c 'Print :ApprovedPreferenceKeys:2' "$policy_path" >/dev/null 2>&1; then
-    fail "compatibility policy permits an extra preference key"
-  fi
-  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "discard_query_block_noop" ]]; then
+  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:RuntimeClass' "$policy_path")" != "POFDesktopOnboardingCoordinator" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Selector' "$policy_path")" != "setQueryDemoProjectInfo:" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:MethodKind' "$policy_path")" != "instance" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCArgumentCount' "$policy_path")" != "3" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCReturnType' "$policy_path")" != "v" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ObjectiveCTypeEncoding' "$policy_path")" != "v24@0:8@?16" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetArm64' "$policy_path")" != "0x1313c" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:ExpectedOriginalImplementationOffsetX86_64' "$policy_path")" != "0x13cc0" || "$(/usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:0:Replacement' "$policy_path")" != "forward_original_setter_async_nil_metadata_provider" ]]; then
     fail "compatibility policy single onboarding query setter contract is not exact"
   fi
   if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:1' "$policy_path" >/dev/null 2>&1; then
@@ -74,7 +72,8 @@ verify_compatibility_policy() {
 /bin/cp "$runtime_dir/Resources/FCPCommandConsoleRuntime-Info.plist" "$framework_dir/Versions/A/Resources/Info.plist"
 /bin/cp "$repo_dir/config/fcpcommandconsole-library-manifest.json" "$framework_dir/Versions/A/Resources/FCPCommandConsoleLibraryManifest.json"
 /bin/cp "$runtime_dir/Resources/LATER_INTEGRATION_INTERFACE.json" "$framework_dir/Versions/A/Resources/LATER_INTEGRATION_INTERFACE.json"
-/bin/cp "$runtime_dir/Resources/FCPCCIsolatedCloudContentCompatibility.plist" "$framework_dir/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
+/bin/cp "$runtime_policy_source" "$runtime_policy_build"
+/bin/rm -f "$retired_runtime_policy_build"
 /bin/ln -sfn A "$framework_dir/Versions/Current"
 /bin/ln -sfn Versions/Current/FCPCommandConsoleRuntime "$framework_dir/FCPCommandConsoleRuntime"
 /bin/ln -sfn Versions/Current/Resources "$framework_dir/Resources"
@@ -106,7 +105,7 @@ verify_compatibility_policy() {
   -o "$entitlement_verifier"
 
 /usr/bin/plutil -lint "$framework_dir/Versions/A/Resources/Info.plist" >/dev/null
-verify_compatibility_policy "$framework_dir/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
+verify_compatibility_policy "$runtime_policy_build"
 /usr/bin/lipo "$runtime_binary" -verify_arch arm64
 /usr/bin/lipo "$runtime_binary" -verify_arch x86_64
 /usr/bin/lipo "$injector_binary" -verify_arch arm64
