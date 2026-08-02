@@ -603,12 +603,15 @@ if [[ -z "$legacy_gate_line" || -z "$receipt_rebind_line" || "$legacy_gate_line"
     fail "legacy entitlement state must be resolved before receipt-provenance rebinding"
 fi
 for exact_framework_replacement_fragment in \
-    '/usr/bin/mv "$embedded_framework" "$rollback_dir/staged-retired-runtime-framework"' \
+    '/bin/mv "$embedded_framework" "$rollback_dir/staged-retired-runtime-framework"' \
     'capture_bundle_manifest "$built_framework" "$update_dir/built-runtime-framework.manifest"' \
     'capture_bundle_manifest "$embedded_framework" "$update_dir/staged-runtime-framework-before-signing.manifest"' \
     'fresh staged project runtime framework differs from the complete built framework manifest'; do
     require_fragment "$exact_framework_replacement_fragment" "$runtime_updater" "exact staged runtime framework replacement"
 done
+if "$rg_bin" -F -q -- '/usr/bin/mv' "$runtime_updater"; then
+    fail "runtime updater references the nonexistent macOS /usr/bin/mv path"
+fi
 require_fragment 'if ! /usr/bin/cmp -s "$update_dir/copied-before/Info.plist.sha256" "$update_dir/copied-after/Info.plist.sha256"; then' "$runtime_updater" "unconditional copied-app metadata preservation gate"
 if "$rg_bin" -F -q -- 'if [[ "$migration_required" == "false" ]] && ! /usr/bin/cmp -s "$update_dir/copied-before/Info.plist.sha256"' "$runtime_updater"; then
     fail "copied-app Info.plist preservation must not be exempted during entitlement migration"

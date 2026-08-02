@@ -532,7 +532,7 @@ print -r -- "app_signature_operation=top_level_copied_app_only" >> "$update_dir/
 print -r -- "deep_signing=false" >> "$update_dir/signing.txt"
 
 require_not_running "$update_dir/process-before-runtime-copy.txt"
-/usr/bin/mv "$embedded_framework" "$rollback_dir/staged-retired-runtime-framework"
+/bin/mv "$embedded_framework" "$rollback_dir/staged-retired-runtime-framework"
 /usr/bin/ditto "$built_framework" "$embedded_framework"
 capture_bundle_manifest "$built_framework" "$update_dir/built-runtime-framework.manifest"
 capture_bundle_manifest "$embedded_framework" "$update_dir/staged-runtime-framework-before-signing.manifest"
