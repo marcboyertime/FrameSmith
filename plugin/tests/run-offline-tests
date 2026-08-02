@@ -488,6 +488,13 @@ for canonical_migration_fragment in \
     'rollback=restored_previous_complete_copy'; do
     require_fragment "$canonical_migration_fragment" "$runtime_updater" "contained no-sandbox migration updater"
 done
+for efficient_manifest_fragment in \
+    'FCPCC_BUNDLE_MANIFEST_V2' \
+    '/usr/bin/find -s "$app_path" -type f -print0' \
+    '/usr/bin/xargs -0 /usr/bin/shasum -a 256' \
+    'bundle file hash output is malformed or outside the exact bundle root'; do
+    require_fragment "$efficient_manifest_fragment" "$runtime_updater" "batched whole-bundle manifest"
+done
 require_fragment 'exec "$script_dir/update-copied-runtime" "$@"' "$repair_patcher" "entitlement repair compatibility wrapper"
 for fresh_canonical_patcher in "$initial_patcher" "$runtime_verifier"; do
     for canonical_entitlement_fragment in \

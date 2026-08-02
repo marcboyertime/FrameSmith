@@ -111,25 +111,33 @@ capture_bundle_manifest() {
     if [[ ! -d "$app_path" || -L "$app_path" ]]; then
         fail "bundle manifest target is not a real directory: $app_path"
     fi
-    : > "$output_file"
-    local entry relative mode size digest target
-    while IFS= read -r entry; do
-        relative="${entry#$app_path}"
-        [[ -n "$relative" ]] || relative="."
-        mode="$(/usr/bin/stat -f '%Sp' "$entry")"
-        if [[ -L "$entry" ]]; then
+    local entry relative digest_line digest full_path target
+    {
+        print -r -- "FCPCC_BUNDLE_MANIFEST_V2"
+        # Batch all file paths into a small number of shasum processes. This
+        # preserves byte-level coverage without spawning once per bundle file.
+        /usr/bin/find -s "$app_path" -type f -print0 |
+            /usr/bin/xargs -0 /usr/bin/shasum -a 256 |
+            while IFS= read -r digest_line; do
+                digest="${digest_line%% *}"
+                full_path="${digest_line#*  }"
+                if [[ "$full_path" == "$digest_line" || "$full_path" != "$app_path"/* ]]; then
+                    fail "bundle file hash output is malformed or outside the exact bundle root"
+                fi
+                relative="${full_path#$app_path}"
+                print -r -- "F\t$digest\t$relative"
+            done
+        while IFS= read -r entry; do
+            relative="${entry#$app_path}"
             target="$(/usr/bin/readlink "$entry")"
-            print -r -- "L\t$mode\t$relative\t$target" >> "$output_file"
-        elif [[ -f "$entry" ]]; then
-            size="$(/usr/bin/stat -f '%z' "$entry")"
-            digest="$(/usr/bin/shasum -a 256 "$entry" | /usr/bin/awk '{print $1}')"
-            print -r -- "F\t$mode\t$size\t$digest\t$relative" >> "$output_file"
-        elif [[ -d "$entry" ]]; then
-            print -r -- "D\t$mode\t$relative" >> "$output_file"
-        else
-            fail "bundle contains an unsupported filesystem entry: $relative"
-        fi
-    done < <(/usr/bin/find -s "$app_path" -print)
+            print -r -- "L\t$relative\t$target"
+        done < <(/usr/bin/find -s "$app_path" -type l -print)
+        while IFS= read -r entry; do
+            relative="${entry#$app_path}"
+            [[ -n "$relative" ]] || relative="."
+            print -r -- "D\t$relative"
+        done < <(/usr/bin/find -s "$app_path" -type d -print)
+    } > "$output_file"
 }
 
 require_distinct_files() {
