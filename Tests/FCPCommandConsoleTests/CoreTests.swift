@@ -90,10 +90,10 @@ final class CoreTests: XCTestCase {
     func testRegistryHasExactlyFourDefinitionsAndAliases() throws {
         let registry = try registry()
         XCTAssertEqual(registry.all.count, 4)
-        XCTAssertEqual(try registry.definition(for: .targetedRotateZoom).representation.rawValue, "fcp_native")
-        XCTAssertEqual(try registry.definition(for: .oldTelevision).representation.rawValue, "generated_asset_plus_fcp_native")
-        XCTAssertEqual(try registry.definition(for: .naturalDissolve).representation.rawValue, "fcp_native")
-        XCTAssertEqual(try registry.definition(for: .livingStill).representation.rawValue, "fcp_native")
+        XCTAssertEqual(try registry.definition(for: .targetedRotateZoom).representation.rawValue, "fcpxml_native")
+        XCTAssertEqual(try registry.definition(for: .oldTelevision).representation.rawValue, "layered_media")
+        XCTAssertEqual(try registry.definition(for: .naturalDissolve).representation.rawValue, "fcpxml_native")
+        XCTAssertEqual(try registry.definition(for: .livingStill).representation.rawValue, "fcpxml_native")
         XCTAssertEqual(registry.resolve("VHS"), .oldTelevision)
         XCTAssertEqual(registry.resolve("crossfade"), .naturalDissolve)
         XCTAssertEqual(registry.resolve("parallax"), .livingStill)
@@ -313,7 +313,7 @@ final class CoreTests: XCTestCase {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let schema = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("schemas/effect-plan.schema.json"))) as! [String: Any]
         let properties = schema["properties"] as! [String: Any]
-        XCTAssertEqual((properties["representation"] as! [String: Any])["enum"] as? [String], ["fcp_native", "generated_asset_plus_fcp_native", "external_render_required"])
+        XCTAssertEqual((properties["representation"] as! [String: Any])["enum"] as? [String], ["fcpxml_native", "layered_media", "motion_template", "external_editable_composition", "baked_render"])
         XCTAssertNotNil(properties["generatedAssets"])
         XCTAssertNotNil(properties["previewStrategy"])
         XCTAssertNotNil(properties["verification"])

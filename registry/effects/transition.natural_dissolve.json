@@ -4,7 +4,7 @@
   "aliases": ["natural dissolve", "cross dissolve", "crossfade", "cross fade", "dissolve transition"],
   "requiredSelection": "two-adjacent-clips",
   "inputCount": 2,
-  "representation": "fcp_native",
+  "representation": "fcpxml_native",
   "parameters": [
     {"name":"durationFrames","type":"integer","defaultValue":12,"minimum":1,"maximum":120,"description":"frame-quantized transition duration"},
     {"name":"easing","type":"string","defaultValue":"linear","allowedValues":["linear","ease_in","ease_out","ease_in_out"]},

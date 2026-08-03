@@ -38,7 +38,7 @@ final class Phase1RegistryContractTests: XCTestCase {
     func testTargetedRotateZoomPreservesNativeEditableAnchorAndKeyframeContract() throws {
         let definition = try definition(.targetedRotateZoom, in: registry())
 
-        XCTAssertEqual(definition.representation, .fcpNative)
+        XCTAssertEqual(definition.representation, .fcpxmlNative)
         XCTAssertEqual(definition.requiredSelection, .singleClip)
         XCTAssertEqual(definition.inputCount, 1)
         XCTAssertEqual(definition.backend, .native)
@@ -90,7 +90,7 @@ final class Phase1RegistryContractTests: XCTestCase {
     func testOldTelevisionPreservesGeneratedAssetsAndEditableLookControls() throws {
         let definition = try definition(.oldTelevision, in: registry())
 
-        XCTAssertEqual(definition.representation, .generatedAssetPlusFCPNative)
+        XCTAssertEqual(definition.representation, .layeredMedia)
         XCTAssertEqual(definition.requiredSelection, .singleClip)
         XCTAssertEqual(definition.inputCount, 1)
         XCTAssertEqual(definition.backend, .ffmpeg)
@@ -133,7 +133,7 @@ final class Phase1RegistryContractTests: XCTestCase {
     func testNaturalDissolvePreservesNativeAdjacentClipAudioAndDurationContract() throws {
         let definition = try definition(.naturalDissolve, in: registry())
 
-        XCTAssertEqual(definition.representation, .fcpNative)
+        XCTAssertEqual(definition.representation, .fcpxmlNative)
         XCTAssertEqual(definition.requiredSelection, .twoAdjacentClips)
         XCTAssertEqual(definition.inputCount, 2)
         XCTAssertEqual(definition.backend, .native)
@@ -151,7 +151,7 @@ final class Phase1RegistryContractTests: XCTestCase {
     func testLivingStillPreservesNativeFallbackMotionColorOpacityAndDeferredDepthFlow() throws {
         let definition = try definition(.livingStill, in: registry())
 
-        XCTAssertEqual(definition.representation, .fcpNative)
+        XCTAssertEqual(definition.representation, .fcpxmlNative)
         XCTAssertEqual(definition.requiredSelection, .singleClip)
         XCTAssertEqual(definition.inputCount, 1)
         XCTAssertEqual(definition.backend, .native)

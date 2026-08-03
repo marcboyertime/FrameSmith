@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SchemaVersion: String, Codable, CaseIterable, Sendable {
-    case v1_0 = "1.0"
+    case v2_0 = "2.0"
 }
 
 /// The only effect identifiers that are part of the Phase 1 contract.
@@ -34,15 +34,84 @@ public enum EffectID: String, Codable, CaseIterable, Sendable, Hashable {
 }
 
 public enum RepresentationClass: String, Codable, CaseIterable, Sendable {
-    case fcpNative = "fcp_native"
-    case generatedAssetPlusFCPNative = "generated_asset_plus_fcp_native"
-    case externalRenderRequired = "external_render_required"
+    case fcpxmlNative = "fcpxml_native"
+    case layeredMedia = "layered_media"
+    case motionTemplate = "motion_template"
+    case externalEditableComposition = "external_editable_composition"
+    case bakedRender = "baked_render"
 
     public init?(identifier: String) {
         switch identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "fcp_native": self = .fcpNative
-        case "generated_asset_plus_fcp_native": self = .generatedAssetPlusFCPNative
-        case "external_render_required": self = .externalRenderRequired
+        case "fcpxml_native": self = .fcpxmlNative
+        case "layered_media": self = .layeredMedia
+        case "motion_template": self = .motionTemplate
+        case "external_editable_composition": self = .externalEditableComposition
+        case "baked_render": self = .bakedRender
+        default: return nil
+        }
+    }
+}
+
+/// Legacy plan payloads are quarantined rather than upgraded into executable
+/// current plans. The suggested class is explanatory only; the request must be
+/// replanned and validated as schema 2.0 before any capability is considered.
+public struct LegacyEffectPlanQuarantine: Codable, Equatable, Sendable {
+    public let schemaVersion: String
+    public let legacyRepresentation: String?
+    public let suggestedRepresentation: RepresentationClass?
+    public let replanningRequired: Bool
+
+    public init(schemaVersion: String, legacyRepresentation: String?, suggestedRepresentation: RepresentationClass?, replanningRequired: Bool = true) {
+        self.schemaVersion = schemaVersion
+        self.legacyRepresentation = legacyRepresentation
+        self.suggestedRepresentation = suggestedRepresentation
+        self.replanningRequired = replanningRequired
+    }
+}
+
+public enum EffectPlanAdmissionResult: Equatable, Sendable {
+    case current(EffectPlan)
+    case migrationRequired(LegacyEffectPlanQuarantine)
+}
+
+public enum EffectPlanAdmissionError: Error, LocalizedError, Equatable, Sendable {
+    case invalidDocument
+    case unsupportedSchemaVersion(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidDocument: return "Effect plan admission requires a JSON object with schemaVersion"
+        case .unsupportedSchemaVersion(let value): return "Unsupported effect plan schema version: \(value)"
+        }
+    }
+}
+
+public enum EffectPlanAdmission {
+    public static func decode(_ data: Data, decoder: JSONDecoder = JSONDecoder()) throws -> EffectPlanAdmissionResult {
+        guard let document = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let schemaVersion = document["schemaVersion"] as? String else {
+            throw EffectPlanAdmissionError.invalidDocument
+        }
+        switch schemaVersion {
+        case SchemaVersion.v2_0.rawValue:
+            return .current(try decoder.decode(EffectPlan.self, from: data))
+        case "1.0":
+            let legacyRepresentation = document["representation"] as? String
+            return .migrationRequired(LegacyEffectPlanQuarantine(
+                schemaVersion: schemaVersion,
+                legacyRepresentation: legacyRepresentation,
+                suggestedRepresentation: suggestedRepresentation(for: legacyRepresentation)
+            ))
+        default:
+            throw EffectPlanAdmissionError.unsupportedSchemaVersion(schemaVersion)
+        }
+    }
+
+    private static func suggestedRepresentation(for legacyValue: String?) -> RepresentationClass? {
+        switch legacyValue {
+        case "fcp_native": return .fcpxmlNative
+        case "generated_asset_plus_fcp_native": return .layeredMedia
+        case "external_render_required": return .bakedRender
         default: return nil
         }
     }
@@ -340,7 +409,7 @@ public struct EffectPlan: Codable, Equatable, Sendable {
     public var preconditionRevision: String
 
     public init(
-        schemaVersion: String = "1.0",
+        schemaVersion: String = SchemaVersion.v2_0.rawValue,
         operationID: UUID = UUID(),
         originalRequest: String,
         confidence: Double,
@@ -390,6 +459,9 @@ public struct EffectPlan: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try container.decode(String.self, forKey: .schemaVersion)
+        guard schemaVersion == SchemaVersion.v2_0.rawValue else {
+            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: container, debugDescription: "Current EffectPlan decoding accepts only schema 2.0; use EffectPlanAdmission for legacy quarantine")
+        }
         operationID = try container.decode(UUID.self, forKey: .operationID)
         originalRequest = try container.decode(String.self, forKey: .originalRequest)
         confidence = try container.decode(Double.self, forKey: .confidence)

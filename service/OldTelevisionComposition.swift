@@ -167,7 +167,7 @@ public enum OldTelevisionCompositionError: Error, LocalizedError, Equatable, Sen
     public var errorDescription: String? {
         switch self {
         case .wrongEffect(let id): return "Old Television composition requires look.old_television, got \(id.rawValue)"
-        case .wrongRepresentation(let representation): return "Old Television composition requires generated_asset_plus_fcp_native, got \(representation.rawValue)"
+        case .wrongRepresentation(let representation): return "Old Television composition requires layered_media, got \(representation.rawValue)"
         case .missingParameter(let name): return "Old Television composition is missing parameter \(name)"
         case .wrongParameterType(let name): return "Old Television composition parameter \(name) has the wrong type"
         case .outOfRange(let name): return "Old Television composition parameter \(name) is outside its bounded range"
@@ -191,7 +191,8 @@ public enum OldTelevisionCompositionBuilder {
 
     public static func build(from plan: EffectPlan) throws -> OldTelevisionComposition {
         guard plan.effectID == .oldTelevision else { throw OldTelevisionCompositionError.wrongEffect(plan.effectID) }
-        guard plan.representation == .generatedAssetPlusFCPNative else {
+        try CapabilityGate().require(plan, capability: .localOnlyPreview)
+        guard plan.representation == .layeredMedia else {
             throw OldTelevisionCompositionError.wrongRepresentation(plan.representation)
         }
         let unknown = plan.parameters.keys.filter { !parameterNames.contains($0) }.sorted()

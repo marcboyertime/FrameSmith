@@ -209,7 +209,7 @@ public struct PlanValidator: Sendable {
     public init(registry: EffectRegistry) { self.registry = registry }
 
     public func validate(_ plan: EffectPlan, currentRevision: String? = nil) throws {
-        guard plan.schemaVersion == "1.0" else { throw PlanValidationError.unsupportedSchema(plan.schemaVersion) }
+        guard plan.schemaVersion == SchemaVersion.v2_0.rawValue else { throw PlanValidationError.unsupportedSchema(plan.schemaVersion) }
         guard plan.confidence.isFinite, (0...1).contains(plan.confidence) else { throw PlanValidationError.invalidConfidence }
         guard plan.ambiguities.isEmpty else { throw PlanValidationError.ambiguousRequest }
         guard !plan.fallback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw PlanValidationError.missingFallback }

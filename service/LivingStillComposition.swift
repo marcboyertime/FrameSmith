@@ -111,7 +111,7 @@ public struct LivingStillComposition: Codable, Equatable, Sendable {
     public var noBakedPixels: Bool { pixelClassification == .noBakedPixels }
     public var sourceMediaPreserved: Bool { preservesOriginal }
     public var usesBakedPixels: Bool { false }
-    public var isNativeFallback: Bool { nativeFallbackEnabled && representation == .fcpNative }
+    public var isNativeFallback: Bool { nativeFallbackEnabled && representation == .fcpxmlNative }
     public var fallbackLabel: String { fallback }
 }
 
@@ -131,7 +131,7 @@ public enum LivingStillCompositionError: Error, LocalizedError, Equatable, Senda
     public var errorDescription: String? {
         switch self {
         case .wrongEffect(let id): return "Living Still composition requires motion.living_still, got " + id.rawValue
-        case .wrongRepresentation(let representation): return "Living Still composition requires fcp_native, got " + representation.rawValue
+        case .wrongRepresentation(let representation): return "Living Still composition requires fcpxml_native, got " + representation.rawValue
         case .missingParameter(let name): return "Living Still composition is missing parameter " + name
         case .wrongParameterType(let name): return "Living Still composition parameter " + name + " has the wrong type"
         case .outOfRange(let name): return "Living Still composition parameter " + name + " is outside its bounded range"
@@ -155,7 +155,8 @@ public enum LivingStillCompositionBuilder {
 
     public static func build(from plan: EffectPlan) throws -> LivingStillComposition {
         guard plan.effectID == .livingStill else { throw LivingStillCompositionError.wrongEffect(plan.effectID) }
-        guard plan.representation == .fcpNative else {
+        try CapabilityGate().require(plan, capability: .localOnlyPreview)
+        guard plan.representation == .fcpxmlNative else {
             throw LivingStillCompositionError.wrongRepresentation(plan.representation)
         }
         guard plan.generatedAssets.isEmpty else {
@@ -211,7 +212,7 @@ public enum LivingStillCompositionBuilder {
 
         return LivingStillComposition(
             effectID: .livingStill,
-            representation: .fcpNative,
+            representation: .fcpxmlNative,
             sourceIdentity: source,
             preservesOriginal: preservesOriginal,
             pixelClassification: .noBakedPixels,

@@ -45,7 +45,7 @@ final class LivingStillCompositionTests: XCTestCase {
         let composition = try LivingStillCompositionBuilder.build(from: plan())
 
         XCTAssertEqual(composition.effectID, .livingStill)
-        XCTAssertEqual(composition.representation, .fcpNative)
+        XCTAssertEqual(composition.representation, .fcpxmlNative)
         XCTAssertEqual(composition.fallback, "native-push-in-pan-color-enrichment-fade-to-black")
         XCTAssertTrue(composition.nativeFallbackEnabled)
         XCTAssertTrue(composition.preservesOriginal)

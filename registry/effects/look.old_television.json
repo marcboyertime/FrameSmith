@@ -4,7 +4,7 @@
   "aliases": ["old tv", "old television", "black and white television", "vhs", "vhs overlay", "scanline", "static grain", "retro television"],
   "requiredSelection": "single-clip",
   "inputCount": 1,
-  "representation": "generated_asset_plus_fcp_native",
+  "representation": "layered_media",
   "parameters": [
     {"name":"monochromeEnabled","type":"boolean","defaultValue":true},
     {"name":"desaturation","type":"number","defaultValue":1.0,"minimum":0.0,"maximum":1.0},

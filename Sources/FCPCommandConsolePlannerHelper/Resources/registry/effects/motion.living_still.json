@@ -4,7 +4,7 @@
   "aliases": ["living still", "still image feel alive", "bring still to life", "depthflow parallax", "depth flow", "parallax", "parallax still", "2.5d motion"],
   "requiredSelection": "single-clip",
   "inputCount": 1,
-  "representation": "fcp_native",
+  "representation": "fcpxml_native",
   "parameters": [
     {"name":"durationSeconds","type":"number","defaultValue":4.0,"minimum":0.1,"maximum":30.0},
     {"name":"pushInScaleStart","type":"number","defaultValue":1.0,"minimum":0.1,"maximum":4.0},

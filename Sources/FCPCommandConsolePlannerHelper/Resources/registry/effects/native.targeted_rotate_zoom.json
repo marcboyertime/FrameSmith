@@ -4,7 +4,7 @@
   "aliases": ["targeted rotate zoom", "rotate and zoom", "targeted pan zoom", "spatial conform", "crop and rotate"],
   "requiredSelection": "single-clip",
   "inputCount": 1,
-  "representation": "fcp_native",
+  "representation": "fcpxml_native",
   "parameters": [
     {"name":"durationSeconds","type":"number","defaultValue":4.0,"minimum":0.1,"maximum":30.0,"description":"bounded keyframe duration"},
     {"name":"scaleStart","type":"number","defaultValue":1.0,"minimum":0.1,"maximum":4.0},

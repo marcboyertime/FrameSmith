@@ -61,6 +61,7 @@ final class PlannerHelperTests: XCTestCase {
             let response = engine.handle(data: request(text, selection: token, target: target))
             XCTAssertEqual(response.status, .ok, text)
             XCTAssertEqual(response.plan?.effectID, id, text)
+            XCTAssertEqual(response.plan?.schemaVersion, "2.0", text)
             XCTAssertEqual(response.plan?.cost, CostEstimate(paid: false, usd: 0, provider: "local"), text)
             XCTAssertNoThrow(try PlanValidator(registry: try resources().registry).validate(response.plan!), text)
         }
@@ -77,6 +78,7 @@ final class PlannerHelperTests: XCTestCase {
         XCTAssertNotNil(selection["clip_ids"])
         XCTAssertNil(selection["clip_i_ds"])
         XCTAssertEqual(plan["operation_id"] as? String, operation.uuidString)
+        XCTAssertEqual(plan["schema_version"] as? String, "2.0")
     }
 
     func testWirePreservesNumericZeroAndOneWithoutCoercingBooleans() throws {

@@ -59,8 +59,8 @@ final class OldTelevisionCompositionTests: XCTestCase {
         XCTAssertThrowsError(try build(effectID: .livingStill)) { error in
             XCTAssertEqual(error as? OldTelevisionCompositionError, .wrongEffect(.livingStill))
         }
-        XCTAssertThrowsError(try build(representation: .fcpNative)) { error in
-            XCTAssertEqual(error as? OldTelevisionCompositionError, .wrongRepresentation(.fcpNative))
+        XCTAssertThrowsError(try build(representation: .fcpxmlNative)) { error in
+            XCTAssertEqual(error as? OldTelevisionCompositionError, .wrongRepresentation(.fcpxmlNative))
         }
 
         var missing = baseParameters
@@ -169,7 +169,7 @@ final class OldTelevisionCompositionTests: XCTestCase {
     }
 
     private func build(effectID: EffectID = .oldTelevision,
-                       representation: RepresentationClass = .generatedAssetPlusFCPNative,
+                       representation: RepresentationClass = .layeredMedia,
                        parameters: [String: ParameterValue]? = nil) throws -> OldTelevisionComposition {
         let selection = SelectionToken(selectionType: .singleClip, clipIDs: ["clip"], revision: "revision")
         let plan = EffectPlan(originalRequest: "old tv",
