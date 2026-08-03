@@ -50,6 +50,9 @@ onboarding_framework_load_path="@rpath/ProOnboardingFlowModelOne.framework/Versi
 expected_onboarding_framework_sha256="636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce"
 expected_onboarding_framework_arm64_uuid="45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D"
 expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"
+expected_flexo_framework_sha256="704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e"
+expected_flexo_framework_arm64_uuid="AEAE4C0B-7695-3784-A794-AFB4985525A8"
+expected_flexo_framework_x86_64_uuid="525166A8-E6F4-3DCA-B4F9-BD98F16B6552"
 expected_mas_receipt_sha256="2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e"
 test_dir="$(/bin/realpath "$(/usr/bin/mktemp -d /tmp/fcpcc-offline-tests.XXXXXX)")"
 load_path="@rpath/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
@@ -74,6 +77,58 @@ require_fragment() {
     local label="$3"
     if ! "$rg_bin" -F -q -- "$fragment" "$path"; then
         fail "$label is missing required fragment: $fragment"
+    fi
+}
+
+verify_audio_unit_validation_containment_policy() {
+    local policy_path="$1"
+    if ! /usr/bin/plutil -extract AudioUnitValidationContainment json -o - "$policy_path" | /usr/bin/jq -e '
+        . == {
+          "ActivationEnvironmentValue": "1",
+          "ActivationEnvironmentVariable": "FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT",
+          "DeterministicRuntimeDiagnostics": "constructor_install_status_process_lifetime",
+          "ExecutionEnabled": true,
+          "ExpectedFlexoArm64UUID": "AEAE4C0B-7695-3784-A794-AFB4985525A8",
+          "ExpectedFlexoRelativeExecutablePath": "Contents/Frameworks/Flexo.framework/Versions/A/Flexo",
+          "ExpectedFlexoSHA256": "704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e",
+          "ExpectedFlexoX86_64UUID": "525166A8-E6F4-3DCA-B4F9-BD98F16B6552",
+          "ExpectedOriginalImplementationOffsetArm64": "0xe66b8c",
+          "ExpectedOriginalImplementationOffsetX86_64": "0x13c0be0",
+          "InstallPhase": "runtime_constructor_before_disposable_project_bootstrap_scheduling",
+          "MethodContractsPinnedIn": "FCPCommandConsoleRuntime.m:FCPCCFlexoSupportsThirdPartyAudioUnitsContract",
+          "MethodKind": "class_metaclass",
+          "NoAvailabilityRetry": true,
+          "NoCachePreferenceOrAudioUnitWrites": true,
+          "NoRetryUIFCPXMLOrGenericDispatch": true,
+          "ObjectiveCArgumentCount": 2,
+          "ObjectiveCReturnTypeArm64": "B",
+          "ObjectiveCReturnTypeX86_64": "c",
+          "ObjectiveCTypeEncodingArm64": "B16@0:8",
+          "ObjectiveCTypeEncodingX86_64": "c16@0:8",
+          "OriginalBuiltInRegistrationClass": "FFAudioUnitEffect(AudioUnitRegistration)",
+          "OriginalBuiltInRegistrationOffsetArm64": "0x3a9de8",
+          "OriginalBuiltInRegistrationSelector": "registerBuiltInAudioUnits",
+          "OriginalBuiltInRegistrationTypeEncoding": "v16@0:8",
+          "OriginalDeferredRegistrationClass": "FFAudioUnitEffect(AudioUnitRegistration)",
+          "OriginalDeferredRegistrationOffsetArm64": "0x3a9fdc",
+          "OriginalDeferredRegistrationOffsetX86_64": "0x52c0e0",
+          "OriginalDeferredRegistrationSelector": "runDeferredRegistration",
+          "OriginalDeferredRegistrationTypeEncoding": "v16@0:8",
+          "OriginalSupportedTypeRegistrationClass": "FFAudioUnitInfoCacheBase",
+          "OriginalSupportedTypeRegistrationOffsetArm64": "0x399750",
+          "OriginalSupportedTypeRegistrationSelector": "forEachSupportedType:",
+          "OriginalSupportedTypeRegistrationTypeEncoding": "v24@0:8@?16",
+          "ProcessLifetimeOnly": true,
+          "Replacement": "return_false_memory_only_no_restore",
+          "RequiresCopiedHostContainmentAndUUID": true,
+          "RequiresDisposableLibraryBootstrapAbsent": true,
+          "RuntimeClass": "Flexo",
+          "RuntimeDiscoveryAllowed": false,
+          "Selector": "supportsThirdPartyAudioUnits",
+          "ThirdPartyAudioUnitsAvailability": "unavailable_only_in_copied_app_process"
+        }
+    ' >/dev/null; then
+        fail "audio-unit validation containment policy is not the exact Schema 15 contract: $policy_path"
     fi
 }
 
@@ -195,6 +250,9 @@ if [[ "$("$rg_bin" -F -o '_objc_msgSend$startListeningForApplicationDidBecomeAct
 fi
 
 /usr/bin/otool -arch arm64 -o -v "$reviewed_copied_flexo_framework" > "$test_dir/fcp-12-3-flexo-objc-arm64.txt"
+/usr/bin/otool -arch x86_64 -o -v "$reviewed_copied_flexo_framework" > "$test_dir/fcp-12-3-flexo-objc-x86_64.txt"
+/usr/bin/otool -arch arm64 -tvV "$reviewed_copied_flexo_framework" > "$test_dir/fcp-12-3-flexo-disassembly-arm64.txt"
+/usr/bin/otool -arch x86_64 -tvV "$reviewed_copied_flexo_framework" > "$test_dir/fcp-12-3-flexo-disassembly-x86_64.txt"
 for installed_flexo_fragment in \
     'v64@0:8{?=qiIq}16^d40^d48^d56' \
     'v68@0:8{?=qiIq}16d40d48d56I64' \
@@ -212,6 +270,50 @@ for installed_flexo_fragment in \
         fail "installed Final Cut Pro 12.3 Flexo metadata drifted: $installed_flexo_fragment"
     fi
 done
+for arm64_audio_unit_metadata_fragment in \
+    'Flexo' \
+    'B16@0:8' \
+    '0xe66b8c) +[Flexo supportsThirdPartyAudioUnits]' \
+    'v16@0:8' \
+    '0x3a9fdc) +[FFAudioUnitEffect(AudioUnitRegistration) runDeferredRegistration]' \
+    '0x3a9de8) +[FFAudioUnitEffect(AudioUnitRegistration) registerBuiltInAudioUnits]' \
+    'v24@0:8@?16' \
+    '0x399750) +[FFAudioUnitInfoCacheBase forEachSupportedType:]'; do
+    if ! "$rg_bin" -F -q -- "$arm64_audio_unit_metadata_fragment" "$test_dir/fcp-12-3-flexo-objc-arm64.txt"; then
+        fail "installed Final Cut Pro 12.3 arm64 Audio Unit metadata drifted: $arm64_audio_unit_metadata_fragment"
+    fi
+done
+for x86_64_audio_unit_metadata_fragment in \
+    'Flexo' \
+    'c16@0:8' \
+    '0x13c0be0) +[Flexo supportsThirdPartyAudioUnits]' \
+    '0x52c0e0) +[FFAudioUnitEffect(AudioUnitRegistration) runDeferredRegistration]'; do
+    if ! "$rg_bin" -F -q -- "$x86_64_audio_unit_metadata_fragment" "$test_dir/fcp-12-3-flexo-objc-x86_64.txt"; then
+        fail "installed Final Cut Pro 12.3 x86_64 Audio Unit metadata drifted: $x86_64_audio_unit_metadata_fragment"
+    fi
+done
+for arm64_audio_unit_route_fragment in \
+    '+[FFAudioUnitEffect(AudioUnitRegistration) runDeferredRegistration]:' \
+    'bl	_objc_msgSend$supportsThirdPartyAudioUnits' \
+    'cbz	w0, 0x3aa0d8' \
+    'bl	_objc_msgSend$performValidationReturningFailureCount' \
+    'mov	x20, #0x0' \
+    'bl	_objc_msgSend$registerBuiltInAudioUnits' \
+    'bl	"_objc_msgSend$forEachSupportedType:"'; do
+    if ! "$rg_bin" -F -q -- "$arm64_audio_unit_route_fragment" "$test_dir/fcp-12-3-flexo-disassembly-arm64.txt"; then
+        fail "installed Final Cut Pro 12.3 arm64 deferred Audio Unit route drifted: $arm64_audio_unit_route_fragment"
+    fi
+done
+for x86_64_audio_unit_route_fragment in \
+    '___67+[FFAudioUnitEffect(AudioUnitRegistration) runDeferredRegistration]_block_invoke:' \
+    'testb	%al, %al' \
+    'je	0x52c183' \
+    'xorl	%r14d, %r14d' \
+    '+[FFAudioUnitEffect(AudioUnitRegistration) registerBuiltInAudioUnits]:'; do
+    if ! "$rg_bin" -F -q -- "$x86_64_audio_unit_route_fragment" "$test_dir/fcp-12-3-flexo-disassembly-x86_64.txt"; then
+        fail "installed Final Cut Pro 12.3 x86_64 deferred Audio Unit route drifted: $x86_64_audio_unit_route_fragment"
+    fi
+done
 
 reviewed_copied_main_before="$(/usr/bin/shasum -a 256 "$reviewed_copied_executable" | /usr/bin/awk '{print $1}')"
 reviewed_copied_info_before="$(/usr/bin/shasum -a 256 "$reviewed_copied_app/Contents/Info.plist" | /usr/bin/awk '{print $1}')"
@@ -222,6 +324,13 @@ reviewed_copied_onboarding_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; 
 reviewed_copied_mas_receipt_before="$(/usr/bin/shasum -a 256 "$reviewed_copied_mas_receipt" | /usr/bin/awk '{print $1}')"
 if [[ "$reviewed_copied_onboarding_before" != "$expected_onboarding_framework_sha256" || "$reviewed_copied_onboarding_arm64_uuid" != "$expected_onboarding_framework_arm64_uuid" || "$reviewed_copied_onboarding_x86_64_uuid" != "$expected_onboarding_framework_x86_64_uuid" || "$reviewed_copied_mas_receipt_before" != "$expected_mas_receipt_sha256" ]]; then
     fail "reviewed copied onboarding framework hash or slice UUID does not match the pinned contract"
+fi
+reviewed_copied_flexo_before="$(/usr/bin/shasum -a 256 "$reviewed_copied_flexo_framework" | /usr/bin/awk '{print $1}')"
+/usr/bin/dwarfdump --uuid "$reviewed_copied_flexo_framework" > "$test_dir/reviewed-copied-flexo-framework.uuids.txt"
+reviewed_copied_flexo_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$test_dir/reviewed-copied-flexo-framework.uuids.txt")"
+reviewed_copied_flexo_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$test_dir/reviewed-copied-flexo-framework.uuids.txt")"
+if [[ "$reviewed_copied_flexo_before" != "$expected_flexo_framework_sha256" || "$reviewed_copied_flexo_arm64_uuid" != "$expected_flexo_framework_arm64_uuid" || "$reviewed_copied_flexo_x86_64_uuid" != "$expected_flexo_framework_x86_64_uuid" ]]; then
+    fail "reviewed copied Flexo framework hash or slice UUID does not match the pinned Audio Unit containment contract"
 fi
 for architecture in arm64 x86_64; do
     /usr/bin/otool -arch "$architecture" -L "$reviewed_copied_executable" > "$test_dir/reviewed-copied-main-libraries-$architecture.txt"
@@ -660,8 +769,9 @@ fi
 if print -r -- "$cloud_first_launch_noop_source" | "$rg_bin" -F -q 'dispatch_' || print -r -- "$cloud_first_launch_noop_source" | "$rg_bin" -F -q 'Block_' || print -r -- "$cloud_first_launch_noop_source" | "$rg_bin" -F -q 'original'; then
     fail "cloud first-launch replacement retains completion work or original-call behavior"
 fi
-if [[ "$("$rg_bin" -F -o 'class_replaceMethod(' "$runtime_implementation" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "2" ]]; then
-    fail "runtime must contain exactly two approved Objective-C replacements"
+runtime_without_testing_hooks="$(/usr/bin/sed '/^#if defined(FCPCC_RUNTIME_TESTING)$/,/^#endif$/d' "$runtime_implementation")"
+if [[ "$(print -r -- "$runtime_without_testing_hooks" | "$rg_bin" -F -o 'class_replaceMethod(' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "3" ]]; then
+    fail "runtime must contain exactly two normal compatibility replacements and one exact Schema 15 containment replacement"
 fi
 for forbidden_runtime_surface in \
     'FCPCCCloudContentCompatibilityEntry' \
@@ -694,9 +804,10 @@ if [[ -e "$retired_runtime_policy_source" || -e "$retired_runtime_policy_build" 
     fail "retired isolated preference policy remains present"
 fi
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "14" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "15" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
         fail "compatibility policy copied-host, receipt, or onboarding identity is not exact"
     fi
+    verify_audio_unit_validation_containment_policy "$policy_path"
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor_main_thread_immediate_attempt" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "application_will_finish_launching_availability_retry" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "2" ]]; then
         fail "compatibility policy two-phase bounded availability gate is not exact"
     fi
@@ -787,6 +898,51 @@ for required_project_bootstrap_fragment in \
     if ! print -r -- "$project_bootstrap_source" | "$rg_bin" -F -q -- "$required_project_bootstrap_fragment"; then
         fail "disposable project bootstrap source is missing: $required_project_bootstrap_fragment"
     fi
+done
+audio_unit_containment_source="$(/usr/bin/sed -n '/^\/\/ Schema 15 has one narrow, process-local containment/,/^@interface FCPCCFixedModelTraversalAdapter/p' "$runtime_implementation")"
+for required_audio_unit_containment_fragment in \
+    'FCPCCFlexoSupportsThirdPartyAudioUnitsContract' \
+    'class_getInstanceMethod(targetClass, selector) != NULL' \
+    'object_getClass(targetClass)' \
+    'class_replaceMethod(metaclass' \
+    'FCPCCAudioUnitValidationContainmentMethodMatchesContract' \
+    'FCPCCAudioUnitValidationContainmentInstallStatusPostverificationFailed' \
+    'FCPCCAudioUnitValidationContainmentState = FCPCCAudioUnitValidationContainmentInstallStateInstalled' \
+    'FCPCCAudioUnitValidationContainmentSchedulingAllowedForState' \
+    'return NO;'; do
+    if ! print -r -- "$audio_unit_containment_source" | "$rg_bin" -F -q -- "$required_audio_unit_containment_fragment"; then
+        fail "Audio Unit validation containment source is missing: $required_audio_unit_containment_fragment"
+    fi
+done
+for required_audio_unit_contract_fragment in \
+    '"Flexo", "supportsThirdPartyAudioUnits"' \
+    'FCPCCExpectedFlexoSupportsThirdPartyAudioUnitsTypeEncoding' \
+    '0xe66b8c, 0x13c0be0' \
+    'FCPCCExpectedFlexoFrameworkSHA256' \
+    'FCPCCExpectedFlexoFrameworkArm64UUID' \
+    'FCPCCExpectedFlexoFrameworkX86_64UUID'; do
+    require_fragment "$required_audio_unit_contract_fragment" "$runtime_implementation" "Audio Unit containment fixed contract"
+done
+for forbidden_audio_unit_containment_fragment in \
+    'dispatch_async' \
+    'dispatch_after' \
+    'NSTimer' \
+    'NSUserDefaults' \
+    'FCPXML' \
+    'method_exchangeImplementations' \
+    'method_setImplementation' \
+    'OriginalIMP' \
+    'restore'; do
+    if print -r -- "$audio_unit_containment_source" | "$rg_bin" -F -q -- "$forbidden_audio_unit_containment_fragment"; then
+        fail "Audio Unit validation containment source permits forbidden surface: $forbidden_audio_unit_containment_fragment"
+    fi
+done
+for required_audio_unit_scheduling_fragment in \
+    'FCPCCInstallAudioUnitValidationContainmentForDisposableProjectBootstrap' \
+    'FCPCCAudioUnitValidationContainmentAllowsDisposableProjectBootstrapScheduling' \
+    'project_bootstrap_audio_unit_validation_containment_unverified' \
+    'FCPCCBeginDisposableProjectBootstrapAfterApplicationDidFinishLaunching'; do
+    require_fragment "$required_audio_unit_scheduling_fragment" "$runtime_implementation" "Audio Unit containment scheduling dependency"
 done
 for required_active_session_fragment in \
     'static __strong FCPCCDisposableProjectBootstrapSession *FCPCCDisposableProjectBootstrapActiveSession' \
@@ -889,7 +1045,15 @@ for required_runtime_binary_string in \
     'application_will_finish_launching_availability_retry' \
     'fcpcc_cloud_first_launch phase=%s attempt=%lu status=%s' \
     'class_unavailable' \
-    'method_unavailable'; do
+    'method_unavailable' \
+    'FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT' \
+    'Flexo' \
+    'supportsThirdPartyAudioUnits' \
+    'B16@0:8' \
+    'c16@0:8' \
+    '704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e' \
+    'FCPCommandConsole AudioUnitValidationContainment phase=constructor status=%s process_lifetime=true' \
+    'project_bootstrap_audio_unit_validation_containment_unverified'; do
     if ! /usr/bin/grep -F -x -q "$required_runtime_binary_string" "$test_dir/runtime-binary-strings.txt"; then
         fail "built runtime is missing required exact binary string: $required_runtime_binary_string"
     fi
@@ -982,7 +1146,7 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
     current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$patcher_script")"
     for required_current_policy_fragment in \
         'Print :SchemaVersion' \
-        '" != "14"' \
+        '" != "15"' \
         'ExpectedHostBundleIdentifier' \
         'ExpectedCopiedHostBundlePath' \
         'ExpectedHostVersion' \
@@ -1016,17 +1180,45 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         '0x924e8' \
         '0xc74c0' \
         'immediate_noop_return_without_completion_access' \
-        'ApprovedMethodReplacements:2'; do
+        'ApprovedMethodReplacements:2' \
+        'verify_audio_unit_validation_containment_policy'; do
         if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q "$required_current_policy_fragment"; then
-            fail "patcher current Schema-14 policy contract is missing: $required_current_policy_fragment"
+            fail "patcher current Schema 15 policy contract is missing: $required_current_policy_fragment"
         fi
     done
     if print -r -- "$current_policy_source" | "$rg_bin" -F -q 'discard_query_block_noop'; then
-        fail "patcher current Schema-14 policy retains the retired query-discard contract"
+        fail "patcher current Schema 15 policy retains the retired query-discard contract"
     fi
     if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q 'invalid Cloud nested-block argument-count condition'; then
-        fail "patcher current Schema-14 policy does not reject a restored Cloud nested-block argument-count condition"
+        fail "patcher current Schema 15 policy does not reject a restored Cloud nested-block argument-count condition"
     fi
+    audio_unit_policy_source="$(/usr/bin/sed -n '/^verify_audio_unit_validation_containment_policy()/,/^}/p' "$patcher_script")"
+    for required_audio_unit_policy_fragment in \
+        'AudioUnitValidationContainment' \
+        'FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT' \
+        'RequiresDisposableLibraryBootstrapAbsent' \
+        'Flexo' \
+        'supportsThirdPartyAudioUnits' \
+        'class_metaclass' \
+        'B16@0:8' \
+        'c16@0:8' \
+        '0xe66b8c' \
+        '0x13c0be0' \
+        '704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e' \
+        'AEAE4C0B-7695-3784-A794-AFB4985525A8' \
+        '525166A8-E6F4-3DCA-B4F9-BD98F16B6552' \
+        'runDeferredRegistration' \
+        'registerBuiltInAudioUnits' \
+        'forEachSupportedType:' \
+        'NoAvailabilityRetry' \
+        'ProcessLifetimeOnly' \
+        'NoCachePreferenceOrAudioUnitWrites' \
+        'NoRetryUIFCPXMLOrGenericDispatch' \
+        'ThirdPartyAudioUnitsAvailability'; do
+        if ! print -r -- "$audio_unit_policy_source" | "$rg_bin" -F -q -- "$required_audio_unit_policy_fragment"; then
+            fail "patcher Schema 15 Audio Unit containment policy contract is missing: $required_audio_unit_policy_fragment"
+        fi
+    done
     project_policy_source="$(/usr/bin/sed -n '/^verify_disposable_project_bootstrap_policy()/,/^}/p' "$patcher_script")"
     for required_project_policy_fragment in \
         'DisposableProjectBootstrap:ExecutionEnabled' \
@@ -1101,9 +1293,8 @@ for exact_schema10_provenance_fragment in \
     'verify_exact_schema10_preupdate_policy' \
     'verify_exact_schema10_complete_update_provenance' \
     'schema10-preupdate-provenance.txt' \
-    'exact_schema10_complete_update_provenance' \
-    'elif [[ "$current_policy_schema" == "9" ]]'; do
-    require_fragment "$exact_schema10_provenance_fragment" "$runtime_updater" "exact Schema-10 to Schema-11 update admission"
+    'exact_schema10_complete_update_provenance'; do
+    require_fragment "$exact_schema10_provenance_fragment" "$runtime_updater" "retired exact Schema-10 provenance helper"
 done
 schema10_preupdate_policy_source="$(/usr/bin/sed -n '/^verify_exact_schema10_preupdate_policy()/,/^}/p' "$runtime_updater")"
 for required_schema10_preupdate_policy_fragment in \
@@ -1127,9 +1318,8 @@ for exact_schema11_provenance_fragment in \
     'verify_exact_schema11_preupdate_policy' \
     'verify_exact_schema11_complete_update_provenance' \
     'schema11-preupdate-provenance.txt' \
-    'exact_schema11_complete_update_provenance' \
-    'elif [[ "$current_policy_schema" == "11" ]]'; do
-    require_fragment "$exact_schema11_provenance_fragment" "$runtime_updater" "exact Schema-11 to Schema-12 update admission"
+    'exact_schema11_complete_update_provenance'; do
+    require_fragment "$exact_schema11_provenance_fragment" "$runtime_updater" "retired exact Schema-11 provenance helper"
 done
 schema11_preupdate_policy_source="$(/usr/bin/sed -n '/^verify_exact_schema11_preupdate_policy()/,/^}/p' "$runtime_updater")"
 for required_schema11_preupdate_policy_fragment in \
@@ -1153,9 +1343,8 @@ for exact_schema12_provenance_fragment in \
     'verify_exact_schema12_preupdate_policy' \
     'verify_exact_schema12_complete_update_provenance' \
     'schema12-preupdate-provenance.txt' \
-    'exact_schema12_complete_update_provenance' \
-    'if [[ "$current_policy_schema" == "12" ]]'; do
-    require_fragment "$exact_schema12_provenance_fragment" "$runtime_updater" "exact Schema-12 to Schema-13 update admission"
+    'exact_schema12_complete_update_provenance'; do
+    require_fragment "$exact_schema12_provenance_fragment" "$runtime_updater" "retired exact Schema-12 provenance helper"
 done
 schema12_preupdate_policy_source="$(/usr/bin/sed -n '/^verify_exact_schema12_preupdate_policy()/,/^}/p' "$runtime_updater")"
 for required_schema12_preupdate_policy_fragment in \
@@ -1174,11 +1363,6 @@ for required_schema12_preupdate_policy_fragment in \
         fail "exact Schema-12 pre-update policy gate is missing: $required_schema12_preupdate_policy_fragment"
     fi
 done
-schema12_branch_line="$("$rg_bin" -n -F -- 'if [[ "$current_policy_schema" == "12" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
-schema11_branch_line="$("$rg_bin" -n -F -- 'elif [[ "$current_policy_schema" == "11" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
-if [[ -z "$schema12_branch_line" || -z "$schema11_branch_line" || "$schema12_branch_line" -ge "$schema11_branch_line" ]]; then
-    fail "Schema-12 exact provenance admission must precede the retained Schema-11 route"
-fi
 for exact_schema13_provenance_fragment in \
     'expected_schema13_runtime_sha256="a8913e32ed3b8976375a63d25f122e8fd3ce248cbe0c86eff0217e6b9a43298f"' \
     'expected_schema13_policy_sha256="58770af4327f3d92b5ca64af7344c7759d1d469aa52686c1ef0b1669cac3508e"' \
@@ -1187,9 +1371,8 @@ for exact_schema13_provenance_fragment in \
     'verify_exact_schema13_preupdate_policy' \
     'verify_exact_schema13_complete_update_provenance' \
     'schema13-preupdate-provenance.txt' \
-    'exact_schema13_complete_update_provenance' \
-    'if [[ "$current_policy_schema" == "13" ]]'; do
-    require_fragment "$exact_schema13_provenance_fragment" "$runtime_updater" "exact Schema-13 to Schema-14 update admission"
+    'exact_schema13_complete_update_provenance'; do
+    require_fragment "$exact_schema13_provenance_fragment" "$runtime_updater" "retired exact Schema-13 provenance helper"
 done
 schema13_preupdate_policy_source="$(/usr/bin/sed -n '/^verify_exact_schema13_preupdate_policy()/,/^}/p' "$runtime_updater")"
 for required_schema13_preupdate_policy_fragment in \
@@ -1203,9 +1386,33 @@ for required_schema13_preupdate_policy_fragment in \
         fail "exact Schema-13 pre-update policy gate is missing: $required_schema13_preupdate_policy_fragment"
     fi
 done
-schema13_branch_line="$("$rg_bin" -n -F -- 'if [[ "$current_policy_schema" == "13" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
-if [[ -z "$schema13_branch_line" || -z "$schema12_branch_line" || "$schema13_branch_line" -ge "$schema12_branch_line" ]]; then
-    fail "Schema-13 exact provenance admission must precede the retained Schema-12 route"
+for exact_schema14_provenance_fragment in \
+    'expected_schema14_runtime_sha256="d9ef52a70e6d4467debdc89b569422b3fb5768322fbe94e373c4cd6f29186d8d"' \
+    'expected_schema14_policy_sha256="6b9a32e7f7801e62aa7b6399c881d827f8d7ede84d9f106ab63fdf5a3585ad95"' \
+    'expected_schema14_copied_cdhash_full="f53b89063f7215d1978835ded99a1f7246a997bc87606159c23b3753731e4171"' \
+    'expected_schema14_source_provenance="/Users/marcboyer/Movies/FCPCommandConsole/provenance/patch-20260803T043514Z-update-runtime-66133"' \
+    'verify_exact_schema14_preupdate_policy' \
+    'verify_exact_schema14_complete_update_provenance' \
+    'schema14-preupdate-provenance.txt' \
+    'exact_schema14_complete_update_provenance' \
+    'if [[ "$current_policy_schema" != "14" ]]' \
+    'Schema 15 update requires the one exact installed Schema-14 source'; do
+    require_fragment "$exact_schema14_provenance_fragment" "$runtime_updater" "exact Schema-14 to Schema 15 update admission"
+done
+schema14_preupdate_policy_source="$(/usr/bin/sed -n '/^verify_exact_schema14_preupdate_policy()/,/^}/p' "$runtime_updater")"
+for required_schema14_preupdate_policy_fragment in \
+    'Print :SchemaVersion' \
+    '" != "14"' \
+    'expected_schema14_policy_sha256' \
+    'expected_schema14_runtime_sha256' \
+    'Print :AudioUnitValidationContainment' \
+    'Schema-15 containment policy'; do
+    if ! print -r -- "$schema14_preupdate_policy_source" | "$rg_bin" -F -q -- "$required_schema14_preupdate_policy_fragment"; then
+        fail "exact Schema-14 pre-update policy gate is missing: $required_schema14_preupdate_policy_fragment"
+    fi
+done
+if "$rg_bin" -n -F '[[ "$current_policy_schema" == "' "$runtime_updater" >/dev/null; then
+    fail "Schema 15 updater retains a generic or legacy schema-selection route"
 fi
 
 updater_current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$runtime_updater")"
@@ -1231,9 +1438,15 @@ for required_migration_fragment in \
     require_fragment "$required_migration_fragment" "$runtime_updater" "one-time contained no-sandbox entitlement migration"
 done
 legacy_gate_line="$("$rg_bin" -n -F -- 'elif "$entitlement_verifier" --verify-legacy-migration-input' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
-receipt_rebind_line="$("$rg_bin" -n -F -- 'elif [[ "$migration_required" == "true" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
-if [[ -z "$legacy_gate_line" || -z "$receipt_rebind_line" || "$legacy_gate_line" -ge "$receipt_rebind_line" ]]; then
-    fail "legacy entitlement state must be resolved before receipt-provenance rebinding"
+legacy_classification_line="$("$rg_bin" -n -F -- 'entitlement_state=exact_retired_sandboxed_copy' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+schema14_gate_line="$("$rg_bin" -n -F -- 'if [[ "$current_policy_schema" != "14" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+migration_gate_line="$("$rg_bin" -n -F -- 'if [[ "$migration_required" != "false" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+schema14_provenance_line="$("$rg_bin" -n -F -- 'verify_exact_schema14_complete_update_provenance' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/tail -n 1)"
+if [[ -z "$legacy_gate_line" || -z "$legacy_classification_line" || -z "$schema14_gate_line" || -z "$migration_gate_line" || -z "$schema14_provenance_line" || "$legacy_gate_line" -ge "$legacy_classification_line" || "$legacy_classification_line" -ge "$schema14_gate_line" || "$schema14_gate_line" -ge "$migration_gate_line" || "$migration_gate_line" -ge "$schema14_provenance_line" ]]; then
+    fail "Schema 15 admission must classify legacy entitlements, require exact installed Schema-14, reject migration before provenance verification, and then verify exact provenance"
+fi
+if "$rg_bin" -n -F '[[ "$current_policy_schema" == "' "$runtime_updater" >/dev/null; then
+    fail "Schema 15 updater retains a generic or legacy schema-selection route"
 fi
 
 # The deployed Schema-7 source remains independently constrained. The current
@@ -1282,12 +1495,6 @@ done
 if /bin/zsh -f -c 'source "$1"; select_exact_schema7_complete_update_provenance verified verified verified verified verified verified verified' -- "$schema7_classifier_helper" >/dev/null 2>&1; then
     fail "exact Schema-7 completed-update classifier accepted an incomplete proof vector"
 fi
-schema7_branch_line="$("$rg_bin" -n -F -- 'elif [[ "$current_policy_schema" == "7" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
-schema6_rebind_branch_line="$("$rg_bin" -n -F -- 'if [[ "$current_policy_schema" != "6" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
-if [[ -z "$schema7_branch_line" || -z "$schema6_rebind_branch_line" || "$schema7_branch_line" -ge "$schema6_rebind_branch_line" ]]; then
-    fail "Schema-7 normal provenance must be selected before the historical Schema-6 rebind"
-fi
-
 # The deployed Schema-8 copy is the only exact normal source for this Schema-9
 # ABI correction. Its classifier must require every independent proof category
 # and remain separate from both historical paths.
@@ -1337,11 +1544,6 @@ done
 if /bin/zsh -f -c 'source "$1"; select_exact_schema8_complete_update_provenance verified verified verified verified verified verified verified' -- "$schema8_classifier_helper" >/dev/null 2>&1; then
     fail "exact Schema-8 completed-update classifier accepted an incomplete proof vector"
 fi
-schema8_branch_line="$("$rg_bin" -n -F -- 'if [[ "$current_policy_schema" == "8" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
-if [[ -z "$schema8_branch_line" || "$schema8_branch_line" -ge "$schema7_branch_line" ]]; then
-    fail "Schema-8 normal provenance must be selected before the retained Schema-7 route"
-fi
-
 # The canonical Schema-6 receipt rebind is a distinct one-time classifier, not
 # a fallback for a partially verified copied app. Exercise the pure classifier
 # directly so each proof category is proven necessary without touching either
@@ -1420,10 +1622,6 @@ for required_rebind_live_gate_fragment in \
         fail "exact Schema-6 rebind live gate is missing: $required_rebind_live_gate_fragment"
     fi
 done
-rebind_branch_line="$("$rg_bin" -n -F -- 'elif [[ "$migration_required" == "false" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
-if [[ -z "$rebind_branch_line" || "$rebind_branch_line" -le "$receipt_rebind_line" ]]; then
-    fail "canonical Schema-6 rebind must follow the unchanged legacy-sandboxed receipt path"
-fi
 for exact_framework_replacement_fragment in \
     '/bin/mv "$embedded_framework" "$rollback_dir/staged-retired-runtime-framework"' \
     'capture_bundle_manifest "$built_framework" "$update_dir/built-runtime-framework.manifest"' \

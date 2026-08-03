@@ -67,6 +67,7 @@ static const NSUInteger FCPCCDisposableProjectBootstrapMaximumObservationTurns =
 static const NSTimeInterval FCPCCDisposableProjectBootstrapLibraryOpenCompletionTimeoutSeconds = 30.0;
 
 static BOOL FCPCCFileSHA256MatchesExpectedHex(NSString *path, const char *expectedHex);
+static BOOL FCPCCDisposableProjectBootstrapEnvironmentIsExact(void);
 
 CGPoint FCPCCProductNormalizedPointToCandidateFCPPixels(CGPoint normalizedPoint,
                                                          CGSize frameSize) {
@@ -1287,6 +1288,7 @@ static const char * const FCPCCExpectedLibraryDocumentCreateTypeEncoding = "@36@
 static const char * const FCPCCExpectedEditActionCreateTypeEncoding = "@32@0:8i16B20@24";
 static const char * const FCPCCExpectedTimelinePerformEditTypeEncoding = "v36@0:8@16@24B32";
 static const char * const FCPCCExpectedPasteboardWriteRangesTypeEncoding = "B32@0:8@16@24";
+static const char * const FCPCCExpectedFlexoSupportsThirdPartyAudioUnitsTypeEncoding = "B16@0:8";
 static const char * const FCPCCExpectedNativeBooleanReturnType = "B";
 #elif defined(__x86_64__)
 static const char * const FCPCCExpectedSelectedItemsGetterTypeEncoding = "@24@0:8c16c20";
@@ -1294,6 +1296,7 @@ static const char * const FCPCCExpectedLibraryDocumentCreateTypeEncoding = "@36@
 static const char * const FCPCCExpectedEditActionCreateTypeEncoding = "@32@0:8i16c20@24";
 static const char * const FCPCCExpectedTimelinePerformEditTypeEncoding = "v36@0:8@16@24c32";
 static const char * const FCPCCExpectedPasteboardWriteRangesTypeEncoding = "c32@0:8@16@24";
+static const char * const FCPCCExpectedFlexoSupportsThirdPartyAudioUnitsTypeEncoding = "c16@0:8";
 static const char * const FCPCCExpectedNativeBooleanReturnType = "c";
 #else
 static const char * const FCPCCExpectedSelectedItemsGetterTypeEncoding = "";
@@ -1301,11 +1304,15 @@ static const char * const FCPCCExpectedLibraryDocumentCreateTypeEncoding = "";
 static const char * const FCPCCExpectedEditActionCreateTypeEncoding = "";
 static const char * const FCPCCExpectedTimelinePerformEditTypeEncoding = "";
 static const char * const FCPCCExpectedPasteboardWriteRangesTypeEncoding = "";
+static const char * const FCPCCExpectedFlexoSupportsThirdPartyAudioUnitsTypeEncoding = "";
 static const char * const FCPCCExpectedNativeBooleanReturnType = "";
 #endif
 
 static const FCPCCFixedObjCMethodContract FCPCCCopyActiveLibrariesContract = {
     "FFLibraryDocument", "copyActiveLibraries", "@16@0:8", "@", 2, YES, FCPCCFixedMethodImageFlexo, 0x1d776c, 0x2a9b80,
+};
+static const FCPCCFixedObjCMethodContract FCPCCFlexoSupportsThirdPartyAudioUnitsContract = {
+    "Flexo", "supportsThirdPartyAudioUnits", FCPCCExpectedFlexoSupportsThirdPartyAudioUnitsTypeEncoding, FCPCCExpectedNativeBooleanReturnType, 2, YES, FCPCCFixedMethodImageFlexo, 0xe66b8c, 0x13c0be0,
 };
 static const FCPCCFixedObjCMethodContract FCPCCLibraryDocumentContract = {
     "FFLibrary", "libraryDocument", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0x1bfe88, 0x288910,
@@ -1666,6 +1673,216 @@ static BOOL FCPCCReadOnlyHostGatePasses(NSString **reason) {
         return NO;
     }
     return YES;
+}
+
+// Schema 15 has one narrow, process-local containment for the explicitly
+// disposable project bootstrap. Final Cut's own deferred registration remains
+// intact: its false branch skips third-party Audio Unit validation while still
+// registering built-in Audio Units and supported types. This is deliberately
+// not a retryable availability workaround and does not persist outside this
+// copied process.
+typedef NS_ENUM(NSUInteger, FCPCCAudioUnitValidationContainmentInstallState) {
+    FCPCCAudioUnitValidationContainmentInstallStateNew = 0,
+    FCPCCAudioUnitValidationContainmentInstallStateInstalled,
+    FCPCCAudioUnitValidationContainmentInstallStateFailed,
+};
+
+typedef NS_ENUM(NSUInteger, FCPCCAudioUnitValidationContainmentInstallStatus) {
+    FCPCCAudioUnitValidationContainmentInstallStatusInstalled = 0,
+    FCPCCAudioUnitValidationContainmentInstallStatusEnvironmentNotExact,
+    FCPCCAudioUnitValidationContainmentInstallStatusPreviousAttempt,
+    FCPCCAudioUnitValidationContainmentInstallStatusHostContainmentUnverified,
+    FCPCCAudioUnitValidationContainmentInstallStatusCopiedHostUUIDUnverified,
+    FCPCCAudioUnitValidationContainmentInstallStatusFlexoContractUnverified,
+    FCPCCAudioUnitValidationContainmentInstallStatusInstanceMethodPlacementMismatch,
+    FCPCCAudioUnitValidationContainmentInstallStatusMetaclassUnavailable,
+    FCPCCAudioUnitValidationContainmentInstallStatusMetaclassMethodUnavailable,
+    FCPCCAudioUnitValidationContainmentInstallStatusMetaclassABIUnverified,
+    FCPCCAudioUnitValidationContainmentInstallStatusReplacementOriginalMismatch,
+    FCPCCAudioUnitValidationContainmentInstallStatusPostverificationFailed,
+};
+
+static FCPCCAudioUnitValidationContainmentInstallState FCPCCAudioUnitValidationContainmentState = FCPCCAudioUnitValidationContainmentInstallStateNew;
+
+static const char *FCPCCAudioUnitValidationContainmentInstallStatusName(FCPCCAudioUnitValidationContainmentInstallStatus status) {
+    switch (status) {
+        case FCPCCAudioUnitValidationContainmentInstallStatusInstalled:
+            return "installed";
+        case FCPCCAudioUnitValidationContainmentInstallStatusEnvironmentNotExact:
+            return "environment_not_exact";
+        case FCPCCAudioUnitValidationContainmentInstallStatusPreviousAttempt:
+            return "previous_attempt";
+        case FCPCCAudioUnitValidationContainmentInstallStatusHostContainmentUnverified:
+            return "host_containment_unverified";
+        case FCPCCAudioUnitValidationContainmentInstallStatusCopiedHostUUIDUnverified:
+            return "copied_host_uuid_unverified";
+        case FCPCCAudioUnitValidationContainmentInstallStatusFlexoContractUnverified:
+            return "flexo_contract_unverified";
+        case FCPCCAudioUnitValidationContainmentInstallStatusInstanceMethodPlacementMismatch:
+            return "instance_method_placement_mismatch";
+        case FCPCCAudioUnitValidationContainmentInstallStatusMetaclassUnavailable:
+            return "metaclass_unavailable";
+        case FCPCCAudioUnitValidationContainmentInstallStatusMetaclassMethodUnavailable:
+            return "metaclass_method_unavailable";
+        case FCPCCAudioUnitValidationContainmentInstallStatusMetaclassABIUnverified:
+            return "metaclass_abi_unverified";
+        case FCPCCAudioUnitValidationContainmentInstallStatusReplacementOriginalMismatch:
+            return "replacement_original_mismatch";
+        case FCPCCAudioUnitValidationContainmentInstallStatusPostverificationFailed:
+            return "postverification_failed";
+    }
+    return "unknown";
+}
+
+static void FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatus status) {
+    // This fixed diagnostic is intentionally memory/process scoped. It does
+    // not create a preference, cache, Audio Unit artifact, retry, or UI path.
+    fprintf(stderr,
+            "FCPCommandConsole AudioUnitValidationContainment phase=constructor status=%s process_lifetime=true\n",
+            FCPCCAudioUnitValidationContainmentInstallStatusName(status));
+}
+
+static BOOL FCPCCAudioUnitValidationContainmentStateCanAttempt(FCPCCAudioUnitValidationContainmentInstallState state) {
+    return state == FCPCCAudioUnitValidationContainmentInstallStateNew;
+}
+
+static BOOL FCPCCAudioUnitValidationContainmentSchedulingAllowedForState(BOOL exactEnvironment,
+                                                                           FCPCCAudioUnitValidationContainmentInstallState state) {
+    return exactEnvironment && state == FCPCCAudioUnitValidationContainmentInstallStateInstalled;
+}
+
+#if defined(FCPCC_RUNTIME_TESTING)
+static BOOL FCPCCAudioUnitValidationContainmentAllContractGatesPass(BOOL hostContainment,
+                                                                      BOOL copiedHostUUID,
+                                                                      BOOL flexoClass,
+                                                                      BOOL selector,
+                                                                      BOOL classMethod,
+                                                                      BOOL argumentCount,
+                                                                      BOOL returnType,
+                                                                      BOOL typeEncoding,
+                                                                      BOOL flexoImageIdentityAndOffset,
+                                                                      BOOL instancePlacement,
+                                                                      BOOL metaclass,
+                                                                      BOOL metaclassMethod,
+                                                                      BOOL replacementOriginal,
+                                                                      BOOL postverification) {
+    return hostContainment
+        && copiedHostUUID
+        && flexoClass
+        && selector
+        && classMethod
+        && argumentCount
+        && returnType
+        && typeEncoding
+        && flexoImageIdentityAndOffset
+        && instancePlacement
+        && metaclass
+        && metaclassMethod
+        && replacementOriginal
+        && postverification;
+}
+#endif
+
+static BOOL FCPCCFlexoSupportsThirdPartyAudioUnitsReplacement(__unused id receiver, __unused SEL selector) {
+    return NO;
+}
+
+static BOOL FCPCCAudioUnitValidationContainmentMethodMatchesContract(Method method,
+                                                                       IMP expectedImplementation) {
+    if (method == NULL
+        || method_getImplementation(method) != expectedImplementation
+        || method_getNumberOfArguments(method) != FCPCCFlexoSupportsThirdPartyAudioUnitsContract.argumentCount) {
+        return NO;
+    }
+    char *returnType = method_copyReturnType(method);
+    BOOL returnTypeMatches = returnType != NULL
+        && strcmp(returnType, FCPCCFlexoSupportsThirdPartyAudioUnitsContract.returnType) == 0;
+    if (returnType != NULL) {
+        free(returnType);
+    }
+    const char *typeEncoding = method_getTypeEncoding(method);
+    return returnTypeMatches
+        && typeEncoding != NULL
+        && strcmp(typeEncoding, FCPCCFlexoSupportsThirdPartyAudioUnitsContract.typeEncoding) == 0;
+}
+
+static BOOL FCPCCInstallAudioUnitValidationContainmentForDisposableProjectBootstrap(void) {
+    if (!FCPCCAudioUnitValidationContainmentStateCanAttempt(FCPCCAudioUnitValidationContainmentState)) {
+        FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusPreviousAttempt);
+        return FCPCCAudioUnitValidationContainmentState == FCPCCAudioUnitValidationContainmentInstallStateInstalled;
+    }
+
+    // Mark failed before each fixed read-only check: no later lifecycle route
+    // can turn a failed contract into a second availability attempt.
+    FCPCCAudioUnitValidationContainmentState = FCPCCAudioUnitValidationContainmentInstallStateFailed;
+    if (!FCPCCDisposableProjectBootstrapEnvironmentIsExact()) {
+        FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusEnvironmentNotExact);
+        return NO;
+    }
+    FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
+    if (!containment.isVerified) {
+        FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusHostContainmentUnverified);
+        return NO;
+    }
+    if (!FCPCCCopiedHostImageUUIDMatches()) {
+        FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusCopiedHostUUIDUnverified);
+        return NO;
+    }
+
+    NSString *reason = nil;
+    FCPCCValidatedFixedMethod originalMethod = {0};
+    if (!FCPCCResolveFixedMethod(&FCPCCFlexoSupportsThirdPartyAudioUnitsContract, &originalMethod, &reason)) {
+        FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusFlexoContractUnverified);
+        return NO;
+    }
+    Class targetClass = originalMethod.targetClass;
+    SEL selector = originalMethod.selector;
+    if (class_getInstanceMethod(targetClass, selector) != NULL) {
+        FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusInstanceMethodPlacementMismatch);
+        return NO;
+    }
+    Class metaclass = object_getClass(targetClass);
+    if (metaclass == Nil) {
+        FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusMetaclassUnavailable);
+        return NO;
+    }
+    Method metaclassMethod = class_getInstanceMethod(metaclass, selector);
+    if (metaclassMethod == NULL) {
+        FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusMetaclassMethodUnavailable);
+        return NO;
+    }
+    if (!FCPCCAudioUnitValidationContainmentMethodMatchesContract(metaclassMethod, originalMethod.implementation)) {
+        FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusMetaclassABIUnverified);
+        return NO;
+    }
+
+    IMP replacement = (IMP)FCPCCFlexoSupportsThirdPartyAudioUnitsReplacement;
+    IMP displacedImplementation = class_replaceMethod(metaclass,
+                                                       selector,
+                                                       replacement,
+                                                       FCPCCFlexoSupportsThirdPartyAudioUnitsContract.typeEncoding);
+    if (displacedImplementation != originalMethod.implementation) {
+        FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusReplacementOriginalMismatch);
+        return NO;
+    }
+    Method classMethod = class_getClassMethod(targetClass, selector);
+    Method postverifiedMetaclassMethod = class_getInstanceMethod(metaclass, selector);
+    if (class_getInstanceMethod(targetClass, selector) != NULL
+        || !FCPCCAudioUnitValidationContainmentMethodMatchesContract(classMethod, replacement)
+        || !FCPCCAudioUnitValidationContainmentMethodMatchesContract(postverifiedMetaclassMethod, replacement)) {
+        FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusPostverificationFailed);
+        return NO;
+    }
+
+    FCPCCAudioUnitValidationContainmentState = FCPCCAudioUnitValidationContainmentInstallStateInstalled;
+    FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusInstalled);
+    return YES;
+}
+
+static BOOL FCPCCAudioUnitValidationContainmentAllowsDisposableProjectBootstrapScheduling(void) {
+    return FCPCCAudioUnitValidationContainmentSchedulingAllowedForState(
+        FCPCCDisposableProjectBootstrapEnvironmentIsExact(),
+        FCPCCAudioUnitValidationContainmentState);
 }
 
 @interface FCPCCFixedModelTraversalAdapter : NSObject
@@ -2214,12 +2431,17 @@ static BOOL FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(FCPCCD
 static void FCPCCFinishDisposableProjectBootstrapScheduling(void);
 static void FCPCCAdvanceDisposableProjectBootstrap(FCPCCDisposableProjectBootstrapSession *session);
 
-static BOOL FCPCCDisposableProjectBootstrapEnvironmentIsExact(void) {
-    const char *projectValue = getenv(FCPCCDisposableProjectBootstrapEnvironmentName.UTF8String);
-    const char *libraryValue = getenv(FCPCCDisposableLibraryBootstrapEnvironmentName.UTF8String);
+static BOOL FCPCCDisposableProjectBootstrapEnvironmentValuesAreExact(const char *projectValue,
+                                                                       const char *libraryValue) {
     return projectValue != NULL
         && strcmp(projectValue, FCPCCDisposableProjectBootstrapEnvironmentValue.UTF8String) == 0
         && libraryValue == NULL;
+}
+
+static BOOL FCPCCDisposableProjectBootstrapEnvironmentIsExact(void) {
+    return FCPCCDisposableProjectBootstrapEnvironmentValuesAreExact(
+        getenv(FCPCCDisposableProjectBootstrapEnvironmentName.UTF8String),
+        getenv(FCPCCDisposableLibraryBootstrapEnvironmentName.UTF8String));
 }
 
 static NSString *FCPCCDisposableProjectBootstrapFixturePathAtIndex(NSUInteger index) {
@@ -3560,6 +3782,12 @@ static void FCPCCRunDisposableProjectBootstrap(FCPCCDisposableProjectBootstrapSe
     }
     if (!FCPCCDisposableProjectBootstrapEnvironmentIsExact()) {
         FCPCCFinishDisposableProjectBootstrap(session, @"rejected", @"project_bootstrap_environment_flag_not_exact");
+        return;
+    }
+    if (!FCPCCAudioUnitValidationContainmentAllowsDisposableProjectBootstrapScheduling()) {
+        FCPCCFinishDisposableProjectBootstrap(session,
+                                               @"rejected",
+                                               @"project_bootstrap_audio_unit_validation_containment_unverified");
         return;
     }
     if (!FCPCCReadOnlyHostGatePasses(&reason)) {
@@ -5018,6 +5246,10 @@ static void FCPCCHandleDisposableProjectBootstrapDidFinishLaunching(void) {
         FCPCCFinishDisposableProjectBootstrapScheduling();
         return;
     }
+    if (!FCPCCAudioUnitValidationContainmentAllowsDisposableProjectBootstrapScheduling()) {
+        FCPCCFinishDisposableProjectBootstrapScheduling();
+        return;
+    }
     FCPCCDisposableProjectBootstrapSession *session = [[FCPCCDisposableProjectBootstrapSession alloc] init];
     FCPCCDisposableProjectBootstrapLifecycle = FCPCCDisposableProjectBootstrapLifecycleStateRunning;
     if (!FCPCCDisposableProjectBootstrapRetainActiveSessionIfAbsent(session)) {
@@ -5039,6 +5271,9 @@ static void FCPCCBeginDisposableProjectBootstrapAfterApplicationDidFinishLaunchi
     // Project creation and all subsequent model calls remain behind a single
     // exact launcher flag. The observer only starts the bounded state machine.
     if (![NSThread isMainThread] || !FCPCCDisposableProjectBootstrapEnvironmentIsExact()) {
+        return;
+    }
+    if (!FCPCCAudioUnitValidationContainmentAllowsDisposableProjectBootstrapScheduling()) {
         return;
     }
     static dispatch_once_t onceToken;
@@ -5064,6 +5299,9 @@ static void FCPCCInstallRuntime(void) {
     if (!containment.isVerified || !FCPCCCopiedHostImageUUIDMatches()) {
         return;
     }
+    if (FCPCCDisposableProjectBootstrapEnvironmentIsExact()) {
+        (void)FCPCCInstallAudioUnitValidationContainmentForDisposableProjectBootstrap();
+    }
     (void)FCPCCInstallOnboardingQueryCompatibility();
     FCPCCBeginCloudFirstLaunchRegistrationSuppression();
     FCPCCBeginDisposableLibraryBootstrapAfterApplicationDidFinishLaunching();
@@ -5072,3 +5310,85 @@ static void FCPCCInstallRuntime(void) {
         [[FCPCCRuntime sharedRuntime] installMenuWhenReady];
     });
 }
+
+#if defined(FCPCC_RUNTIME_TESTING)
+@interface FCPCCAudioUnitValidationContainmentTestFlexo : NSObject
++ (BOOL)supportsThirdPartyAudioUnits;
+@end
+
+@implementation FCPCCAudioUnitValidationContainmentTestFlexo
+
++ (BOOL)supportsThirdPartyAudioUnits {
+    return YES;
+}
+
+@end
+
+BOOL FCPCCAudioUnitValidationContainmentTestEnvironmentIsExact(NSString *projectValue,
+                                                                NSString *libraryValue) {
+    return FCPCCDisposableProjectBootstrapEnvironmentValuesAreExact(projectValue.UTF8String,
+                                                                      libraryValue.UTF8String);
+}
+
+BOOL FCPCCAudioUnitValidationContainmentTestEveryFailedContractGateFailsClosed(void) {
+    return FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(NO, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, NO, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, NO, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, NO, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, YES, NO, YES, YES, YES, YES, YES, YES, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, YES, YES, NO, YES, YES, YES, YES, YES, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, YES, YES, YES, NO, YES, YES, YES, YES, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, YES, YES, YES, YES, NO, YES, YES, YES, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, YES, YES, YES, YES, YES, NO, YES, YES, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, YES, YES, YES, YES, YES, YES, NO, YES, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, NO, YES, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, NO, YES, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, NO, YES)
+        && !FCPCCAudioUnitValidationContainmentAllContractGatesPass(YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, YES, NO);
+}
+
+BOOL FCPCCAudioUnitValidationContainmentTestNoAvailabilityRetry(void) {
+    return FCPCCAudioUnitValidationContainmentStateCanAttempt(FCPCCAudioUnitValidationContainmentInstallStateNew)
+        && !FCPCCAudioUnitValidationContainmentStateCanAttempt(FCPCCAudioUnitValidationContainmentInstallStateInstalled)
+        && !FCPCCAudioUnitValidationContainmentStateCanAttempt(FCPCCAudioUnitValidationContainmentInstallStateFailed);
+}
+
+BOOL FCPCCAudioUnitValidationContainmentTestSchedulingRequiresInstalledContainment(void) {
+    return FCPCCAudioUnitValidationContainmentSchedulingAllowedForState(YES, FCPCCAudioUnitValidationContainmentInstallStateInstalled)
+        && !FCPCCAudioUnitValidationContainmentSchedulingAllowedForState(NO, FCPCCAudioUnitValidationContainmentInstallStateInstalled)
+        && !FCPCCAudioUnitValidationContainmentSchedulingAllowedForState(YES, FCPCCAudioUnitValidationContainmentInstallStateNew)
+        && !FCPCCAudioUnitValidationContainmentSchedulingAllowedForState(YES, FCPCCAudioUnitValidationContainmentInstallStateFailed);
+}
+
+BOOL FCPCCAudioUnitValidationContainmentTestMetaclassReplacementIsPostverifiedAndProcessLifetime(void) {
+    Class targetClass = [FCPCCAudioUnitValidationContainmentTestFlexo class];
+    SEL selector = @selector(supportsThirdPartyAudioUnits);
+    Class metaclass = object_getClass(targetClass);
+    Method initialClassMethod = class_getClassMethod(targetClass, selector);
+    Method initialMetaclassMethod = metaclass == Nil ? NULL : class_getInstanceMethod(metaclass, selector);
+    if (class_getInstanceMethod(targetClass, selector) != NULL
+        || initialClassMethod == NULL
+        || initialMetaclassMethod == NULL) {
+        return NO;
+    }
+    IMP originalImplementation = method_getImplementation(initialMetaclassMethod);
+    if (!FCPCCAudioUnitValidationContainmentMethodMatchesContract(initialClassMethod, originalImplementation)
+        || !FCPCCAudioUnitValidationContainmentMethodMatchesContract(initialMetaclassMethod, originalImplementation)) {
+        return NO;
+    }
+    IMP replacement = (IMP)FCPCCFlexoSupportsThirdPartyAudioUnitsReplacement;
+    IMP displacedImplementation = class_replaceMethod(metaclass,
+                                                       selector,
+                                                       replacement,
+                                                       FCPCCFlexoSupportsThirdPartyAudioUnitsContract.typeEncoding);
+    Method postClassMethod = class_getClassMethod(targetClass, selector);
+    Method postMetaclassMethod = class_getInstanceMethod(metaclass, selector);
+    return displacedImplementation == originalImplementation
+        && class_getInstanceMethod(targetClass, selector) == NULL
+        && FCPCCAudioUnitValidationContainmentMethodMatchesContract(postClassMethod, replacement)
+        && FCPCCAudioUnitValidationContainmentMethodMatchesContract(postMetaclassMethod, replacement)
+        && ![FCPCCAudioUnitValidationContainmentTestFlexo supportsThirdPartyAudioUnits]
+        && ![FCPCCAudioUnitValidationContainmentTestFlexo supportsThirdPartyAudioUnits];
+}
+#endif

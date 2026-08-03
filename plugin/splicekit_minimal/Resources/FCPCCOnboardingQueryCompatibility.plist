@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>14</integer>
+    <integer>15</integer>
     <key>ExpectedHostBundleIdentifier</key>
     <string>com.apple.FinalCut</string>
     <key>ExpectedCopiedHostBundlePath</key>
@@ -351,6 +351,93 @@
         <key>ProvenanceSchemaVersion</key>
         <integer>1</integer>
     </dict>
+    <key>AudioUnitValidationContainment</key>
+    <dict>
+        <key>ActivationEnvironmentVariable</key>
+        <string>FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT</string>
+        <key>ActivationEnvironmentValue</key>
+        <string>1</string>
+        <key>RequiresDisposableLibraryBootstrapAbsent</key>
+        <true/>
+        <key>ExecutionEnabled</key>
+        <true/>
+        <key>RuntimeDiscoveryAllowed</key>
+        <false/>
+        <key>RequiresCopiedHostContainmentAndUUID</key>
+        <true/>
+        <key>MethodContractsPinnedIn</key>
+        <string>FCPCommandConsoleRuntime.m:FCPCCFlexoSupportsThirdPartyAudioUnitsContract</string>
+        <key>RuntimeClass</key>
+        <string>Flexo</string>
+        <key>Selector</key>
+        <string>supportsThirdPartyAudioUnits</string>
+        <key>MethodKind</key>
+        <string>class_metaclass</string>
+        <key>ObjectiveCArgumentCount</key>
+        <integer>2</integer>
+        <key>ObjectiveCReturnTypeArm64</key>
+        <string>B</string>
+        <key>ObjectiveCReturnTypeX86_64</key>
+        <string>c</string>
+        <key>ObjectiveCTypeEncodingArm64</key>
+        <string>B16@0:8</string>
+        <key>ObjectiveCTypeEncodingX86_64</key>
+        <string>c16@0:8</string>
+        <key>ExpectedOriginalImplementationOffsetArm64</key>
+        <string>0xe66b8c</string>
+        <key>ExpectedOriginalImplementationOffsetX86_64</key>
+        <string>0x13c0be0</string>
+        <key>ExpectedFlexoRelativeExecutablePath</key>
+        <string>Contents/Frameworks/Flexo.framework/Versions/A/Flexo</string>
+        <key>ExpectedFlexoSHA256</key>
+        <string>704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e</string>
+        <key>ExpectedFlexoArm64UUID</key>
+        <string>AEAE4C0B-7695-3784-A794-AFB4985525A8</string>
+        <key>ExpectedFlexoX86_64UUID</key>
+        <string>525166A8-E6F4-3DCA-B4F9-BD98F16B6552</string>
+        <key>InstallPhase</key>
+        <string>runtime_constructor_before_disposable_project_bootstrap_scheduling</string>
+        <key>DeterministicRuntimeDiagnostics</key>
+        <string>constructor_install_status_process_lifetime</string>
+        <key>NoAvailabilityRetry</key>
+        <true/>
+        <key>ProcessLifetimeOnly</key>
+        <true/>
+        <key>Replacement</key>
+        <string>return_false_memory_only_no_restore</string>
+        <key>NoCachePreferenceOrAudioUnitWrites</key>
+        <true/>
+        <key>NoRetryUIFCPXMLOrGenericDispatch</key>
+        <true/>
+        <key>OriginalDeferredRegistrationClass</key>
+        <string>FFAudioUnitEffect(AudioUnitRegistration)</string>
+        <key>OriginalDeferredRegistrationSelector</key>
+        <string>runDeferredRegistration</string>
+        <key>OriginalDeferredRegistrationTypeEncoding</key>
+        <string>v16@0:8</string>
+        <key>OriginalDeferredRegistrationOffsetArm64</key>
+        <string>0x3a9fdc</string>
+        <key>OriginalDeferredRegistrationOffsetX86_64</key>
+        <string>0x52c0e0</string>
+        <key>OriginalBuiltInRegistrationClass</key>
+        <string>FFAudioUnitEffect(AudioUnitRegistration)</string>
+        <key>OriginalBuiltInRegistrationSelector</key>
+        <string>registerBuiltInAudioUnits</string>
+        <key>OriginalBuiltInRegistrationTypeEncoding</key>
+        <string>v16@0:8</string>
+        <key>OriginalBuiltInRegistrationOffsetArm64</key>
+        <string>0x3a9de8</string>
+        <key>OriginalSupportedTypeRegistrationClass</key>
+        <string>FFAudioUnitInfoCacheBase</string>
+        <key>OriginalSupportedTypeRegistrationSelector</key>
+        <string>forEachSupportedType:</string>
+        <key>OriginalSupportedTypeRegistrationTypeEncoding</key>
+        <string>v24@0:8@?16</string>
+        <key>OriginalSupportedTypeRegistrationOffsetArm64</key>
+        <string>0x399750</string>
+        <key>ThirdPartyAudioUnitsAvailability</key>
+        <string>unavailable_only_in_copied_app_process</string>
+    </dict>
     <key>ApprovedMethodReplacements</key>
     <array>
         <dict>
@@ -395,6 +482,6 @@
     <key>SourceSnapshotCommit</key>
     <string>f4f6618121309a69b66272b441f34cf8ad57f306</string>
     <key>SourceAttribution</key>
-    <string>Exact Final Cut Pro 12.3 static inspection. The copied host remains constrained by its exact bundle path, receipt-compatible identifier and receipt SHA-256, version/build, active-slice UUIDs, and the pinned ProOnboardingFlowModelOne identity and method contracts. Schema 10 admitted the launcher-flagged disposable-library bootstrap, which creates only the absent canonical library through the pinned Flexo ABI and never overwrites or removes a library. Schema 11 separately admitted one launcher-flagged disposable-project bootstrap after NSApplicationDidFinishLaunchingNotification. Its recorded failed zero-mutation run at disposable-project-bootstrap-5244F4D3-8B35-4289-9B82-0CFC58CF0829.json rejected exactly_one_open_library_required and is failure evidence, not success evidence. Schema 12 preserves the fixed one-shot project/import/append contracts and adds only a bounded public AppKit open when the complete initial library traversal has zero libraries. Before that one main-queue NSDocumentController openDocumentWithContentsOfURL:display:completionHandler: call, it revalidates only the canonical enrolled fcpbundle path with no symlink components, directory/device/inode, and manifest persistent UID. It permits no dialog, responder action, UI automation, alternate path, retry, library creation, removal, or overwrite. Completion requires a nonnil document and nil error, followed by another complete traversal proving exactly one enrolled library before FFProjectDocument actionNewProject:name:sequence:actionName:error: can run. Schema 13 retains the callback-driven public-open timeout and one-invocation gate, and roots exactly one active, exact-armed Running session strongly before any asynchronous escape. Weak completion handlers are thereby backed until FCPCCFinishDisposableProjectBootstrap clears only the identity-matching root after timeout cancellation, pasteboard cleanup, Finished state, and provenance finalization. It then resolves the exact new sequence through FFLibrary _deepLoadedSequences and the exact editor load, imports only the three fixed files with FFMediaEventProject, and appends them only through the fixed FFPasteboard, FigTimeRangeAndObject, FFEditAction kind 2/all, and FFAnchoredTimelineModule path. It observes and records the actual project format without a fixed frame-rate precondition, verifies exact primary-storyline order, adjacency, and imported media identifiers after every append, performs no automatic mutation retry, and records library-open invocation/status/reason plus any post-mutation uncertainty as partial_unverified with no rollback claim.</string>
+    <string>Exact Final Cut Pro 12.3 static inspection. The copied host remains constrained by its exact bundle path, receipt-compatible identifier and receipt SHA-256, version/build, active-slice UUIDs, and the pinned ProOnboardingFlowModelOne identity and method contracts. Schema 10 admitted the launcher-flagged disposable-library bootstrap, which creates only the absent canonical library through the pinned Flexo ABI and never overwrites or removes a library. Schema 11 separately admitted one launcher-flagged disposable-project bootstrap after NSApplicationDidFinishLaunchingNotification. Its recorded failed zero-mutation run at disposable-project-bootstrap-5244F4D3-8B35-4289-9B82-0CFC58CF0829.json rejected exactly_one_open_library_required and is failure evidence, not success evidence. Schema 12 preserves the fixed one-shot project/import/append contracts and adds only a bounded public AppKit open when the complete initial library traversal has zero libraries. Before that one main-queue NSDocumentController openDocumentWithContentsOfURL:display:completionHandler: call, it revalidates only the canonical enrolled fcpbundle path with no symlink components, directory/device/inode, and manifest persistent UID. It permits no dialog, responder action, UI automation, alternate path, retry, library creation, removal, or overwrite. Completion requires a nonnil document and nil error, followed by another complete traversal proving exactly one enrolled library before FFProjectDocument actionNewProject:name:sequence:actionName:error: can run. Schema 13 retains the callback-driven public-open timeout and one-invocation gate, and roots exactly one active, exact-armed Running session strongly before any asynchronous escape. Weak completion handlers are thereby backed until FCPCCFinishDisposableProjectBootstrap clears only the identity-matching root after timeout cancellation, pasteboard cleanup, Finished state, and provenance finalization. It then resolves the exact new sequence through FFLibrary _deepLoadedSequences and the exact editor load, imports only the three fixed files with FFMediaEventProject, and appends them only through the fixed FFPasteboard, FigTimeRangeAndObject, FFEditAction kind 2/all, and FFAnchoredTimelineModule path. It observes and records the actual project format without a fixed frame-rate precondition, verifies exact primary-storyline order, adjacency, and imported media identifiers after every append, performs no automatic mutation retry, and records library-open invocation/status/reason plus any post-mutation uncertainty as partial_unverified with no rollback claim. Schema 15 adds a copied-process-only, exact-environment metaclass replacement of +[Flexo supportsThirdPartyAudioUnits] to false before disposable-project scheduling. It is admitted only after copied-host and exact Flexo hash/UUID/ABI/offset validation, never retries or restores during the process, writes no cache, preference, or Audio Unit artifact, and fails closed before project scheduling if its postverification fails. It preserves Final Cut's original runDeferredRegistration false branch, including registerBuiltInAudioUnits and FFAudioUnitInfoCacheBase forEachSupportedType:. Third-party Audio Units are unavailable only in that armed copied process; this static route evidence does not establish live editability of video, color, or transition workflows.</string>
 </dict>
 </plist>

@@ -74,6 +74,20 @@ the bridge level, while
 `PanelBindingEnabled` remains false: no panel or Final Cut mutation path is
 connected to this helper.
 
+Schema 15 adds a separate, copied-process-only containment for the exact
+`--launch-bootstrap-disposable-project` environment: before that project
+bootstrap can schedule, the constructor verifies copied-host containment and
+the exact `Flexo` hash, slice UUID, class-method ABI, and implementation offset
+for `+[Flexo supportsThirdPartyAudioUnits]`. It then replaces only that
+metaclass method with a process-lifetime `false` result and post-verifies the
+installed method. There is no availability retry or restoration, and it writes
+no cache, preference, or Audio Unit artifact. If any gate or postverification
+fails, the project is never scheduled. This preserves Final Cut’s original
+`runDeferredRegistration` false branch, including
+`registerBuiltInAudioUnits` and `forEachSupportedType:`; third-party Audio
+Units are unavailable only in that armed copied process. The static route does
+not demonstrate live editability of video, color, or transition workflows.
+
 Workflow 1 has one typed native adapter for `native.targeted_rotate_zoom`.
 Its fixed Final Cut 12.3 contract records only the inspected selection
 reacquisition, represented-tool/video-effect-stack/xform path, transform
@@ -164,7 +178,7 @@ the copied executable must gain one reviewed load command and a new signature.
 The runtime never writes Final Cut preferences. No production library may be
 open; the existing exactly-one disposable library manifest gate remains
 fail-closed. Other mutation adapters remain disabled; the only separately armed
-write is the Schema 13 disposable-project spike described above.
+write is the Schema 15-contained disposable-project spike described above.
 
 The fixed CloudContent names and contracts were manually transcribed from the
 locked `reference/elliotttate/SpliceKit` snapshot at

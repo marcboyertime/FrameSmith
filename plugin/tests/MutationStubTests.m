@@ -42,6 +42,13 @@ FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestActiveSessionOwnership
 FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestDuplicateActiveSessionStartFailsClosed(void);
 FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestFinishReleasesIdentityMatchingSession(void);
 FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestWeakCompletionIsBackedByActiveSessionRoot(void);
+FOUNDATION_EXPORT BOOL FCPCCAudioUnitValidationContainmentTestEnvironmentIsExact(
+    NSString *projectValue,
+    NSString *libraryValue);
+FOUNDATION_EXPORT BOOL FCPCCAudioUnitValidationContainmentTestEveryFailedContractGateFailsClosed(void);
+FOUNDATION_EXPORT BOOL FCPCCAudioUnitValidationContainmentTestNoAvailabilityRetry(void);
+FOUNDATION_EXPORT BOOL FCPCCAudioUnitValidationContainmentTestSchedulingRequiresInstalledContainment(void);
+FOUNDATION_EXPORT BOOL FCPCCAudioUnitValidationContainmentTestMetaclassReplacementIsPostverifiedAndProcessLifetime(void);
 #endif
 
 static int require(BOOL condition, NSString *message) {
@@ -121,6 +128,20 @@ int main(void) {
                     && FCPCCDisposableProjectBootstrapTestFinishReleasesIdentityMatchingSession()
                     && FCPCCDisposableProjectBootstrapTestWeakCompletionIsBackedByActiveSessionRoot(),
                     @"disposable-project bootstrap active-session ownership did not retain or release the one-shot lifecycle correctly")) {
+            return 1;
+        }
+        if (require(FCPCCAudioUnitValidationContainmentTestEnvironmentIsExact(@"1", nil)
+                    && !FCPCCAudioUnitValidationContainmentTestEnvironmentIsExact(@"0", nil)
+                    && !FCPCCAudioUnitValidationContainmentTestEnvironmentIsExact(nil, nil)
+                    && !FCPCCAudioUnitValidationContainmentTestEnvironmentIsExact(@"1", @"1"),
+                    @"audio-unit validation containment environment and absent-library gate was not exact")) {
+            return 1;
+        }
+        if (require(FCPCCAudioUnitValidationContainmentTestEveryFailedContractGateFailsClosed()
+                    && FCPCCAudioUnitValidationContainmentTestNoAvailabilityRetry()
+                    && FCPCCAudioUnitValidationContainmentTestSchedulingRequiresInstalledContainment()
+                    && FCPCCAudioUnitValidationContainmentTestMetaclassReplacementIsPostverifiedAndProcessLifetime(),
+                    @"audio-unit validation containment did not fail closed, persist, or gate bootstrap scheduling")) {
             return 1;
         }
         NSString *bootstrapUnitRoot = [@"/Users/Shared"
