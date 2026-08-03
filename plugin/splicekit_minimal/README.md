@@ -46,8 +46,13 @@ onboarding bridge additionally requires the exact nested
 `ProOnboardingFlowModelOne` framework path, whole-file SHA-256, active-slice
 UUID, instance-method placement, argument count, return type, full encoding,
 and original IMP. The first-launch replacement requires the same placement and
-ABI checks plus that its original IMP resolves to the exact copied host image,
-with the active-slice UUID and architecture-specific offset. Both replacements
+full-encoding, void-return, and original-IMP checks plus that its original IMP
+resolves to the exact copied host image, with the active-slice UUID and
+architecture-specific offset. Its nested block encoding is deliberately not
+checked with `method_getNumberOfArguments`: on the supported Objective-C
+runtime that parser reports twelve for
+`v24@0:8@?<v@?@"NSError">16`, despite the receiver, selector, and block ABI.
+The fixed full encoding remains the authoritative ABI guard. Both replacements
 post-verify their installed IMP and encoding; any mismatch leaves the target
 method unchanged. Static inspection also pins the PEAppController send and its
 independent continuation in both slices, and shows the automatic listener is

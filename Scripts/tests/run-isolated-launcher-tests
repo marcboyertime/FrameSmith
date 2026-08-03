@@ -45,11 +45,11 @@ for required_launcher_fragment in \
     'pgrep_status=1' \
     'pgrep_status=$pgrep_status' \
     'codesign --verify --deep --strict --verbose=4' \
-    'expected_copied_cdhash_full="cdff2d6f33511ad4b2deb1a7a16cb1b8fe7ce403137ee95b7d180f938225ad48"' \
+    'expected_copied_cdhash_full="8e5f3375844717166f0bff0c0a77400fd759522ac22a18e3a6ae3f311e4a630e"' \
     'verify_reviewed_copied_cdhash' \
     'CandidateCDHashFull' \
     'create_five_entitlements' \
-    'SchemaVersion)" == "8"' \
+    'SchemaVersion)" == "9"' \
     "CompatibilityInstallPhases:0')\" == \"constructor_main_thread_immediate_attempt" \
     "CompatibilityInstallPhases:1')\" == \"application_will_finish_launching_availability_retry" \
     'MaximumMethodGuardAttempts)" == "2"' \
@@ -63,6 +63,7 @@ for required_launcher_fragment in \
     'v24@0:8@?<v@?@"NSError">16' \
     '0x924e8' \
     '0xc74c0' \
+    'invalid Cloud nested-block argument-count condition' \
     'ApprovedMethodReplacements:2' \
     'CFFIXED_USER_HOME="$isolated_home"' \
     'HOME="$isolated_home"' \

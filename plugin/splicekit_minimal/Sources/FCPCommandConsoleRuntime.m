@@ -969,7 +969,6 @@ typedef NS_ENUM(NSUInteger, FCPCCCloudFirstLaunchInstallStatus) {
     FCPCCCloudFirstLaunchInstallStatusHostUUIDUnverified,
     FCPCCCloudFirstLaunchInstallStatusSelectorUnavailable,
     FCPCCCloudFirstLaunchInstallStatusMethodPlacementMismatch,
-    FCPCCCloudFirstLaunchInstallStatusArgumentCountMismatch,
     FCPCCCloudFirstLaunchInstallStatusReturnTypeMismatch,
     FCPCCCloudFirstLaunchInstallStatusTypeEncodingMismatch,
     FCPCCCloudFirstLaunchInstallStatusHostImageUnavailable,
@@ -1010,8 +1009,6 @@ static const char *FCPCCCloudFirstLaunchInstallStatusName(FCPCCCloudFirstLaunchI
             return "selector_unavailable";
         case FCPCCCloudFirstLaunchInstallStatusMethodPlacementMismatch:
             return "method_placement_mismatch";
-        case FCPCCCloudFirstLaunchInstallStatusArgumentCountMismatch:
-            return "argument_count_mismatch";
         case FCPCCCloudFirstLaunchInstallStatusReturnTypeMismatch:
             return "return_type_mismatch";
         case FCPCCCloudFirstLaunchInstallStatusTypeEncodingMismatch:
@@ -1076,9 +1073,11 @@ static FCPCCCloudFirstLaunchInstallStatus FCPCCAttemptCloudFirstLaunchRegistrati
             ? FCPCCCloudFirstLaunchInstallStatusMethodUnavailable
             : FCPCCCloudFirstLaunchInstallStatusMethodPlacementMismatch;
     }
-    if (method_getNumberOfArguments(method) != 3) {
-        return FCPCCCloudFirstLaunchInstallStatusArgumentCountMismatch;
-    }
+    // This exact ABI contains a nested block signature. On the supported
+    // Objective-C runtime, method_getNumberOfArguments parses that encoding as
+    // twelve arguments rather than the receiver, selector, and block slots.
+    // The full fixed encoding and void return below remain the authoritative
+    // ABI checks; a parsed argument-count gate would reject the reviewed IMP.
     char *returnType = method_copyReturnType(method);
     BOOL returnTypeMatches = returnType != NULL && strcmp(returnType, "v") == 0;
     if (returnType != NULL) {
@@ -1120,7 +1119,6 @@ static FCPCCCloudFirstLaunchInstallStatus FCPCCAttemptCloudFirstLaunchRegistrati
     }
     if (installedMethod == NULL
         || method_getImplementation(installedMethod) != (IMP)FCPCCSuppressCloudFirstLaunchRegistration
-        || method_getNumberOfArguments(installedMethod) != 3
         || !installedReturnTypeMatches
         || installedTypeEncoding == NULL
         || strcmp(installedTypeEncoding, FCPCCExpectedCloudFirstLaunchSetupTypeEncoding) != 0) {

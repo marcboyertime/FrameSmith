@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>8</integer>
+    <integer>9</integer>
     <key>ExpectedHostBundleIdentifier</key>
     <string>com.apple.FinalCut</string>
     <key>ExpectedCopiedHostBundlePath</key>
@@ -70,8 +70,6 @@
             <string>setupAndPresentFirstLaunchIfNeededWithCompletionHandler:</string>
             <key>MethodKind</key>
             <string>instance</string>
-            <key>ObjectiveCArgumentCount</key>
-            <integer>3</integer>
             <key>ObjectiveCReturnType</key>
             <string>v</string>
             <key>ObjectiveCTypeEncoding</key>
@@ -87,6 +85,6 @@
     <key>SourceSnapshotCommit</key>
     <string>f4f6618121309a69b66272b441f34cf8ad57f306</string>
     <key>SourceAttribution</key>
-    <string>Exact Final Cut Pro 12.3 static inspection. The stock pre-injection executable SHA-256 is patcher provenance because the copied host receives one reviewed load command and a new signature. The runtime independently requires the exact copied bundle path, receipt-compatible bundle identifier, unchanged MAS receipt path and SHA-256, version, build, active-slice UUID, and nested ProOnboardingFlowModelOne framework path, SHA-256, active-slice UUID, Objective-C type, and original setter IMP before forwarding that setter with one main-queue asynchronous nil-metadata provider. The only additional replacement is the CCFirstLaunchHelper instance method at arm64 offset 0x924e8 and x86_64 offset 0xc74c0; static inspection pins its PEAppController send at arm64 0x3b648 and x86_64 0x4f1ad, the independent continuation, and the completion-only listener routes at arm64 0x3c32c and x86_64 0x503c8. Its replacement returns without accessing the completion block. The Cloud availability guard registers exactly one NSApplicationWillFinishLaunchingNotification observer before its main-thread constructor attempt, retries synchronously only once at that notification when and only when the helper class or exact instance method was unavailable, then removes the observer after installation or every terminal result; it never uses timers, polling, delayed work, or a third attempt.</string>
+    <string>Exact Final Cut Pro 12.3 static inspection. The stock pre-injection executable SHA-256 is patcher provenance because the copied host receives one reviewed load command and a new signature. The runtime independently requires the exact copied bundle path, receipt-compatible bundle identifier, unchanged MAS receipt path and SHA-256, version, build, active-slice UUID, and nested ProOnboardingFlowModelOne framework path, SHA-256, active-slice UUID, Objective-C type, and original setter IMP before forwarding that setter with one main-queue asynchronous nil-metadata provider. The only additional replacement is the CCFirstLaunchHelper instance method at arm64 offset 0x924e8 and x86_64 offset 0xc74c0; static inspection pins its PEAppController send at arm64 0x3b648 and x86_64 0x4f1ad, the independent continuation, and the completion-only listener routes at arm64 0x3c32c and x86_64 0x503c8. Its replacement returns without accessing the completion block. The reviewed nested-block encoding is v24@0:8@?&lt;v@?@&quot;NSError&quot;&gt;16. On this supported Objective-C runtime, method_getNumberOfArguments parses that extended encoding as twelve rather than the receiver, selector, and block slots, so Schema 9 intentionally omits an argument-count condition while retaining exact full-encoding, void-return, copied-image, UUID, and architecture-specific original-IMP checks. The Cloud availability guard registers exactly one NSApplicationWillFinishLaunchingNotification observer before its main-thread constructor attempt, retries synchronously only once at that notification when and only when the helper class or exact instance method was unavailable, then removes the observer after installation or every terminal result; it never uses timers, polling, delayed work, or a third attempt.</string>
 </dict>
 </plist>
