@@ -1,0 +1,349 @@
+#!/bin/zsh
+# Capture a read-only, fail-closed baseline for the reviewed disposable
+# Final Cut library and isolated home.  The only caller-controlled value is a
+# new provenance output directory directly beneath the fixed provenance root.
+
+set -euo pipefail
+umask 077
+export LC_ALL=C
+
+provenance_root="/Users/marcboyer/Movies/FCPCommandConsole/provenance"
+library_root="/Users/marcboyer/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle"
+isolated_home="/Users/marcboyer/Movies/FCPCommandConsole/isolated-final-cut-home"
+stock_final_cut_executable="/Applications/Final Cut Pro.app/Contents/MacOS/Final Cut Pro"
+copied_final_cut_executable="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app/Contents/MacOS/Final Cut Pro"
+copied_runtime_executable="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app/Contents/Frameworks/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
+copied_runtime_policy="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app/Contents/Frameworks/FCPCommandConsoleRuntime.framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
+stock_preferences="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
+normal_user_preferences="/Users/marcboyer/Library/Preferences/com.apple.FinalCut.plist"
+isolated_preferences_root="$isolated_home/Library/Preferences"
+isolated_registry_cache="$isolated_home/Library/Caches/com.apple.FinalCut/.registryCache"
+
+typeset -g capture_tree_hash=""
+typeset -g capture_identity_json=""
+typeset -g capture_python_bin="$(command -v python3 || true)"
+
+fail() {
+    print -u2 -r -- "capture-disposable-fcp-baseline: $1"
+    exit 1
+}
+
+require_tool() {
+    local tool="$1"
+    [[ -x "$tool" || -n "$(command -v "$tool" 2>/dev/null || true)" ]] || fail "required tool is unavailable: $tool"
+}
+
+require_exact_directory() {
+    local path="$1" label="$2" canonical
+    [[ -d "$path" && ! -L "$path" ]] || fail "$label is missing, non-directory, or symlink: $path"
+    canonical="$(/bin/realpath "$path")" || fail "$label cannot be canonicalized: $path"
+    [[ "$canonical" == "$path" ]] || fail "$label is noncanonical or traverses a symlink: $path"
+}
+
+require_exact_regular_file() {
+    local path="$1" label="$2" canonical
+    [[ -f "$path" && ! -L "$path" ]] || fail "$label is missing, non-regular, or symlink: $path"
+    canonical="$(/bin/realpath "$path")" || fail "$label cannot be canonicalized: $path"
+    [[ "$canonical" == "$path" ]] || fail "$label is noncanonical or traverses a symlink: $path"
+}
+
+sha256_file() {
+    /usr/bin/shasum -a 256 "$1" | /usr/bin/awk '{print $1}'
+}
+
+mtime_ns_for_path() {
+    local path="$1" seconds
+    if [[ -n "$capture_python_bin" ]]; then
+        "$capture_python_bin" - "$path" <<'PY'
+import os
+import sys
+
+st = os.lstat(sys.argv[1])
+print(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
+PY
+        return
+    fi
+    seconds="$(/usr/bin/stat -f '%m' "$path")" || fail "cannot read modification time: $path"
+    print -r -- "$(( seconds * 1000000000 ))"
+}
+
+validate_relative_field() {
+    local value="$1" label="$2"
+    [[ "$value" != *$'\t'* && "$value" != *$'\n'* && "$value" != *$'\r'* ]] || fail "$label contains a tab or newline"
+}
+
+validate_output_directory() {
+    local output_dir="$1" parent canonical_parent basename mode
+    [[ "$output_dir" == /* && "$output_dir" != */ ]] || fail "output directory must be an absolute path without a trailing slash"
+    parent="${output_dir:h}"
+    basename="${output_dir:t}"
+    [[ "$parent" == "$provenance_root" ]] || fail "output directory must be directly beneath the fixed provenance root"
+    [[ "$basename" =~ '^[A-Za-z0-9][A-Za-z0-9._-]*$' ]] || fail "output directory name contains unsupported characters"
+    require_exact_directory "$provenance_root" "fixed provenance root"
+    canonical_parent="$(/bin/realpath "$parent")" || fail "provenance parent cannot be canonicalized"
+    [[ "$canonical_parent" == "$provenance_root" ]] || fail "provenance parent is not canonical"
+    [[ ! -e "$output_dir" && ! -L "$output_dir" ]] || fail "provenance output directory already exists"
+    /bin/mkdir "$output_dir" || fail "cannot create provenance output directory"
+    /bin/chmod 700 "$output_dir" || fail "cannot set provenance output permissions"
+    mode="$(/usr/bin/stat -f '%Lp' "$output_dir")" || fail "cannot verify provenance output permissions"
+    [[ "$mode" == "700" ]] || fail "provenance output directory is not mode 0700"
+}
+
+capture_tree_inventory() {
+    local root="$1" output="$2" symlink_policy="${3:-reject}"
+    local paths_sorted relative path type mode device inode size mtime_ns metadata hash link_target mtime_seconds
+    if [[ -d "$root" && ! -L "$root" ]]; then
+        require_exact_directory "$root" "inventory root"
+    elif [[ -f "$root" && ! -L "$root" ]]; then
+        require_exact_regular_file "$root" "inventory root"
+    else
+        fail "inventory root is missing, unsupported, or a symlink: $root"
+    fi
+    paths_sorted="$output.paths"
+    /usr/bin/find "$root" -mindepth 0 -print0 > "$output.paths.unsorted" || fail "cannot enumerate inventory root: $root"
+    /usr/bin/sort -z "$output.paths.unsorted" > "$paths_sorted" || fail "cannot deterministically sort inventory root: $root"
+    print -r -- $'relative_path\tlstat_type\tmode\tdevice\tinode\tsize_bytes\tmtime_ns\tsha256\tlink_target' > "$output"
+    while IFS= read -r -d '' path; do
+        if [[ "$path" == "$root" ]]; then
+            relative="."
+        else
+            relative="${path#$root/}"
+        fi
+        validate_relative_field "$relative" "inventory relative path"
+        link_target=""
+        if [[ -L "$path" ]]; then
+            [[ "$symlink_policy" == "allow-library-fcpcache" && "$relative" == ".fcpcache" ]] || fail "symlink encountered in read-only inventory: $path"
+            link_target="$(/usr/bin/readlink "$path")" || fail "cannot read allowed library cache symlink: $path"
+            [[ "$link_target" == "." ]] || fail "library .fcpcache symlink target drifted: $link_target"
+            type="symlink"
+        elif [[ -d "$path" ]]; then
+            type="directory"
+        elif [[ -f "$path" ]]; then
+            type="file"
+        else
+            fail "unsupported non-directory/non-regular entry in inventory: $path"
+        fi
+        metadata="$(/usr/bin/stat -f '%Lp|%d|%i|%z|%m' "$path")" || fail "cannot stat inventory entry: $path"
+        IFS='|' read -r mode device inode size mtime_seconds <<< "$metadata"
+        [[ -n "$mode" && -n "$device" && -n "$inode" && -n "$size" && -n "$mtime_seconds" ]] || fail "incomplete stat metadata: $path"
+        mtime_ns="$(mtime_ns_for_path "$path")" || fail "cannot obtain mtime metadata: $path"
+        hash=""
+        if [[ "$type" == "file" ]]; then
+            hash="$(sha256_file "$path")" || fail "cannot hash inventory file: $path"
+        fi
+        print -r -- "$relative"$'\t'"$type"$'\t'"$mode"$'\t'"$device"$'\t'"$inode"$'\t'"$size"$'\t'"$mtime_ns"$'\t'"$hash"$'\t'"$link_target" >> "$output"
+    done < "$paths_sorted"
+    /bin/rm -f -- "$output.paths.unsorted" "$paths_sorted"
+    capture_tree_hash="$(sha256_file "$output")" || fail "cannot hash inventory output: $output"
+}
+
+capture_optional_tree() {
+    local root="$1" output="$2" label="$3"
+    require_exact_directory "${root:h}" "$label parent"
+    if [[ -L "$root" ]]; then
+        fail "$label is a symlink"
+    elif [[ -e "$root" ]]; then
+        capture_tree_inventory "$root" "$output"
+        print -r -- "present" > "$output.status"
+    else
+        print -r -- $'relative_path\tlstat_type\tmode\tdevice\tinode\tsize_bytes\tmtime_ns\tsha256\tlink_target' > "$output"
+        print -r -- "absent"$'\t'"absent"$'\t\t\t\t\t\t\t' >> "$output"
+        print -r -- "absent" > "$output.status"
+        capture_tree_hash="$(sha256_file "$output")" || fail "cannot hash absent inventory output: $output"
+    fi
+}
+
+capture_optional_file() {
+    local path="$1" output="$2" label="$3" metadata mode device inode size mtime_ns hash
+    require_exact_directory "${path:h}" "$label parent"
+    print -r -- $'path\tstatus\tmode\tdevice\tinode\tsize_bytes\tmtime_ns\tsha256' > "$output"
+    if [[ -L "$path" ]]; then
+        fail "$label is a symlink"
+    elif [[ -e "$path" ]]; then
+        require_exact_regular_file "$path" "$label"
+        metadata="$(/usr/bin/stat -f '%Lp|%d|%i|%z' "$path")" || fail "cannot stat $label"
+        IFS='|' read -r mode device inode size <<< "$metadata"
+        mtime_ns="$(mtime_ns_for_path "$path")" || fail "cannot obtain $label modification time"
+        hash="$(sha256_file "$path")" || fail "cannot hash $label"
+        print -r -- "$path"$'\t'"present"$'\t'"$mode"$'\t'"$device"$'\t'"$inode"$'\t'"$size"$'\t'"$mtime_ns"$'\t'"$hash" >> "$output"
+    else
+        print -r -- "$path"$'\t'"absent"$'\t\t\t\t\t\t' >> "$output"
+    fi
+    capture_tree_hash="$(sha256_file "$output")" || fail "cannot hash optional inventory output: $output"
+}
+
+process_identity_is_reviewed() {
+    local path="$1"
+    [[ "$path" == "$stock_final_cut_executable" || "$path" == "$copied_final_cut_executable" ]]
+}
+
+capture_process_guard() {
+    local output_dir="$1" snapshot="$output_dir/process-snapshot.txt" identity_output="$output_dir/process-identity.tsv"
+    local raw_snapshot="$output_dir/process-ps.raw" process_pid process_name process_path lsof_output matched
+    /bin/ps -axo pid=,comm= > "$raw_snapshot" || fail "cannot prove Final Cut process state: ps failed"
+    : > "$snapshot"
+    print -r -- $'pid\tprocess_name\ttxt_identity\tstatus' > "$identity_output"
+    while IFS=' ' read -r process_pid process_name; do
+        [[ "$process_pid" == <-> && "$process_name" == "Final Cut Pro" ]] || continue
+        print -r -- "$process_pid $process_name" >> "$snapshot"
+        lsof_output="$output_dir/process-$process_pid-lsof.txt"
+        if ! /usr/sbin/lsof -a -p "$process_pid" -d txt -Fn > "$lsof_output" 2> "$lsof_output.stderr"; then
+            fail "cannot prove Final Cut process identity for pid $process_pid"
+        fi
+        matched="false"
+        while IFS= read -r process_path; do
+            [[ -n "$process_path" ]] || continue
+            if process_identity_is_reviewed "$process_path"; then
+                matched="true"
+                print -r -- "$process_pid"$'\t'"$process_name"$'\t'"$process_path"$'\t'"running_reviewed_target" >> "$identity_output"
+                fail "an exact stock or copied Final Cut process is running (pid $process_pid)"
+            fi
+        done < <(/usr/bin/sed -n 's/^n//p' "$lsof_output")
+        [[ "$matched" == "false" ]] || fail "unexpected process identity state"
+        print -r -- "$process_pid"$'\t'"$process_name"$'\t'"unknown"$'\t'"name_match_identity_not_reviewed" >> "$identity_output"
+        fail "a Final Cut Pro-named process has no exact reviewed executable identity (pid $process_pid)"
+    done < "$raw_snapshot"
+    /bin/rm -f -- "$raw_snapshot"
+    print -r -- "closed" > "$output_dir/process-status.txt"
+}
+
+sqlite_sidecar_fields() {
+    local path="$1" sidecar="$2" sidecar_status size hash
+    if [[ -L "$sidecar" ]]; then
+        fail "SQLite sidecar is a symlink: $sidecar"
+    elif [[ -e "$sidecar" ]]; then
+        [[ -f "$sidecar" ]] || fail "SQLite sidecar is not a regular file: $sidecar"
+        sidecar_status="present"
+        size="$(/usr/bin/stat -f '%z' "$sidecar")" || fail "cannot stat SQLite sidecar: $sidecar"
+        hash="$(sha256_file "$sidecar")" || fail "cannot hash SQLite sidecar: $sidecar"
+    else
+        sidecar_status="absent"
+        size=""
+        hash=""
+    fi
+    print -r -- "$sidecar_status"$'\t'"$size"$'\t'"$hash"
+}
+
+capture_sqlite_database() {
+    local db_path="$1" db_kind="$2" relative_db="$3" files_output="$4" tables_output="$5"
+    local uri integrity db_size db_hash wal_fields shm_fields table_list table escaped count
+    require_exact_regular_file "$db_path" "SQLite database"
+    uri="file:$db_path?immutable=1"
+    integrity="$(/usr/bin/sqlite3 -readonly "$uri" 'PRAGMA integrity_check;')" || fail "SQLite integrity check could not run: $db_path"
+    [[ "$integrity" == "ok" ]] || fail "SQLite integrity check failed for $db_path: $integrity"
+    db_size="$(/usr/bin/stat -f '%z' "$db_path")" || fail "cannot stat SQLite database: $db_path"
+    db_hash="$(sha256_file "$db_path")" || fail "cannot hash SQLite database: $db_path"
+    wal_fields="$(sqlite_sidecar_fields "$db_path" "$db_path-wal")"
+    shm_fields="$(sqlite_sidecar_fields "$db_path" "$db_path-shm")"
+    print -r -- "$relative_db"$'\t'"$db_kind"$'\t'"$integrity"$'\t'"$db_size"$'\t'"$db_hash"$'\t'"${wal_fields}"$'\t'"${shm_fields}" >> "$files_output"
+    table_list="$tables_output.$db_kind.tables"
+    /usr/bin/sqlite3 -readonly -noheader "$uri" "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;" > "$table_list" || fail "cannot enumerate SQLite tables: $db_path"
+    while IFS= read -r table; do
+        [[ -n "$table" ]] || continue
+        validate_relative_field "$table" "SQLite table name"
+        escaped="${table//\"/\"\"}"
+        count="$(/usr/bin/sqlite3 -readonly "$uri" "SELECT count(*) FROM \"$escaped\";")" || fail "cannot count SQLite table $table in $db_path"
+        [[ "$count" == <-> ]] || fail "SQLite table count is not numeric: $table"
+        print -r -- "$relative_db"$'\t'"$table"$'\t'"$count" >> "$tables_output"
+    done < "$table_list"
+    /bin/rm -f -- "$table_list"
+}
+
+capture_library_databases() {
+    local output_dir="$1" files_output="$output_dir/database-files.tsv" tables_output="$output_dir/database-tables.tsv"
+    local db_path relative event_list
+    print -r -- $'relative_path\tkind\tintegrity_check\tsize_bytes\tsha256\twal_status\twal_size_bytes\twal_sha256\tshm_status\tshm_size_bytes\tshm_sha256' > "$files_output"
+    print -r -- $'relative_path\ttable\trow_count' > "$tables_output"
+    capture_sqlite_database "$library_root/CurrentVersion.flexolibrary" "flexolibrary" "CurrentVersion.flexolibrary" "$files_output" "$tables_output"
+    event_list="$output_dir/event-databases.txt"
+    /usr/bin/find "$library_root" -type f -name CurrentVersion.fcpevent -print > "$event_list" || fail "cannot enumerate fcpevent databases"
+    /usr/bin/sort "$event_list" -o "$event_list"
+    while IFS= read -r db_path; do
+        [[ -n "$db_path" ]] || continue
+        relative="${db_path#$library_root/}"
+        capture_sqlite_database "$db_path" "fcpevent" "$relative" "$files_output" "$tables_output"
+    done < "$event_list"
+    /bin/rm -f -- "$event_list"
+}
+
+capture_file_identity() {
+    local path="$1" label="$2" metadata mode device inode size mtime_ns hash
+    require_exact_regular_file "$path" "$label"
+    metadata="$(/usr/bin/stat -f '%Lp|%d|%i|%z' "$path")" || fail "cannot stat $label"
+    IFS='|' read -r mode device inode size <<< "$metadata"
+    mtime_ns="$(mtime_ns_for_path "$path")" || fail "cannot obtain $label modification time"
+    hash="$(sha256_file "$path")" || fail "cannot hash $label"
+    capture_identity_json="$(/usr/bin/jq -cn --arg path "$path" --arg sha256 "$hash" --arg mode "$mode" --arg device "$device" --arg inode "$inode" --argjson size_bytes "$size" --argjson mtime_ns "$mtime_ns" '{path:$path,sha256:$sha256,size_bytes:$size_bytes,mode:$mode,device:$device,inode:$inode,mtime_ns:$mtime_ns}')" || fail "cannot encode $label identity"
+}
+
+capture_runtime_identities() {
+    local output="$1" stock_json copied_json runtime_json policy_json
+    capture_file_identity "$stock_final_cut_executable" "stock Final Cut executable"
+    stock_json="$capture_identity_json"
+    capture_file_identity "$copied_final_cut_executable" "copied Final Cut executable"
+    copied_json="$capture_identity_json"
+    capture_file_identity "$copied_runtime_executable" "copied runtime executable"
+    runtime_json="$capture_identity_json"
+    capture_file_identity "$copied_runtime_policy" "copied runtime policy"
+    policy_json="$capture_identity_json"
+    /usr/bin/jq -n -S --argjson stock "$stock_json" --argjson copied "$copied_json" --argjson runtime "$runtime_json" --argjson policy "$policy_json" '{schema_version:1,artifacts:{stock_final_cut_executable:$stock,copied_final_cut_executable:$copied,copied_runtime_executable:$runtime,copied_runtime_policy:$policy}}' > "$output" || fail "cannot write runtime identity JSON"
+}
+
+main() {
+    [[ "$#" -eq 1 ]] || fail "usage: capture-disposable-fcp-baseline /Users/marcboyer/Movies/FCPCommandConsole/provenance/<new-directory>"
+    local output_dir="$1" capture_timestamp library_inventory cache_inventory isolated_preferences_inventory normal_preferences_inventory runtime_identity
+    for tool in /bin/ps /usr/sbin/lsof /usr/bin/sqlite3 /usr/bin/jq /usr/bin/find /usr/bin/sort /usr/bin/stat /usr/bin/shasum /bin/realpath /bin/mkdir /bin/chmod /bin/rm; do
+        require_tool "$tool"
+    done
+    validate_output_directory "$output_dir"
+    capture_timestamp="$(/bin/date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    require_exact_directory "$library_root" "disposable Final Cut library"
+    require_exact_directory "$isolated_home" "isolated Final Cut home"
+    capture_process_guard "$output_dir"
+    library_inventory="$output_dir/library-inventory.tsv"
+    capture_tree_inventory "$library_root" "$library_inventory" "allow-library-fcpcache"
+    local library_inventory_hash="$capture_tree_hash"
+    capture_library_databases "$output_dir"
+    cache_inventory="$output_dir/isolated-registry-cache-inventory.tsv"
+    capture_optional_tree "$isolated_registry_cache" "$cache_inventory" "isolated .registryCache"
+    local cache_inventory_hash="$capture_tree_hash" cache_status="$(<"$cache_inventory.status")"
+    isolated_preferences_inventory="$output_dir/isolated-preferences-inventory.tsv"
+    capture_optional_tree "$isolated_preferences_root" "$isolated_preferences_inventory" "isolated preferences root"
+    local isolated_preferences_hash="$capture_tree_hash" isolated_preferences_status="$(<"$isolated_preferences_inventory.status")"
+    normal_preferences_inventory="$output_dir/normal-final-cut-preferences.tsv"
+    capture_optional_file "$stock_preferences" "$normal_preferences_inventory" "stock Final Cut preferences"
+    local stock_preferences_hash="$capture_tree_hash"
+    local normal_user_preferences_inventory="$output_dir/normal-user-final-cut-preferences.tsv"
+    capture_optional_file "$normal_user_preferences" "$normal_user_preferences_inventory" "normal user Final Cut preferences"
+    local normal_user_preferences_hash="$capture_tree_hash"
+    runtime_identity="$output_dir/runtime-copy-identities.json"
+    capture_runtime_identities "$runtime_identity"
+    /usr/bin/jq -n -S \
+        --arg status "pass" \
+        --arg captured_at_utc "$capture_timestamp" \
+        --arg output_dir "$output_dir" \
+        --arg library "$library_root" \
+        --arg isolated_home "$isolated_home" \
+        --arg process_status "closed" \
+        --arg library_inventory "$library_inventory" \
+        --arg library_inventory_sha256 "$library_inventory_hash" \
+        --arg database_files "$output_dir/database-files.tsv" \
+        --arg database_tables "$output_dir/database-tables.tsv" \
+        --arg cache_status "$cache_status" \
+        --arg cache_inventory "$cache_inventory" \
+        --arg cache_inventory_sha256 "$cache_inventory_hash" \
+        --arg isolated_preferences_status "$isolated_preferences_status" \
+        --arg isolated_preferences_inventory "$isolated_preferences_inventory" \
+        --arg isolated_preferences_inventory_sha256 "$isolated_preferences_hash" \
+        --arg normal_preferences_inventory "$normal_preferences_inventory" \
+        --arg normal_preferences_inventory_sha256 "$stock_preferences_hash" \
+        --arg normal_user_preferences_inventory "$normal_user_preferences_inventory" \
+        --arg normal_user_preferences_inventory_sha256 "$normal_user_preferences_hash" \
+        --arg runtime_identity "$runtime_identity" \
+        '{schema_version:1,status:$status,captured_at_utc:$captured_at_utc,output_dir:$output_dir,fixed_targets:{library:$library,isolated_home:$isolated_home},process_guard:{status:$process_status},artifacts:{library_inventory:$library_inventory,library_inventory_sha256:$library_inventory_sha256,database_files:$database_files,database_tables:$database_tables,isolated_registry_cache:{status:$cache_status,inventory:$cache_inventory,inventory_sha256:$cache_inventory_sha256},isolated_preferences:{status:$isolated_preferences_status,inventory:$isolated_preferences_inventory,inventory_sha256:$isolated_preferences_inventory_sha256},normal_preferences:{stock:{inventory:$normal_preferences_inventory,inventory_sha256:$normal_preferences_inventory_sha256},user:{inventory:$normal_user_preferences_inventory,inventory_sha256:$normal_user_preferences_inventory_sha256}},runtime_copy_identities:$runtime_identity}}' > "$output_dir/summary.json" || fail "cannot write baseline summary"
+    print -r -- "capture-disposable-fcp-baseline: status=pass output=$output_dir"
+}
+
+if [[ "${ZSH_EVAL_CONTEXT:-}" == "toplevel" ]]; then
+    main "$@"
+fi

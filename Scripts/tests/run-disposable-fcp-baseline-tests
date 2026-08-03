@@ -1,0 +1,102 @@
+#!/bin/zsh
+# Focused offline tests for scripts/capture-disposable-fcp-baseline.
+
+set -euo pipefail
+umask 077
+
+script_dir="$(cd "$(/usr/bin/dirname "$0")" && /bin/pwd -P)"
+repo_dir="$(/usr/bin/dirname "$(/usr/bin/dirname "$script_dir")")"
+capture_script="$repo_dir/scripts/capture-disposable-fcp-baseline"
+test_root="$(/bin/realpath "$(/usr/bin/mktemp -d /tmp/fcpcc-disposable-baseline-tests.XXXXXX)")"
+
+fail() {
+    print -u2 -r -- "run-disposable-fcp-baseline-tests: $1"
+    exit 1
+}
+
+trap '/bin/rm -rf -- "$test_root"' EXIT
+
+[[ -x "$capture_script" ]] || fail "capture script is missing or not executable"
+/bin/zsh -n "$capture_script" || fail "capture script has invalid zsh syntax"
+
+for forbidden in 'eval ' 'osascript' 'AppleScript' 'open ' 'curl ' 'http://' 'https://' 'rm -rf' 'kill ' 'pkill ' 'killall '; do
+    if /usr/bin/grep -F -q -- "$forbidden" "$capture_script"; then
+        fail "capture script contains a forbidden surface: $forbidden"
+    fi
+done
+/usr/bin/grep -F -q '[[ "$#" -eq 1 ]]' "$capture_script" || fail "capture script does not require exactly one output argument"
+/usr/bin/grep -F -q 'immutable=1' "$capture_script" || fail "SQLite immutable read-only URI is missing"
+/usr/bin/grep -F -q 'PRAGMA integrity_check;' "$capture_script" || fail "SQLite integrity check is missing"
+/usr/bin/grep -F -q 'process_identity_is_reviewed' "$capture_script" || fail "exact process identity helper is missing"
+
+(
+    source "$capture_script"
+    fixture="$test_root/tree"
+    /bin/mkdir -p "$fixture/subdir"
+    print -r -- 'alpha' > "$fixture/a.txt"
+    print -r -- 'beta' > "$fixture/subdir/b.txt"
+
+    if capture_tree_inventory "$fixture" "$test_root/tree-one.tsv"; then
+        :
+    else
+        print -u2 -r -- 'tree inventory unexpectedly failed before symlink fixture'
+        exit 1
+    fi
+    first_hash="$capture_tree_hash"
+    if capture_tree_inventory "$fixture" "$test_root/tree-two.tsv"; then
+        :
+        [[ "$first_hash" == "$capture_tree_hash" ]] || exit 1
+        /usr/bin/cmp -s "$test_root/tree-one.tsv" "$test_root/tree-two.tsv" || exit 1
+    else
+        print -u2 -r -- 'deterministic tree inventory unexpectedly failed'
+        exit 1
+    fi
+
+    /bin/ln -s '.' "$fixture/.fcpcache"
+    capture_tree_inventory "$fixture" "$test_root/tree-allowed-fcpcache.tsv" allow-library-fcpcache
+    /usr/bin/awk -F '\t' '$1 == ".fcpcache" && $2 == "symlink" && $9 == "." { found = 1 } END { exit(found ? 0 : 1) }' "$test_root/tree-allowed-fcpcache.tsv" || exit 1
+    /bin/rm -f -- "$fixture/.fcpcache"
+    /bin/ln -s 'a.txt' "$fixture/.fcpcache"
+    if ( capture_tree_inventory "$fixture" "$test_root/tree-drifted-fcpcache.tsv" allow-library-fcpcache ); then
+        print -u2 -r -- 'drifted .fcpcache symlink target was not rejected'
+        exit 1
+    fi
+    /bin/rm -f -- "$fixture/.fcpcache"
+    /bin/ln -s 'a.txt' "$fixture/symlink-entry"
+    if ( capture_tree_inventory "$fixture" "$test_root/tree-symlink.tsv" ); then
+        print -u2 -r -- 'symlink fixture was not rejected'
+        exit 1
+    fi
+
+    if ( validate_output_directory "$test_root/not-provenance" ); then
+        print -u2 -r -- 'non-provenance output path was not rejected'
+        exit 1
+    fi
+
+    print -r -- 'registry-cache-fixture' > "$fixture/registryCache"
+    capture_optional_tree "$fixture/registryCache" "$test_root/registry-cache.tsv" 'fixture registry cache'
+    /usr/bin/awk -F '\t' '$1 == "." && $2 == "file" && $8 != "" { found = 1 } END { exit(found ? 0 : 1) }' "$test_root/registry-cache.tsv" || exit 1
+
+    process_identity_is_reviewed "/Applications/Final Cut Pro.app/Contents/MacOS/Final Cut Pro"
+    if process_identity_is_reviewed "/tmp/Final Cut Pro"; then
+        print -u2 -r -- 'unreviewed process identity was accepted'
+        exit 1
+    fi
+
+    db="$test_root/CurrentVersion.flexolibrary"
+    /usr/bin/sqlite3 "$db" 'CREATE TABLE zeta(value TEXT); CREATE TABLE alpha(value TEXT); INSERT INTO zeta VALUES ("one"),("two"); INSERT INTO alpha VALUES ("only");' || exit 1
+    print -r -- $'relative_path\tkind\tintegrity_check\tsize_bytes\tsha256\twal_status\twal_size_bytes\twal_sha256\tshm_status\tshm_size_bytes\tshm_sha256' > "$test_root/db-files-one.tsv"
+    print -r -- $'relative_path\ttable\trow_count' > "$test_root/db-tables-one.tsv"
+    capture_sqlite_database "$db" flexolibrary CurrentVersion.flexolibrary "$test_root/db-files-one.tsv" "$test_root/db-tables-one.tsv"
+    /usr/bin/grep -F -q $'CurrentVersion.flexolibrary\tflexolibrary\tok' "$test_root/db-files-one.tsv" || exit 1
+    /usr/bin/grep -F -q $'CurrentVersion.flexolibrary\talpha\t1' "$test_root/db-tables-one.tsv" || exit 1
+    /usr/bin/grep -F -q $'CurrentVersion.flexolibrary\tzeta\t2' "$test_root/db-tables-one.tsv" || exit 1
+    [[ ! -e "$db-wal" && ! -e "$db-shm" ]] || exit 1
+    print -r -- $'relative_path\tkind\tintegrity_check\tsize_bytes\tsha256\twal_status\twal_size_bytes\twal_sha256\tshm_status\tshm_size_bytes\tshm_sha256' > "$test_root/db-files-two.tsv"
+    print -r -- $'relative_path\ttable\trow_count' > "$test_root/db-tables-two.tsv"
+    capture_sqlite_database "$db" flexolibrary CurrentVersion.flexolibrary "$test_root/db-files-two.tsv" "$test_root/db-tables-two.tsv"
+    /usr/bin/cmp -s "$test_root/db-files-one.tsv" "$test_root/db-files-two.tsv" || exit 1
+    /usr/bin/cmp -s "$test_root/db-tables-one.tsv" "$test_root/db-tables-two.tsv" || exit 1
+)
+
+print -r -- 'run-disposable-fcp-baseline-tests: passed'
