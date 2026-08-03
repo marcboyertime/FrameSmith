@@ -1,0 +1,340 @@
+#!/bin/zsh
+# Build and verify the isolated, product-owned planner helper payload.
+# This script is intentionally offline: the package has no external
+# dependencies and SwiftPM is instructed not to perform automatic resolution.
+
+set -euo pipefail
+umask 077
+
+script_dir="$(cd "$(/usr/bin/dirname "$0")" && /bin/pwd)"
+plugin_dir="$(/usr/bin/dirname "$script_dir")"
+repo_dir="$(/usr/bin/dirname "$plugin_dir")"
+build_root="$plugin_dir/build/planner-helper"
+scratch_root="$build_root/scratch"
+payload_root="$build_root/payload"
+swift_scratch="$scratch_root/swiftpm"
+swift_output="$swift_scratch/arm64-apple-macosx/release"
+helper_name="fcpcommandconsole-planner-helper"
+bundle_name="FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle"
+helper_source="$repo_dir/Sources/FCPCommandConsolePlannerHelper"
+resource_source="$helper_source/Resources"
+payload_helper="$payload_root/$helper_name"
+payload_bundle="$payload_root/$bundle_name"
+manifest_path="$payload_root/planner-helper-manifest.json"
+resource_bundle_signed=false
+
+typeset -a immutable_resources
+immutable_resources=(
+    "Resources/registry/effects/look.old_television.json"
+    "Resources/registry/effects/motion.living_still.json"
+    "Resources/registry/effects/native.targeted_rotate_zoom.json"
+    "Resources/registry/effects/transition.natural_dissolve.json"
+    "Resources/schemas/effect-plan.schema.json"
+)
+typeset -a immutable_effect_ids
+immutable_effect_ids=(
+    "look.old_television"
+    "motion.living_still"
+    "native.targeted_rotate_zoom"
+    "transition.natural_dissolve"
+)
+
+fail() {
+    print -u2 -r -- "build-planner-helper: $1"
+    exit 1
+}
+
+usage() {
+    fail "usage: build-planner-helper --build | --verify-existing"
+}
+
+if (( $# != 1 )); then usage; fi
+case "$1" in
+    --build|--verify-existing) ;;
+    *) usage ;;
+esac
+
+for required in \
+    /usr/bin/swift /usr/bin/jq /usr/bin/codesign /usr/bin/security \
+    /usr/bin/lipo /usr/bin/file /usr/bin/shasum /usr/bin/stat \
+    /usr/bin/find /usr/bin/cmp /bin/cp /bin/mkdir /bin/rm; do
+    [[ -x "$required" ]] || fail "required tool is unavailable"
+done
+
+is_symlink() { [[ -L "$1" ]]; }
+
+require_regular_file() {
+    local path="$1"
+    [[ -f "$path" && ! -L "$path" ]] || fail "required regular file is missing or is a symlink"
+}
+
+require_directory() {
+    local path="$1"
+    [[ -d "$path" && ! -L "$path" ]] || fail "required directory is missing or is a symlink"
+}
+
+sha256_file() {
+    /usr/bin/shasum -a 256 "$1" | /usr/bin/awk '{print $1}'
+}
+
+sha256_directory() {
+    local root="$1"
+    local listing="$scratch_root/directory-hash.txt"
+    : > "$listing"
+    local path relative hash
+    while IFS= read -r path; do
+        relative="${path#$root/}"
+        hash="$(sha256_file "$path")"
+        print -r -- "$hash  $relative" >> "$listing"
+    done < <(/usr/bin/find "$root" -type f -print | /usr/bin/sed "s|^$root/||" | /usr/bin/sort | /usr/bin/sed "s|^|$root/|")
+    /usr/bin/shasum -a 256 "$listing" | /usr/bin/awk '{print $1}'
+}
+
+size_bytes() {
+    /usr/bin/stat -f '%z' "$1"
+}
+
+directory_size_bytes() {
+    local root="$1"
+    local path bytes
+    local -i total=0
+    while IFS= read -r path; do
+        bytes="$(size_bytes "$path")"
+        (( total += bytes ))
+    done < <(/usr/bin/find "$root" -type f -print)
+    print -r -- "$total"
+}
+
+hex_length() {
+    local value="$1"
+    local length="$2"
+    [[ "$value" != *[!0-9A-Fa-f]* && ${#value} -eq $length ]]
+}
+
+find_development_identity() {
+    # Emit only the identity hash.  The certificate's display name is never
+    # printed, persisted, or passed to a child process.
+    /usr/bin/security find-identity -v -p codesigning 2>/dev/null |
+        /usr/bin/sed -n 's/^[[:space:]]*[0-9]*)[[:space:]]*\([0-9A-Fa-f]\{40\}\)[[:space:]]*"Apple Development:.*$/\1/p' |
+        /usr/bin/awk 'NR == 1 { print; exit }'
+}
+
+sign_and_verify() {
+    local identity="$1"
+    require_regular_file "$payload_helper"
+    require_directory "$payload_bundle"
+    hex_length "$identity" 40 || fail "no Apple Development signing identity is available"
+
+    # Resource bundles emitted by SwiftPM are data-only directories without an
+    # Info.plist and are therefore not independently signable.  If a future
+    # toolchain emits a signable bundle, sign it before the executable. Ad-hoc
+    # signing (-) is never accepted.
+    resource_bundle_signed=false
+    if [[ -f "$payload_bundle/Info.plist" || -f "$payload_bundle/Contents/Info.plist" ]]; then
+        /usr/bin/codesign --force --sign "$identity" --timestamp=none "$payload_bundle" >/dev/null
+        /usr/bin/codesign --strict --verify "$payload_bundle" >/dev/null
+        resource_bundle_signed=true
+    fi
+    /usr/bin/codesign --force --sign "$identity" --timestamp=none "$payload_helper" >/dev/null
+    /usr/bin/codesign --strict --verify "$payload_helper" >/dev/null
+}
+
+verify_development_signature() {
+    local path="$1"
+    local metadata="$scratch_root/codesign-development-metadata.txt"
+    /usr/bin/codesign -dvvv "$path" > /dev/null 2> "$metadata" || fail "codesign metadata is unavailable"
+    /usr/bin/grep -E -q '^Authority=Apple Development:.+$' "$metadata" || fail "helper is not signed by an Apple Development identity"
+    /usr/bin/grep -E -q '^TeamIdentifier=[A-Z0-9]{10}$' "$metadata" || fail "helper signing team identifier is unavailable"
+    if /usr/bin/grep -E -q '^Signature=adhoc$|flags=.*adhoc' "$metadata"; then
+        fail "ad-hoc helper signatures are forbidden"
+    fi
+}
+
+verify_arm64_macho() {
+    local path="$1"
+    require_regular_file "$path"
+    /usr/bin/lipo "$path" -verify_arch arm64 >/dev/null 2>&1 || fail "artifact is not arm64"
+    [[ "$(/usr/bin/lipo -archs "$path")" == "arm64" ]] || fail "artifact contains an unexpected architecture"
+    /usr/bin/file "$path" | /usr/bin/grep -F -q 'Mach-O' || fail "artifact is not Mach-O"
+}
+
+verify_immutable_resources() {
+    local bundle="$1"
+    require_directory "$bundle"
+    local path relative source_path expected_id actual_id
+    local -a actual_resource_paths
+
+    # SwiftPM's bundle has one content directory.  Signing metadata is
+    # permitted at the bundle root; no other payload directories are.
+    local top_level
+    while IFS= read -r top_level; do
+        [[ -d "$top_level" && ! -L "$top_level" ]] || fail "resource bundle contains an unexpected top-level entry"
+        case "${top_level##*/}" in
+            Resources|_CodeSignature) ;;
+            *) fail "resource bundle contains an unexpected top-level entry" ;;
+        esac
+    done < <(/usr/bin/find "$bundle" -mindepth 1 -maxdepth 1 -print)
+    require_directory "$bundle/Resources"
+    while IFS= read -r path; do
+        fail "resource bundle contains a symlink"
+    done < <(/usr/bin/find "$bundle" -type l -print)
+
+    for relative in "${immutable_resources[@]}"; do
+        path="$bundle/$relative"
+        require_regular_file "$path"
+        [[ "$(/usr/bin/file "$path")" != *"symbolic link"* ]] || fail "resource is a symlink"
+    done
+
+    while IFS= read -r path; do
+        relative="${path#$bundle/}"
+        actual_resource_paths+=("$relative")
+    done < <(/usr/bin/find "$bundle/Resources" -type f -print | /usr/bin/sed "s|^$bundle/||" | /usr/bin/sort)
+    local actual_resource_listing="${(F)actual_resource_paths}"
+    local expected_resource_listing="$(printf '%s\n' "${immutable_resources[@]}" | /usr/bin/sort)"
+    [[ "$actual_resource_listing" == "$expected_resource_listing" ]] || fail "resource bundle contents are not exactly the five immutable resources"
+
+    for (( index = 1; index <= ${#immutable_effect_ids[@]}; index++ )); do
+        source_path="$resource_source/registry/effects/${immutable_effect_ids[$index]}.json"
+        path="$bundle/Resources/registry/effects/${immutable_effect_ids[$index]}.json"
+        require_regular_file "$source_path"
+        /usr/bin/cmp -s "$source_path" "$path" || fail "bundled effect definition differs from the product source"
+        actual_id="$(/usr/bin/jq -er '.identifier' "$path")" || fail "effect definition is not valid JSON"
+        expected_id="${immutable_effect_ids[$index]}"
+        [[ "$actual_id" == "$expected_id" ]] || fail "effect definition identifier is not exact"
+    done
+    /usr/bin/jq -e 'type == "object" and ."$schema" == "https://json-schema.org/draft/2020-12/schema"' "$bundle/Resources/schemas/effect-plan.schema.json" >/dev/null || fail "effect-plan schema is invalid"
+}
+
+extract_codesign_field() {
+    local field="$1"
+    local path="$2"
+    local metadata="$scratch_root/codesign-metadata.txt"
+    /usr/bin/codesign -dvvv "$path" > /dev/null 2> "$metadata" || fail "codesign metadata is unavailable"
+    if [[ "$field" == CandidateCDHashFull ]]; then
+        /usr/bin/sed -n 's/^CandidateCDHashFull sha256=\([0-9A-Fa-f]*\)$/\1/p' "$metadata" | /usr/bin/awk 'NR == 1 { print; exit }'
+    else
+        /usr/bin/sed -n "s/^${field}=\([0-9A-Fa-f]*\)$/\1/p" "$metadata" | /usr/bin/awk 'NR == 1 { print; exit }'
+    fi
+}
+
+verify_manifest_and_payload() {
+    require_regular_file "$payload_helper"
+    require_directory "$payload_bundle"
+    require_regular_file "$manifest_path"
+    [[ "$(size_bytes "$manifest_path")" -le 65536 ]] || fail "manifest exceeds the bounded size"
+    verify_arm64_macho "$payload_helper"
+    verify_immutable_resources "$payload_bundle"
+    resource_bundle_signed="$(/usr/bin/jq -r '.resource_bundle.signed' "$manifest_path")" || fail "manifest resource-bundle signing state is missing"
+    if [[ "$resource_bundle_signed" == true ]]; then
+        /usr/bin/codesign --strict --verify "$payload_bundle" >/dev/null || fail "resource bundle signature is invalid"
+    elif [[ "$resource_bundle_signed" != false ]]; then
+        fail "manifest resource-bundle signing state is invalid"
+    fi
+    /usr/bin/codesign --strict --verify "$payload_helper" >/dev/null || fail "helper signature is invalid"
+    verify_development_signature "$payload_helper"
+
+    local helper_hash bundle_hash expected_helper_hash expected_bundle_hash
+    helper_hash="$(sha256_file "$payload_helper")"
+    bundle_hash="$(sha256_directory "$payload_bundle")"
+    expected_helper_hash="$(/usr/bin/jq -er '.executable.sha256' "$manifest_path")" || fail "manifest executable hash is missing"
+    expected_bundle_hash="$(/usr/bin/jq -er '.resource_bundle.sha256' "$manifest_path")" || fail "manifest bundle hash is missing"
+    [[ "$helper_hash" == "$expected_helper_hash" ]] || fail "manifest executable hash does not match"
+    [[ "$bundle_hash" == "$expected_bundle_hash" ]] || fail "manifest resource bundle hash does not match"
+
+    local manifest_arch manifest_path_value manifest_product manifest_schema
+    manifest_schema="$(/usr/bin/jq -er '.schema_version' "$manifest_path")"
+    manifest_product="$(/usr/bin/jq -er '.product' "$manifest_path")"
+    manifest_arch="$(/usr/bin/jq -er '.architecture' "$manifest_path")"
+    manifest_path_value="$(/usr/bin/jq -er '.executable.relative_path' "$manifest_path")"
+    [[ "$manifest_schema" == "1" && "$manifest_product" == "$helper_name" && "$manifest_arch" == "arm64" && "$manifest_path_value" == "$helper_name" ]] || fail "manifest identity fields are not exact"
+    [[ "$(/usr/bin/jq -er '.executable.size_bytes' "$manifest_path")" == "$(size_bytes "$payload_helper")" ]] || fail "manifest executable size does not match"
+    [[ "$(/usr/bin/jq -er '.resource_bundle.relative_path' "$manifest_path")" == "$bundle_name" ]] || fail "manifest resource bundle path is not exact"
+
+    local relative expected_hash actual_hash
+    for relative in "${immutable_resources[@]}"; do
+        expected_hash="$(/usr/bin/jq -er --arg path "$relative" '.resource_bundle.resources[] | select(.relative_path == $path) | .sha256' "$manifest_path")" || fail "manifest resource hash is missing"
+        actual_hash="$(sha256_file "$payload_bundle/$relative")"
+        [[ "$expected_hash" == "$actual_hash" ]] || fail "manifest immutable resource hash does not match"
+    done
+
+    local manifest_candidate manifest_cdhash candidate cdhash
+    candidate="$(extract_codesign_field CandidateCDHashFull "$payload_helper")"
+    cdhash="$(extract_codesign_field CDHash "$payload_helper")"
+    manifest_candidate="$(/usr/bin/jq -er '.executable.candidate_cdhash_full' "$manifest_path")" || fail "manifest CandidateCDHashFull is missing"
+    manifest_cdhash="$(/usr/bin/jq -er '.executable.cdhash' "$manifest_path")" || fail "manifest CDHash is missing"
+    [[ "$candidate" == "$manifest_candidate" && "$cdhash" == "$manifest_cdhash" ]] || fail "manifest code-directory hashes do not match"
+    hex_length "$candidate" 64 && hex_length "$cdhash" 40 || fail "code-directory hashes are malformed"
+}
+
+write_manifest() {
+    local helper_hash bundle_hash candidate cdhash
+    helper_hash="$(sha256_file "$payload_helper")"
+    bundle_hash="$(sha256_directory "$payload_bundle")"
+    candidate="$(extract_codesign_field CandidateCDHashFull "$payload_helper")"
+    cdhash="$(extract_codesign_field CDHash "$payload_helper")"
+    hex_length "$candidate" 64 && hex_length "$cdhash" 40 || fail "codesign did not produce stable hash evidence"
+
+    local resource_entries='[]'
+    local relative hash bytes
+    for relative in "${immutable_resources[@]}"; do
+        hash="$(sha256_file "$payload_bundle/$relative")"
+        bytes="$(size_bytes "$payload_bundle/$relative")"
+        resource_entries="$(/usr/bin/jq -c --arg path "$relative" --arg hash "$hash" --argjson bytes "$bytes" '. + [{relative_path:$path,sha256:$hash,size_bytes:$bytes}]' <<< "$resource_entries")"
+    done
+    /usr/bin/jq -n -S \
+        --arg product "$helper_name" \
+        --arg executable_path "$helper_name" \
+        --arg executable_hash "$helper_hash" \
+        --arg executable_candidate "$candidate" \
+        --arg executable_cdhash "$cdhash" \
+        --arg bundle_path "$bundle_name" \
+        --arg bundle_hash "$bundle_hash" \
+        --argjson executable_size "$(size_bytes "$payload_helper")" \
+        --argjson bundle_size "$(directory_size_bytes "$payload_bundle")" \
+        --argjson resource_entries "$resource_entries" \
+        --argjson resource_bundle_signed "${resource_bundle_signed:-false}" \
+        '{schema_version:1,product:$product,configuration:"release",architecture:"arm64",executable:{relative_path:$executable_path,sha256:$executable_hash,size_bytes:$executable_size,candidate_cdhash_full:$executable_candidate,cdhash:$executable_cdhash,architectures:["arm64"]},resource_bundle:{relative_path:$bundle_path,sha256:$bundle_hash,size_bytes:$bundle_size,signed:$resource_bundle_signed,resources:$resource_entries}}' > "$manifest_path"
+}
+
+if [[ "$1" == "--build" ]]; then
+    require_directory "$repo_dir"
+    require_directory "$helper_source"
+    require_directory "$resource_source"
+    if is_symlink "$build_root" || is_symlink "$scratch_root" || is_symlink "$payload_root"; then
+        fail "planner-helper build paths must not be symlinks"
+    fi
+    /bin/mkdir -p "$build_root"
+    [[ ! -L "$build_root" ]] || fail "planner-helper build root became a symlink"
+    /bin/rm -rf -- "$scratch_root" "$payload_root"
+    /bin/mkdir -p "$scratch_root" "$payload_root"
+
+    /usr/bin/swift build \
+        --package-path "$repo_dir" \
+        --scratch-path "$swift_scratch" \
+        --configuration release \
+        --product "$helper_name" \
+        --triple arm64-apple-macosx14.0 \
+        --disable-automatic-resolution >/dev/null
+
+    built_helper="$swift_output/$helper_name"
+    typeset -a bundles
+    bundles=(${(f)"$(/usr/bin/find "$swift_output" -mindepth 1 -maxdepth 1 -type d -name '*.bundle' -print)"})
+    [[ ${#bundles[@]} -eq 1 ]] || fail "SwiftPM did not produce exactly one resource bundle"
+    require_regular_file "$built_helper"
+    require_directory "${bundles[1]}"
+    verify_arm64_macho "$built_helper"
+    /bin/cp -p "$built_helper" "$payload_helper"
+    /bin/cp -R -p "${bundles[1]}" "$payload_bundle"
+    verify_immutable_resources "$payload_bundle"
+
+    signing_identity="$(find_development_identity)"
+    [[ -n "$signing_identity" ]] || fail "an Apple Development signing identity is required"
+    sign_and_verify "$signing_identity"
+    write_manifest
+fi
+
+verify_manifest_and_payload
+print -r -- "planner-helper: verified product=$helper_name architecture=arm64 payload=$build_root"
+print -r -- "planner-helper: executable_sha256=$(sha256_file "$payload_helper")"
+print -r -- "planner-helper: resource_bundle_sha256=$(sha256_directory "$payload_bundle")"
+print -r -- "planner-helper: manifest=$manifest_path"

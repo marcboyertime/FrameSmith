@@ -1,0 +1,166 @@
+#!/bin/zsh
+# Offline packaging audit for the product-owned planner helper payload.
+
+set -euo pipefail
+umask 077
+
+script_dir="$(cd "$(/usr/bin/dirname "$0")" && /bin/pwd)"
+plugin_dir="$(/usr/bin/dirname "$script_dir")"
+repo_dir="$(/usr/bin/dirname "$plugin_dir")"
+builder="$plugin_dir/scripts/build-planner-helper"
+build_root="$plugin_dir/build/planner-helper"
+payload_root="$build_root/payload"
+helper="$payload_root/fcpcommandconsole-planner-helper"
+bundle="$payload_root/FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle"
+manifest="$payload_root/planner-helper-manifest.json"
+source_resources="$repo_dir/Sources/FCPCommandConsolePlannerHelper/Resources"
+test_dir="$(/usr/bin/mktemp -d /tmp/fcpcc-planner-helper-tests.XXXXXX)"
+rg_bin="$(command -v rg || true)"
+
+fail() {
+    print -u2 -r -- "run-planner-helper-packaging-tests: $1"
+    exit 1
+}
+
+directory_hash() {
+    local root="$1"
+    local listing="$test_dir/directory-hash.txt"
+    : > "$listing"
+    local path relative hash
+    while IFS= read -r path; do
+        relative="${path#$root/}"
+        hash="$(/usr/bin/shasum -a 256 "$path" | /usr/bin/awk '{print $1}')"
+        print -r -- "$hash  $relative" >> "$listing"
+    done < <(/usr/bin/find "$root" -type f -print | /usr/bin/sed "s|^$root/||" | /usr/bin/sort | /usr/bin/sed "s|^|$root/|")
+    /usr/bin/shasum -a 256 "$listing" | /usr/bin/awk '{print $1}'
+}
+
+[[ -x "$builder" ]] || fail "planner helper builder is missing or not executable"
+[[ -x "$rg_bin" && -x /usr/bin/jq && -x /usr/bin/codesign && -x /usr/bin/lipo && -x /usr/bin/shasum ]] || fail "required audit tool is unavailable"
+
+# Static audit: this packaging path must remain a closed, local build and
+# must not acquire shell evaluation, network, arbitrary executable, or ad-hoc
+# signing behavior.
+for forbidden in \
+    '(^|[^[:alnum:]_])eval([^[:alnum:]_]|$)' \
+    'curl|wget|NSURLSession|CFNetwork|URLSession|network request' \
+    'osascript|AppleScript|FCPXML|ffmpeg|python|ruby|node' \
+    'codesign[^\n]*--sign[[:space:]]+-' \
+    '/usr/bin/env[[:space:]]+-S' \
+    '\$\([^)]*git[[:space:]]+clone'; do
+    if "$rg_bin" -n -i -- "$forbidden" "$builder"; then
+        fail "forbidden packaging surface is present"
+    fi
+done
+for required in \
+    '--disable-automatic-resolution' \
+    '--configuration release' \
+    '--triple arm64-apple-macosx14.0' \
+    'umask 077' \
+    'CandidateCDHashFull' \
+    'CDHash' \
+    'resource_bundle' \
+    'immutable_resources'; do
+    "$rg_bin" -F -q -- "$required" "$builder" || fail "builder is missing required fail-closed fragment"
+done
+
+# Run both modes. `--verify-existing` is required to be read/verify-only and
+# must not trigger a second SwiftPM build.
+"$builder" --build >/dev/null
+"$builder" --verify-existing >/dev/null
+
+[[ -x "$helper" && -d "$bundle" && -f "$manifest" ]] || fail "builder did not create the complete payload"
+[[ "$(/usr/bin/stat -f '%z' "$manifest")" -le 65536 ]] || fail "manifest exceeds the bounded size"
+helper_hash="$(/usr/bin/shasum -a 256 "$helper" | /usr/bin/awk '{print $1}')"
+bundle_hash="$(directory_hash "$bundle")"
+[[ "$helper_hash" == "$(/usr/bin/jq -er '.executable.sha256' "$manifest")" ]] || fail "independent executable hash does not match manifest"
+[[ "$bundle_hash" == "$(/usr/bin/jq -er '.resource_bundle.sha256' "$manifest")" ]] || fail "independent resource-bundle hash does not match manifest"
+
+/usr/bin/jq -e \
+    --arg product fcpcommandconsole-planner-helper \
+    --arg bundle FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle \
+    'type == "object" and
+     .schema_version == 1 and .product == $product and
+     .configuration == "release" and .architecture == "arm64" and
+     (.executable | type == "object" and .relative_path == $product and
+       (.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
+       (.size_bytes | type == "number" and . > 0 and . < 100000000) and
+       (.candidate_cdhash_full | type == "string" and test("^[0-9A-Fa-f]{64}$")) and
+       (.cdhash | type == "string" and test("^[0-9A-Fa-f]{40}$")) and
+       (.architectures == ["arm64"])) and
+     (.resource_bundle | type == "object" and .relative_path == $bundle and
+       (.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
+       (.size_bytes | type == "number" and . > 0 and . < 100000000) and
+       (.resources | type == "array" and length == 5 and all(
+         (.relative_path | type == "string" and startswith("Resources/") and (index("..") | not)) and
+         (.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
+         (.size_bytes | type == "number" and . > 0 and . < 10000000)
+       )))' "$manifest" >/dev/null || fail "manifest schema, paths, or bounds are invalid"
+
+typeset -a expected_resources
+expected_resources=(
+    "Resources/registry/effects/look.old_television.json"
+    "Resources/registry/effects/motion.living_still.json"
+    "Resources/registry/effects/native.targeted_rotate_zoom.json"
+    "Resources/registry/effects/transition.natural_dissolve.json"
+    "Resources/schemas/effect-plan.schema.json"
+)
+for relative in "${expected_resources[@]}"; do
+    source="$source_resources/${relative#Resources/}"
+    destination="$bundle/$relative"
+    [[ -f "$source" && ! -L "$source" && -f "$destination" && ! -L "$destination" ]] || fail "immutable resource is missing or a symlink"
+    /usr/bin/cmp -s "$source" "$destination" || fail "immutable resource differs from product source"
+    actual_hash="$(/usr/bin/shasum -a 256 "$destination" | /usr/bin/awk '{print $1}')"
+    manifest_hash="$(/usr/bin/jq -er --arg path "$relative" '.resource_bundle.resources[] | select(.relative_path == $path) | .sha256' "$manifest")" || fail "manifest omitted an immutable resource"
+    [[ "$actual_hash" == "$manifest_hash" ]] || fail "immutable resource hash does not match manifest"
+done
+
+actual_listing="$(/usr/bin/find "$bundle/Resources" -type f -print | /usr/bin/sed "s|^$bundle/||" | /usr/bin/sort)"
+expected_listing="$(printf '%s\n' "${expected_resources[@]}" | /usr/bin/sort)"
+[[ "$actual_listing" == "$expected_listing" ]] || fail "resource bundle contains an unexpected immutable file"
+
+/usr/bin/lipo "$helper" -verify_arch arm64 >/dev/null 2>&1 || fail "helper is not arm64"
+[[ "$(/usr/bin/lipo -archs "$helper")" == "arm64" ]] || fail "helper contains a non-arm64 slice"
+/usr/bin/file "$helper" | /usr/bin/grep -F -q 'Mach-O' || fail "helper is not Mach-O"
+/usr/bin/jq -e '.resource_bundle.signed == false or .resource_bundle.signed == true' "$manifest" >/dev/null || fail "manifest resource-bundle signing state is invalid"
+if [[ "$(/usr/bin/jq -er '.resource_bundle.signed' "$manifest")" == true ]]; then
+    /usr/bin/codesign --strict --verify "$bundle" >/dev/null || fail "resource bundle strict signature verification failed"
+fi
+/usr/bin/codesign --strict --verify "$helper" >/dev/null || fail "helper strict signature verification failed"
+codesign_metadata="$test_dir/codesign-metadata.txt"
+/usr/bin/codesign -dvvv "$helper" > /dev/null 2> "$codesign_metadata" || fail "helper signature metadata is unavailable"
+/usr/bin/grep -E -q '^Authority=Apple Development:.+$' "$codesign_metadata" || fail "helper is not signed by an Apple Development identity"
+/usr/bin/grep -E -q '^TeamIdentifier=[A-Z0-9]{10}$' "$codesign_metadata" || fail "helper signing team identifier is unavailable"
+if /usr/bin/grep -E -q '^Signature=adhoc$|flags=.*adhoc' "$codesign_metadata"; then
+    fail "helper accepted a forbidden ad-hoc signature"
+fi
+
+valid_request="$test_dir/valid.json"
+response="$test_dir/response.json"
+unknown_request="$test_dir/unknown.json"
+unknown_response="$test_dir/unknown-response.json"
+/usr/bin/jq -n \
+    '{schema_version:"1.0",operation_id:"00000000-0000-0000-0000-000000000701",request:{original_text:"Make this look like old black-and-white television footage with static, grain, scanlines, and subtle image instability."},selection:{token_id:"packaging-token",selection_type:"single-clip",timeline_id:"packaging-timeline",clip_ids:["packaging-clip"],source_identities:[{item_id:"packaging-clip",canonical_path:"/tmp/fcpcc-packaging-source",sha256:"0000000000000000000000000000000000000000000000000000000000000000"}],revision:"packaging-revision",start_frame:0,end_frame:24,source_duration_frames:240,handle_before_frames:0,handle_after_frames:0,is_spine:true,adjacent:true},target:null}' > "$valid_request"
+(
+    cd "$test_dir"
+    /usr/bin/env -i PATH=/usr/bin:/bin "$helper" < "$valid_request" > "$response"
+)
+[[ "$(/usr/bin/wc -l < "$response" | /usr/bin/tr -d ' ')" == "1" ]] || fail "helper did not emit exactly one response line"
+/usr/bin/jq -e \
+    '.schema_version == "1.0" and .status == "ok" and (.plan | type == "object") and
+     (.plan.cost.usd | type == "number" and . == 0) and
+     (.plan.parameters.seed | type == "number" and . == 1) and
+     ([.plan.parameters.monochromeEnabled,.plan.parameters.overlayEnabled,.plan.parameters.flickerEnabled,.plan.parameters.instabilityEnabled,.plan.parameters.wholeLookEnabled,.plan.parameters.vignetteEnabled] | all(type == "boolean"))' "$response" >/dev/null || fail "isolated helper response failed typed old-TV assertions"
+
+/usr/bin/jq '.injected_key = "must-fail"' "$valid_request" > "$unknown_request"
+(
+    cd "$test_dir"
+    /usr/bin/env -i PATH=/usr/bin:/bin "$helper" < "$unknown_request" > "$unknown_response"
+)
+[[ "$(/usr/bin/wc -l < "$unknown_response" | /usr/bin/tr -d ' ')" == "1" ]] || fail "unknown-key response was not one line"
+/usr/bin/jq -e '.schema_version == "1.0" and .status == "error" and .error.code == "unknown_field" and (.plan == null)' "$unknown_response" >/dev/null || fail "unknown key did not fail closed without a partial plan"
+
+# Scoped diff check: only the two owned scripts are checked for whitespace; no
+# unrelated source is considered part of this packaging deliverable.
+/usr/bin/git -C "$repo_dir" diff --check -- plugin/scripts/build-planner-helper plugin/tests/run-planner-helper-packaging-tests || fail "packaging script diff has whitespace errors"
+print -r -- "planner-helper-packaging-tests: passed payload=$payload_root"
