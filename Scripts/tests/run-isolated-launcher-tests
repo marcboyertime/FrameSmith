@@ -45,11 +45,34 @@ for required_launcher_fragment in \
     'pgrep_status=1' \
     'pgrep_status=$pgrep_status' \
     'codesign --verify --deep --strict --verbose=4' \
-    'expected_copied_cdhash_full="f53b89063f7215d1978835ded99a1f7246a997bc87606159c23b3753731e4171"' \
+    'expected_copied_cdhash_full="21e99732e747821cb4aa06467b195f33247a15fad7535ea132e77609c3820b44"' \
     'verify_reviewed_copied_cdhash' \
     'CandidateCDHashFull' \
     'create_five_entitlements' \
-    'SchemaVersion)" == "14"' \
+    'SchemaVersion)" == "15"' \
+    'verify_audio_unit_validation_containment_policy' \
+    'AudioUnitValidationContainment' \
+    'ExpectedFlexoSHA256' \
+    '704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e' \
+    'ExpectedFlexoArm64UUID' \
+    'AEAE4C0B-7695-3784-A794-AFB4985525A8' \
+    'ExpectedFlexoX86_64UUID' \
+    '525166A8-E6F4-3DCA-B4F9-BD98F16B6552' \
+    'ObjectiveCTypeEncodingArm64' \
+    'B16@0:8' \
+    'ObjectiveCTypeEncodingX86_64' \
+    'c16@0:8' \
+    'ExpectedOriginalImplementationOffsetArm64' \
+    '0xe66b8c' \
+    'ExpectedOriginalImplementationOffsetX86_64' \
+    '0x13c0be0' \
+    'NoAvailabilityRetry' \
+    'NoCachePreferenceOrAudioUnitWrites' \
+    'NoRetryUIFCPXMLOrGenericDispatch' \
+    'RequiresDisposableLibraryBootstrapAbsent' \
+    'ProcessLifetimeOnly' \
+    'ThirdPartyAudioUnitsAvailability' \
+    'unavailable_only_in_copied_app_process' \
     'is_exact_fcp_process_path' \
     'exact_executable_identity=true' \
     'process-snapshot' \
@@ -200,6 +223,23 @@ if ! /bin/zsh -f -c 'source "$1"; verify_reviewed_copied_cdhash "$2" "$3" fixtur
 fi
 if /bin/zsh -f -c 'source "$1"; verify_reviewed_copied_cdhash "$2" "0000000000000000000000000000000000000000000000000000000000000000" fixture' -- "$identity_helper" "$copied_metadata"; then
     fail "identity helper accepted a deliberately drifted CDHashFull"
+fi
+
+copied_runtime_policy="$copied_app/Contents/Frameworks/FCPCommandConsoleRuntime.framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
+[[ -f "$copied_runtime_policy" ]] || fail "installed copied app Schema 15 runtime policy is missing"
+containment_helper="$test_dir/audio-unit-containment-policy-helper.zsh"
+{
+    print -r -- 'fail() { print -u2 -r -- "$1"; return 1; }'
+    /usr/bin/sed -n '/^verify_audio_unit_validation_containment_policy()/,/^}/p' "$launcher"
+} > "$containment_helper"
+if ! /bin/zsh -f -c 'source "$1"; verify_audio_unit_validation_containment_policy "$2"' -- "$containment_helper" "$copied_runtime_policy"; then
+    fail "launcher containment-policy verifier rejected the reviewed installed Schema 15 policy"
+fi
+drifted_runtime_policy="$test_dir/drifted-runtime-policy.plist"
+/bin/cp "$copied_runtime_policy" "$drifted_runtime_policy"
+/usr/libexec/PlistBuddy -c 'Set :AudioUnitValidationContainment:ExpectedFlexoSHA256 drifted' "$drifted_runtime_policy"
+if /bin/zsh -f -c 'source "$1"; verify_audio_unit_validation_containment_policy "$2"' -- "$containment_helper" "$drifted_runtime_policy"; then
+    fail "launcher containment-policy verifier accepted a deliberately drifted Flexo hash"
 fi
 
 for forbidden_launcher_fragment in \

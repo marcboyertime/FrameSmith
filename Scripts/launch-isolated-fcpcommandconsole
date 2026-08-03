@@ -41,7 +41,7 @@ normal_container_preferences="/Users/marcboyer/Library/Containers/com.apple.Fina
 normal_user_preferences="/Users/marcboyer/Library/Preferences/com.apple.FinalCut.plist"
 expected_version="12.3"
 expected_build="450152"
-expected_copied_cdhash_full="f53b89063f7215d1978835ded99a1f7246a997bc87606159c23b3753731e4171"
+expected_copied_cdhash_full="21e99732e747821cb4aa06467b195f33247a15fad7535ea132e77609c3820b44"
 expected_receipt_sha256="2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e"
 receipt_relative_path="Contents/_MASReceipt/receipt"
 
@@ -77,6 +77,58 @@ verify_disposable_project_bootstrap_fixtures() {
     [[ "$(/usr/bin/shasum -a 256 "$fixture_a" | /usr/bin/awk '{print $1}')" == "$fixture_a_sha256" ]] || fail "disposable project fixture clip-a SHA-256 is not reviewed"
     [[ "$(/usr/bin/shasum -a 256 "$fixture_b" | /usr/bin/awk '{print $1}')" == "$fixture_b_sha256" ]] || fail "disposable project fixture clip-b SHA-256 is not reviewed"
     [[ "$(/usr/bin/shasum -a 256 "$fixture_living_still" | /usr/bin/awk '{print $1}')" == "$fixture_living_still_sha256" ]] || fail "disposable project fixture living-still SHA-256 is not reviewed"
+}
+
+verify_audio_unit_validation_containment_policy() {
+    local policy_path="$1"
+    if ! /usr/bin/plutil -extract AudioUnitValidationContainment json -o - "$policy_path" | /usr/bin/jq -e '
+        . == {
+          "ActivationEnvironmentValue": "1",
+          "ActivationEnvironmentVariable": "FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT",
+          "DeterministicRuntimeDiagnostics": "constructor_install_status_process_lifetime",
+          "ExecutionEnabled": true,
+          "ExpectedFlexoArm64UUID": "AEAE4C0B-7695-3784-A794-AFB4985525A8",
+          "ExpectedFlexoRelativeExecutablePath": "Contents/Frameworks/Flexo.framework/Versions/A/Flexo",
+          "ExpectedFlexoSHA256": "704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e",
+          "ExpectedFlexoX86_64UUID": "525166A8-E6F4-3DCA-B4F9-BD98F16B6552",
+          "ExpectedOriginalImplementationOffsetArm64": "0xe66b8c",
+          "ExpectedOriginalImplementationOffsetX86_64": "0x13c0be0",
+          "InstallPhase": "runtime_constructor_before_disposable_project_bootstrap_scheduling",
+          "MethodContractsPinnedIn": "FCPCommandConsoleRuntime.m:FCPCCFlexoSupportsThirdPartyAudioUnitsContract",
+          "MethodKind": "class_metaclass",
+          "NoAvailabilityRetry": true,
+          "NoCachePreferenceOrAudioUnitWrites": true,
+          "NoRetryUIFCPXMLOrGenericDispatch": true,
+          "ObjectiveCArgumentCount": 2,
+          "ObjectiveCReturnTypeArm64": "B",
+          "ObjectiveCReturnTypeX86_64": "c",
+          "ObjectiveCTypeEncodingArm64": "B16@0:8",
+          "ObjectiveCTypeEncodingX86_64": "c16@0:8",
+          "OriginalBuiltInRegistrationClass": "FFAudioUnitEffect(AudioUnitRegistration)",
+          "OriginalBuiltInRegistrationOffsetArm64": "0x3a9de8",
+          "OriginalBuiltInRegistrationSelector": "registerBuiltInAudioUnits",
+          "OriginalBuiltInRegistrationTypeEncoding": "v16@0:8",
+          "OriginalDeferredRegistrationClass": "FFAudioUnitEffect(AudioUnitRegistration)",
+          "OriginalDeferredRegistrationOffsetArm64": "0x3a9fdc",
+          "OriginalDeferredRegistrationOffsetX86_64": "0x52c0e0",
+          "OriginalDeferredRegistrationSelector": "runDeferredRegistration",
+          "OriginalDeferredRegistrationTypeEncoding": "v16@0:8",
+          "OriginalSupportedTypeRegistrationClass": "FFAudioUnitInfoCacheBase",
+          "OriginalSupportedTypeRegistrationOffsetArm64": "0x399750",
+          "OriginalSupportedTypeRegistrationSelector": "forEachSupportedType:",
+          "OriginalSupportedTypeRegistrationTypeEncoding": "v24@0:8@?16",
+          "ProcessLifetimeOnly": true,
+          "Replacement": "return_false_memory_only_no_restore",
+          "RequiresCopiedHostContainmentAndUUID": true,
+          "RequiresDisposableLibraryBootstrapAbsent": true,
+          "RuntimeClass": "Flexo",
+          "RuntimeDiscoveryAllowed": false,
+          "Selector": "supportsThirdPartyAudioUnits",
+          "ThirdPartyAudioUnitsAvailability": "unavailable_only_in_copied_app_process"
+        }
+    ' >/dev/null; then
+        fail "embedded AudioUnitValidationContainment policy is not the exact Schema 15 contract"
+    fi
 }
 
 verify_disposable_project_bootstrap_policy() {
@@ -339,7 +391,8 @@ verify_copied_identity() {
     require_exact_regular_file "$runtime_binary" "embedded runtime binary"
     require_exact_regular_file "$runtime_policy" "embedded runtime policy"
     /usr/bin/plutil -lint "$runtime_policy" > "$output_dir/runtime-policy-lint.txt"
-    [[ "$(plist_value "$runtime_policy" SchemaVersion)" == "14" && "$(plist_value "$runtime_policy" ExpectedHostBundleIdentifier)" == "com.apple.FinalCut" && "$(plist_value "$runtime_policy" ExpectedCopiedHostBundlePath)" == "$copied_app" && "$(plist_value "$runtime_policy" ExpectedHostVersion)" == "$expected_version" && "$(plist_value "$runtime_policy" ExpectedHostBuild)" == "$expected_build" && "$(plist_value "$runtime_policy" ExpectedMASReceiptRelativePath)" == "$receipt_relative_path" && "$(plist_value "$runtime_policy" ExpectedMASReceiptSHA256)" == "$expected_receipt_sha256" && "$(plist_value "$runtime_policy" ImmutableCompileTimeAllowlist)" == "true" && "$(plist_value "$runtime_policy" RuntimeDiscoveryAllowed)" == "false" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:0')" == "constructor_main_thread_immediate_attempt" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:1')" == "application_will_finish_launching_availability_retry" && "$(plist_value "$runtime_policy" MaximumMethodGuardAttempts)" == "2" ]] || fail "embedded runtime policy is not reviewed"
+    [[ "$(plist_value "$runtime_policy" SchemaVersion)" == "15" && "$(plist_value "$runtime_policy" ExpectedHostBundleIdentifier)" == "com.apple.FinalCut" && "$(plist_value "$runtime_policy" ExpectedCopiedHostBundlePath)" == "$copied_app" && "$(plist_value "$runtime_policy" ExpectedHostVersion)" == "$expected_version" && "$(plist_value "$runtime_policy" ExpectedHostBuild)" == "$expected_build" && "$(plist_value "$runtime_policy" ExpectedMASReceiptRelativePath)" == "$receipt_relative_path" && "$(plist_value "$runtime_policy" ExpectedMASReceiptSHA256)" == "$expected_receipt_sha256" && "$(plist_value "$runtime_policy" ImmutableCompileTimeAllowlist)" == "true" && "$(plist_value "$runtime_policy" RuntimeDiscoveryAllowed)" == "false" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:0')" == "constructor_main_thread_immediate_attempt" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:1')" == "application_will_finish_launching_availability_retry" && "$(plist_value "$runtime_policy" MaximumMethodGuardAttempts)" == "2" ]] || fail "embedded runtime policy is not reviewed"
+    verify_audio_unit_validation_containment_policy "$runtime_policy"
     verify_planner_helper_policy
     verify_planner_helper_payload
     [[ "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:ExecutionEnabled')" == "false" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:RuntimeDiscoveryAllowed')" == "false" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:MethodContractsPinnedIn')" == "FCPCommandConsoleRuntime.m:FCPCCNativeTargetedRotateZoomStaticContracts" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:ExpectedFlexoSHA256')" == "704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:CandidatePixelConvention')" == "product_normalized_top_left_to_centered_pixels_x_right_y_up" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:SetterOptions')" == "0" ]] || fail "embedded native targeted rotate zoom gate is not reviewed"
