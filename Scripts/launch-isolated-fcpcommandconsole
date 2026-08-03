@@ -32,7 +32,7 @@ fail() {
 }
 
 usage() {
-    print -u2 -r -- "usage: launch-isolated-fcpcommandconsole --preflight-only|--launch"
+    print -u2 -r -- "usage: launch-isolated-fcpcommandconsole --preflight-only|--launch|--launch-bootstrap-disposable-library"
     exit 64
 }
 
@@ -160,14 +160,36 @@ verify_reviewed_copied_cdhash() {
     return 0
 }
 
+verify_exact_copied_entitlements() {
+    local output_dir="$1"
+    local entitlements_path="$output_dir/copied-entitlements.plist"
+    local json_path="$output_dir/copied-entitlements.json"
+    /usr/bin/codesign -d --entitlements :- "$copied_app" > "$entitlements_path" 2> "$output_dir/copied-entitlements.stderr"
+    /usr/bin/plutil -convert json -o "$json_path" "$entitlements_path"
+    if ! /usr/bin/jq -e '
+        type == "object"
+        and (keys == [
+            "com.apple.security.app-sandbox",
+            "com.apple.security.cs.disable-library-validation",
+            "com.apple.security.device.audio-input",
+            "com.apple.security.device.camera",
+            "com.apple.security.device.microphone"
+        ])
+        and .["com.apple.security.app-sandbox"] == false
+        and .["com.apple.security.cs.disable-library-validation"] == true
+        and .["com.apple.security.device.audio-input"] == true
+        and .["com.apple.security.device.camera"] == true
+        and .["com.apple.security.device.microphone"] == true
+    ' "$json_path" > "$output_dir/copied-entitlements-verified.json"; then
+        fail "copied Final Cut entitlements are not the exact reviewed five-key endpoint"
+    fi
+}
+
 verify_copied_identity() {
     local output_dir="$1"
-    require_exact_directory "$stock_app" "stock Final Cut app"
-    require_exact_regular_file "$stock_executable" "stock Final Cut executable"
     require_exact_directory "$copied_app" "copied Final Cut app"
     require_exact_regular_file "$copied_executable" "copied Final Cut executable"
     require_exact_regular_file "$copied_app/Contents/Info.plist" "copied Final Cut Info.plist"
-    [[ "$(plist_value "$stock_app/Contents/Info.plist" CFBundleShortVersionString)" == "$expected_version" && "$(plist_value "$stock_app/Contents/Info.plist" CFBundleVersion)" == "$expected_build" ]] || fail "stock Final Cut version/build is not 12.3/450152"
     [[ "$(plist_value "$copied_app/Contents/Info.plist" CFBundleShortVersionString)" == "$expected_version" && "$(plist_value "$copied_app/Contents/Info.plist" CFBundleVersion)" == "$expected_build" && "$(plist_value "$copied_app/Contents/Info.plist" CFBundleIdentifier)" == "com.apple.FinalCut" ]] || fail "copied Final Cut identity is not reviewed"
     local copied_receipt="$copied_app/$receipt_relative_path"
     require_exact_regular_file "$copied_receipt" "copied Final Cut MAS receipt"
@@ -181,13 +203,18 @@ verify_copied_identity() {
     require_exact_regular_file "$runtime_binary" "embedded runtime binary"
     require_exact_regular_file "$runtime_policy" "embedded runtime policy"
     /usr/bin/plutil -lint "$runtime_policy" > "$output_dir/runtime-policy-lint.txt"
-    [[ "$(plist_value "$runtime_policy" SchemaVersion)" == "9" && "$(plist_value "$runtime_policy" ExpectedHostBundleIdentifier)" == "com.apple.FinalCut" && "$(plist_value "$runtime_policy" ExpectedCopiedHostBundlePath)" == "$copied_app" && "$(plist_value "$runtime_policy" ExpectedHostVersion)" == "$expected_version" && "$(plist_value "$runtime_policy" ExpectedHostBuild)" == "$expected_build" && "$(plist_value "$runtime_policy" ExpectedMASReceiptRelativePath)" == "$receipt_relative_path" && "$(plist_value "$runtime_policy" ExpectedMASReceiptSHA256)" == "$expected_receipt_sha256" && "$(plist_value "$runtime_policy" ImmutableCompileTimeAllowlist)" == "true" && "$(plist_value "$runtime_policy" RuntimeDiscoveryAllowed)" == "false" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:0')" == "constructor_main_thread_immediate_attempt" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:1')" == "application_will_finish_launching_availability_retry" && "$(plist_value "$runtime_policy" MaximumMethodGuardAttempts)" == "2" ]] || fail "embedded runtime policy is not reviewed"
+    [[ "$(plist_value "$runtime_policy" SchemaVersion)" == "10" && "$(plist_value "$runtime_policy" ExpectedHostBundleIdentifier)" == "com.apple.FinalCut" && "$(plist_value "$runtime_policy" ExpectedCopiedHostBundlePath)" == "$copied_app" && "$(plist_value "$runtime_policy" ExpectedHostVersion)" == "$expected_version" && "$(plist_value "$runtime_policy" ExpectedHostBuild)" == "$expected_build" && "$(plist_value "$runtime_policy" ExpectedMASReceiptRelativePath)" == "$receipt_relative_path" && "$(plist_value "$runtime_policy" ExpectedMASReceiptSHA256)" == "$expected_receipt_sha256" && "$(plist_value "$runtime_policy" ImmutableCompileTimeAllowlist)" == "true" && "$(plist_value "$runtime_policy" RuntimeDiscoveryAllowed)" == "false" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:0')" == "constructor_main_thread_immediate_attempt" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:1')" == "application_will_finish_launching_availability_retry" && "$(plist_value "$runtime_policy" MaximumMethodGuardAttempts)" == "2" ]] || fail "embedded runtime policy is not reviewed"
     [[ "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:ExecutionEnabled')" == "false" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:RuntimeDiscoveryAllowed')" == "false" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:MethodContractsPinnedIn')" == "FCPCommandConsoleRuntime.m:FCPCCNativeTargetedRotateZoomStaticContracts" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:ExpectedFlexoSHA256')" == "704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:CandidatePixelConvention')" == "product_normalized_top_left_to_centered_pixels_x_right_y_up" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:SetterOptions')" == "0" ]] || fail "embedded native targeted rotate zoom gate is not reviewed"
     for required_live_proof in candidate_pixel_coordinate_convention full_transform_keyframe_enumeration_and_exact_removal project_owned_undo_scope_and_exact_last_assistant_undo three_property_readback_and_lossless_rollback; do
         /usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:RequiredLiveProofs' "$runtime_policy" | /usr/bin/grep -F -q "$required_live_proof" || fail "embedded native targeted rotate zoom gate omits $required_live_proof"
     done
     if /usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:RequiredLiveProofs:4' "$runtime_policy" >/dev/null 2>&1; then
         fail "embedded native targeted rotate zoom gate permits an unreviewed proof"
+    fi
+    [[ "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:ExecutionEnabled')" == "true" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:RuntimeDiscoveryAllowed')" == "false" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:MethodContractsPinnedIn')" == "FCPCommandConsoleRuntime.m:FCPCCDisposableLibraryDocumentCreateContract" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:EnvironmentVariable')" == "FCPCC_BOOTSTRAP_DISPOSABLE_LIBRARY" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:EnvironmentValue')" == "1" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:CanonicalParentPath')" == "$runtime_root" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:CanonicalTargetPath')" == "$allowed_library" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:ProvenanceDirectory')" == "$runtime_root/provenance" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:LifecycleNotification')" == "NSApplicationDidFinishLaunchingNotification" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:ModelClass')" == "FFLibraryDocument" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:Selector')" == "initWithURL:createDefaultEvent:error:" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:ObjectiveCTypeEncodingArm64')" == "@36@0:8@16B24^@28" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:ObjectiveCTypeEncodingX86_64')" == "@36@0:8@16c24^@28" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:ExpectedOriginalImplementationOffsetArm64')" == "0x1d9278" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:ExpectedOriginalImplementationOffsetX86_64')" == "0x2abf80" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:ExpectedFlexoSHA256')" == "704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:CreateDefaultEvent')" == "true" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:RequiredActiveLibraryCountBeforeCreate')" == "0" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:RequiredActiveLibraryCountAfterCreate')" == "1" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:TargetMustBeAbsent')" == "true" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:NoSymlinkComponents')" == "true" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:NoRetries')" == "true" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:NeverOverwriteOrRemove')" == "true" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:RequiredPostcreateIdentity')" == "canonical_path_device_inode_persistent_uid" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:ProvenanceSchemaVersion')" == "1" ]] || fail "embedded disposable-library bootstrap policy is not reviewed"
+    [[ "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:PublicRegistrationAPI')" == "NSDocumentController.addDocument:" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:PublicPresentationAPIs:0')" == "NSDocument.makeWindowControllers" && "$(plist_value "$runtime_policy" 'DisposableLibraryBootstrap:PublicPresentationAPIs:1')" == "NSDocument.showWindows" ]] || fail "embedded disposable-library bootstrap public document APIs are not reviewed"
+    if /usr/libexec/PlistBuddy -c 'Print :DisposableLibraryBootstrap:PublicPresentationAPIs:2' "$runtime_policy" >/dev/null 2>&1; then
+        fail "embedded disposable-library bootstrap policy permits an unreviewed presentation API"
     fi
     if /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$runtime_policy" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:2' "$runtime_policy" >/dev/null 2>&1; then
         fail "embedded runtime policy permits an unreviewed install phase"
@@ -201,10 +228,7 @@ verify_copied_identity() {
         fail "embedded runtime policy permits an unreviewed method replacement"
     fi
     /usr/bin/shasum -a 256 "$runtime_binary" | /usr/bin/awk '{print $1}' > "$output_dir/runtime.sha256"
-    /usr/bin/codesign -d --entitlements :- "$stock_app" > "$output_dir/stock-entitlements.plist" 2> "$output_dir/stock-entitlements.stderr"
-    /usr/bin/codesign -d --entitlements :- "$copied_app" > "$output_dir/copied-entitlements.plist" 2> "$output_dir/copied-entitlements.stderr"
-    create_five_entitlements "$output_dir/expected-five-entitlements.plist"
-    "$entitlement_verifier" "$output_dir/stock-entitlements.plist" "$output_dir/expected-five-entitlements.plist" "$output_dir/copied-entitlements.plist" "$repo_dir/config/patch-entitlement-allowlist.json" > "$output_dir/entitlement-verifier.txt"
+    verify_exact_copied_entitlements "$output_dir"
 }
 
 prepare_isolation_paths() {
@@ -249,11 +273,12 @@ run_profile_probes() {
     fi
 }
 
-if [[ "$#" -ne 1 || ( "$1" != "--preflight-only" && "$1" != "--launch" ) ]]; then
+if [[ "$#" -ne 1 || ( "$1" != "--preflight-only" && "$1" != "--launch" && "$1" != "--launch-bootstrap-disposable-library" ) ]]; then
     usage
 fi
 mode="$1"
 [[ -x /usr/bin/sandbox-exec ]] || fail "/usr/bin/sandbox-exec is unavailable; refusing an uncontained launch"
+[[ -x /usr/bin/jq ]] || fail "/usr/bin/jq is unavailable; refusing to weaken exact copied-entitlement verification"
 require_exact_regular_file "$profile" "committed sandbox profile"
 require_exact_regular_file "$entitlement_verifier" "entitlement verifier"
 umask 077
@@ -278,6 +303,13 @@ print -r -- "preflight=pass provenance=$preflight_dir"
 require_not_running "$preflight_dir/no-fcp-before-launch.txt"
 print -r -- "launch=begin exact_copied_executable_only"
 capture_normal_preferences "$preflight_dir/normal-preferences-before-launch"
+bootstrap_environment=()
+if [[ "$mode" == "--launch-bootstrap-disposable-library" ]]; then
+    bootstrap_environment=(FCPCC_BOOTSTRAP_DISPOSABLE_LIBRARY=1)
+    print -r -- "bootstrap_disposable_library=reviewed_one_shot_requested"
+else
+    print -r -- "bootstrap_disposable_library=not_requested"
+fi
 /usr/bin/env -i \
     PATH=/usr/bin:/bin:/usr/sbin:/sbin \
     HOME="$isolated_home" \
@@ -285,6 +317,7 @@ capture_normal_preferences "$preflight_dir/normal-preferences-before-launch"
     TMPDIR="$isolated_home/tmp" \
     XDG_CACHE_HOME="$isolated_home/Library/Caches" \
     FCPCC_ISOLATED_HOME="$isolated_home" \
+    "${bootstrap_environment[@]}" \
     /usr/bin/sandbox-exec -f "$profile" \
     -D "ALLOWED_LIBRARY=$allowed_library" \
     -D "STOCK_APP=$stock_app" \

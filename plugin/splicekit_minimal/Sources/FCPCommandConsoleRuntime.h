@@ -170,6 +170,19 @@ FOUNDATION_EXPORT CGPoint FCPCCProductNormalizedPointToCandidateFCPPixels(
     CGPoint normalizedPoint,
     CGSize frameSize);
 
+// These narrow test-only seams exercise the filesystem-free bootstrap guard
+// logic in the offline binary.  They are not present in the shipped runtime,
+// do not create a Final Cut library, and never accept a caller-selected
+// production target.
+#if defined(FCPCC_RUNTIME_TESTING)
+FOUNDATION_EXPORT BOOL FCPCCDisposableLibraryBootstrapTestEnvironmentIsExact(NSString * _Nullable value);
+FOUNDATION_EXPORT BOOL FCPCCDisposableLibraryBootstrapTestActiveLibraryCountAllowsCreation(NSUInteger activeLibraryCount);
+FOUNDATION_EXPORT BOOL FCPCCDisposableLibraryBootstrapTestValidateAbsentCanonicalTarget(
+    NSString *parentPath,
+    NSString *targetPath,
+    NSString * _Nullable * _Nullable reason);
+#endif
+
 // This is a product-owned desired curve for preview/planning only. The sole
 // value deliberately does not encode, infer, or select a private Final Cut
 // Pro interpolation option.

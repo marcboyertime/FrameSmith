@@ -10,6 +10,7 @@
 
 #import <CommonCrypto/CommonDigest.h>
 #import <dlfcn.h>
+#import <errno.h>
 #import <fcntl.h>
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
@@ -42,6 +43,12 @@ static NSString * const FCPCCExpectedCloudFirstLaunchSetupSelectorName = @"setup
 static const char * const FCPCCExpectedCloudFirstLaunchSetupTypeEncoding = "v24@0:8@?<v@?@\"NSError\">16";
 static NSString * const FCPCCExpectedFlexoFrameworkRelativeExecutablePath = @"Contents/Frameworks/Flexo.framework/Versions/A/Flexo";
 static const char * const FCPCCExpectedFlexoFrameworkSHA256 = "704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e";
+static NSString * const FCPCCDisposableLibraryBootstrapEnvironmentName = @"FCPCC_BOOTSTRAP_DISPOSABLE_LIBRARY";
+static NSString * const FCPCCDisposableLibraryBootstrapEnvironmentValue = @"1";
+static NSString * const FCPCCDisposableLibraryBootstrapParentPath = @"/Users/marcboyer/Movies/FCPCommandConsole";
+static NSString * const FCPCCDisposableLibraryBootstrapTargetPath = @"/Users/marcboyer/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle";
+static NSString * const FCPCCDisposableLibraryBootstrapProvenanceDirectory = @"/Users/marcboyer/Movies/FCPCommandConsole/provenance";
+static NSString * const FCPCCDisposableLibraryBootstrapProvenancePrefix = @"disposable-library-bootstrap-";
 
 static BOOL FCPCCFileSHA256MatchesExpectedHex(NSString *path, const char *expectedHex);
 
@@ -1238,14 +1245,18 @@ typedef id (*FCPCCSelectedItemsGetter)(id, SEL, BOOL, BOOL);
 typedef CGSize (*FCPCCCGSizeGetter)(id, SEL);
 typedef CMTime (*FCPCCCMTimeGetter)(id, SEL);
 typedef CMTimeRange (*FCPCCCMTimeRangeGetter)(id, SEL);
+typedef id (*FCPCCLibraryDocumentInitializer)(id, SEL, NSURL *, BOOL, NSError **);
 
 static const char * const FCPCCExpectedObjectGetterTypeEncoding = "@16@0:8";
 #if defined(__arm64__)
 static const char * const FCPCCExpectedSelectedItemsGetterTypeEncoding = "@24@0:8B16B20";
+static const char * const FCPCCExpectedLibraryDocumentCreateTypeEncoding = "@36@0:8@16B24^@28";
 #elif defined(__x86_64__)
 static const char * const FCPCCExpectedSelectedItemsGetterTypeEncoding = "@24@0:8c16c20";
+static const char * const FCPCCExpectedLibraryDocumentCreateTypeEncoding = "@36@0:8@16c24^@28";
 #else
 static const char * const FCPCCExpectedSelectedItemsGetterTypeEncoding = "";
+static const char * const FCPCCExpectedLibraryDocumentCreateTypeEncoding = "";
 #endif
 
 static const FCPCCFixedObjCMethodContract FCPCCCopyActiveLibrariesContract = {
@@ -1256,6 +1267,9 @@ static const FCPCCFixedObjCMethodContract FCPCCLibraryDocumentContract = {
 };
 static const FCPCCFixedObjCMethodContract FCPCCPersistentFileIDContract = {
     "FFLibraryDocument", "persistentFileID", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0x1e3b08, 0x2b9af0,
+};
+static const FCPCCFixedObjCMethodContract FCPCCDisposableLibraryDocumentCreateContract = {
+    "FFLibraryDocument", "initWithURL:createDefaultEvent:error:", FCPCCExpectedLibraryDocumentCreateTypeEncoding, "@", 5, NO, FCPCCFixedMethodImageFlexo, 0x1d9278, 0x2abf80,
 };
 static const FCPCCFixedObjCMethodContract FCPCCActiveEditorContainerContract = {
     "PEAppController", "activeEditorContainer", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageCopiedHost, 0x3e3b0, 0x53210,
@@ -1556,6 +1570,331 @@ static BOOL FCPCCReadOnlyHostGatePasses(NSString **reason) {
 }
 
 @end
+
+// Disposable-library bootstrap is intentionally a separate, one-shot path.
+// It accepts no caller path, model class, or selector.  The direct model call
+// below is admitted only after the fixed Flexo ABI/image contract resolves.
+static BOOL FCPCCDisposableLibraryBootstrapEnvironmentIsExact(void) {
+    const char *value = getenv(FCPCCDisposableLibraryBootstrapEnvironmentName.UTF8String);
+    return value != NULL && strcmp(value, FCPCCDisposableLibraryBootstrapEnvironmentValue.UTF8String) == 0;
+}
+
+static BOOL FCPCCDisposableLibraryBootstrapPathHasNoSymlinkComponents(NSString *path,
+                                                                       BOOL requireDirectory,
+                                                                       NSString **reason) {
+    if (!FCPCCIsExactCanonicalFilePath(path)) {
+        *reason = @"bootstrap_path_not_exact_canonical";
+        return NO;
+    }
+    NSArray<NSString *> *components = path.pathComponents;
+    if (components.count == 0 || ![components.firstObject isEqualToString:@"/"]) {
+        *reason = @"bootstrap_path_components_unavailable";
+        return NO;
+    }
+
+    NSString *currentPath = @"/";
+    for (NSUInteger index = 1; index < components.count; index += 1) {
+        currentPath = [currentPath stringByAppendingPathComponent:components[index]];
+        struct stat metadata = {0};
+        if (lstat(currentPath.fileSystemRepresentation, &metadata) != 0) {
+            *reason = @"bootstrap_path_component_unavailable";
+            return NO;
+        }
+        if (S_ISLNK(metadata.st_mode)) {
+            *reason = @"bootstrap_path_component_is_symlink";
+            return NO;
+        }
+        if (index + 1 < components.count && !S_ISDIR(metadata.st_mode)) {
+            *reason = @"bootstrap_path_component_is_not_directory";
+            return NO;
+        }
+        if (index + 1 == components.count && requireDirectory && !S_ISDIR(metadata.st_mode)) {
+            *reason = @"bootstrap_path_is_not_directory";
+            return NO;
+        }
+    }
+    return YES;
+}
+
+static BOOL FCPCCDisposableLibraryBootstrapValidateAbsentCanonicalTarget(NSString *parentPath,
+                                                                           NSString *targetPath,
+                                                                           NSString **reason) {
+    if (!FCPCCDisposableLibraryBootstrapPathHasNoSymlinkComponents(parentPath, YES, reason)) {
+        return NO;
+    }
+    if (!FCPCCIsExactCanonicalFilePath(targetPath)
+        || ![[targetPath stringByDeletingLastPathComponent] isEqualToString:parentPath]
+        || targetPath.lastPathComponent.length == 0) {
+        *reason = @"bootstrap_target_not_exact_canonical_child";
+        return NO;
+    }
+    struct stat targetMetadata = {0};
+    if (lstat(targetPath.fileSystemRepresentation, &targetMetadata) == 0) {
+        *reason = @"bootstrap_target_already_exists";
+        return NO;
+    }
+    if (errno != ENOENT) {
+        *reason = @"bootstrap_target_absence_unverifiable";
+        return NO;
+    }
+    return YES;
+}
+
+static BOOL FCPCCDisposableLibraryBootstrapExactTargetIsAbsent(NSString **reason) {
+    if (![FCPCCDisposableLibraryBootstrapParentPath isEqualToString:[FCPCCDisposableLibraryBootstrapTargetPath stringByDeletingLastPathComponent]]) {
+        *reason = @"bootstrap_compile_time_parent_target_mismatch";
+        return NO;
+    }
+    return FCPCCDisposableLibraryBootstrapValidateAbsentCanonicalTarget(FCPCCDisposableLibraryBootstrapParentPath,
+                                                                         FCPCCDisposableLibraryBootstrapTargetPath,
+                                                                         reason);
+}
+
+static BOOL FCPCCDisposableLibraryBootstrapActiveLibrarySetIsEmpty(NSString **reason) {
+    FCPCCValidatedFixedMethod copyActiveLibraries = {0};
+    if (!FCPCCResolveFixedMethod(&FCPCCCopyActiveLibrariesContract, &copyActiveLibraries, reason)) {
+        return NO;
+    }
+    CFTypeRef copiedLibraries = ((FCPCCCopiedObjectGetter)copyActiveLibraries.implementation)((id)copyActiveLibraries.targetClass,
+                                                                                                  copyActiveLibraries.selector);
+    id activeLibraries = copiedLibraries == NULL ? nil : CFBridgingRelease(copiedLibraries);
+    if (![activeLibraries isKindOfClass:[NSArray class]]) {
+        *reason = @"bootstrap_active_library_set_type_unsupported";
+        return NO;
+    }
+    if ([activeLibraries count] != 0) {
+        *reason = @"bootstrap_active_library_count_not_zero";
+        return NO;
+    }
+    return YES;
+}
+
+@interface FCPCCDisposableLibraryBootstrapResult : NSObject
+@property (nonatomic, copy, readonly) NSString *status;
+@property (nonatomic, copy, readonly) NSString *reason;
+@property (nonatomic, strong, readonly, nullable) NSNumber *device;
+@property (nonatomic, strong, readonly, nullable) NSNumber *inode;
+@property (nonatomic, copy, readonly, nullable) NSString *persistentUID;
+- (instancetype)initWithStatus:(NSString *)status
+                         reason:(NSString *)reason
+                         device:(nullable NSNumber *)device
+                          inode:(nullable NSNumber *)inode
+                  persistentUID:(nullable NSString *)persistentUID NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
+@implementation FCPCCDisposableLibraryBootstrapResult
+
+- (instancetype)initWithStatus:(NSString *)status
+                         reason:(NSString *)reason
+                         device:(NSNumber *)device
+                          inode:(NSNumber *)inode
+                  persistentUID:(NSString *)persistentUID {
+    self = [super init];
+    if (self != nil) {
+        _status = [status copy];
+        _reason = [reason copy];
+        _device = [device copy];
+        _inode = [inode copy];
+        _persistentUID = [persistentUID copy];
+    }
+    return self;
+}
+
+@end
+
+static FCPCCDisposableLibraryBootstrapResult *FCPCCDisposableLibraryBootstrapResultWithCurrentTargetMetadata(NSString *status,
+                                                                                                                NSString *reason) {
+    struct stat metadata = {0};
+    NSNumber *device = nil;
+    NSNumber *inode = nil;
+    if (lstat(FCPCCDisposableLibraryBootstrapTargetPath.fileSystemRepresentation, &metadata) == 0
+        && !S_ISLNK(metadata.st_mode)
+        && metadata.st_dev != 0
+        && metadata.st_ino != 0) {
+        device = @((unsigned long long)metadata.st_dev);
+        inode = @((unsigned long long)metadata.st_ino);
+    }
+    return [[FCPCCDisposableLibraryBootstrapResult alloc] initWithStatus:status
+                                                                    reason:reason
+                                                                    device:device
+                                                                     inode:inode
+                                                             persistentUID:nil];
+}
+
+static FCPCCDisposableLibraryBootstrapResult *FCPCCDisposableLibraryBootstrapVerifiedResult(NSString **reason) {
+    FCPCCFixedModelTraversalAdapter *modelAdapter = [[FCPCCFixedModelTraversalAdapter alloc] init];
+    FCPCCReadOnlyLibrarySet *activeSet = [modelAdapter enumerateCompleteOpenLibrarySet];
+    if (!activeSet.isCompleteTraversal) {
+        *reason = activeSet.reason.length > 0 ? activeSet.reason : @"bootstrap_postcreate_library_traversal_incomplete";
+        return nil;
+    }
+    if (activeSet.libraries.count != 1) {
+        *reason = @"bootstrap_postcreate_active_library_count_not_one";
+        return nil;
+    }
+    id candidate = activeSet.libraries.firstObject;
+    if (![candidate isKindOfClass:[FCPCCLibraryIdentity class]]) {
+        *reason = @"bootstrap_postcreate_library_identity_type_unsupported";
+        return nil;
+    }
+    FCPCCLibraryIdentity *identity = candidate;
+    FCPCCLibraryManifestRecord *manifest = [[FCPCCLibraryManifestRecord alloc]
+        initWithCanonicalPath:FCPCCDisposableLibraryBootstrapTargetPath
+                expectedDevice:identity.device
+                 expectedInode:identity.inode
+                 persistentUID:identity.persistentUID
+             verificationState:@"bootstrap_postcreate_identity"];
+    FCPCCLibraryInvariantResult *invariant = FCPCCEvaluateLibraryInvariant(activeSet, manifest);
+    if (!invariant.isVerified) {
+        *reason = invariant.reason.length > 0 ? invariant.reason : @"bootstrap_postcreate_identity_mismatch";
+        return nil;
+    }
+    return [[FCPCCDisposableLibraryBootstrapResult alloc] initWithStatus:@"created_verified"
+                                                                    reason:@"bootstrap_exact_one_active_library_verified"
+                                                                    device:identity.device
+                                                                     inode:identity.inode
+                                                             persistentUID:identity.persistentUID];
+}
+
+static NSString *FCPCCDisposableLibraryBootstrapBoundedProvenanceString(NSString *value,
+                                                                          NSString *fallback) {
+    if (!FCPCCBoundedNonemptyString(value) || value.length > 256) {
+        return fallback;
+    }
+    return value;
+}
+
+static BOOL FCPCCWriteDisposableLibraryBootstrapProvenance(FCPCCDisposableLibraryBootstrapResult *result) {
+    NSString *pathReason = nil;
+    if (!FCPCCDisposableLibraryBootstrapPathHasNoSymlinkComponents(FCPCCDisposableLibraryBootstrapParentPath,
+                                                                     YES,
+                                                                     &pathReason)) {
+        return NO;
+    }
+
+    struct stat provenanceMetadata = {0};
+    if (lstat(FCPCCDisposableLibraryBootstrapProvenanceDirectory.fileSystemRepresentation, &provenanceMetadata) != 0) {
+        if (errno != ENOENT || mkdir(FCPCCDisposableLibraryBootstrapProvenanceDirectory.fileSystemRepresentation, 0700) != 0) {
+            return NO;
+        }
+        if (lstat(FCPCCDisposableLibraryBootstrapProvenanceDirectory.fileSystemRepresentation, &provenanceMetadata) != 0) {
+            return NO;
+        }
+    }
+    if (S_ISLNK(provenanceMetadata.st_mode) || !S_ISDIR(provenanceMetadata.st_mode)) {
+        return NO;
+    }
+
+    NSMutableDictionary<NSString *, id> *payload = [[NSMutableDictionary alloc] initWithDictionary:@{
+        @"schema_version": @1,
+        @"operation": @"disposable_library_bootstrap",
+        @"status": FCPCCDisposableLibraryBootstrapBoundedProvenanceString(result.status, @"bootstrap_status_unavailable"),
+        @"reason": FCPCCDisposableLibraryBootstrapBoundedProvenanceString(result.reason, @"bootstrap_reason_unavailable"),
+        @"canonical_path": FCPCCDisposableLibraryBootstrapTargetPath,
+    }];
+    if (FCPCCUnsignedIdentityNumberIsValid(result.device) && FCPCCUnsignedIdentityNumberIsValid(result.inode)) {
+        payload[@"device"] = result.device;
+        payload[@"inode"] = result.inode;
+    }
+    if (FCPCCBoundedNonemptyString(result.persistentUID) && result.persistentUID.length <= 256) {
+        payload[@"persistent_uid"] = result.persistentUID;
+    }
+
+    NSError *serializationError = nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&serializationError];
+    if (data == nil || serializationError != nil || data.length == 0 || data.length > 4096) {
+        return NO;
+    }
+    NSString *fileName = [FCPCCDisposableLibraryBootstrapProvenancePrefix stringByAppendingFormat:@"%@.json", NSUUID.UUID.UUIDString];
+    NSString *filePath = [FCPCCDisposableLibraryBootstrapProvenanceDirectory stringByAppendingPathComponent:fileName];
+    int descriptor = open(filePath.fileSystemRepresentation, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (descriptor < 0) {
+        return NO;
+    }
+    ssize_t written = write(descriptor, data.bytes, data.length);
+    int closeResult = close(descriptor);
+    return written == (ssize_t)data.length && closeResult == 0;
+}
+
+static FCPCCDisposableLibraryBootstrapResult *FCPCCRunDisposableLibraryBootstrap(void) {
+    NSString *reason = nil;
+    if (![NSThread isMainThread]) {
+        return FCPCCDisposableLibraryBootstrapResultWithCurrentTargetMetadata(@"rejected", @"bootstrap_requires_main_thread");
+    }
+    if (!FCPCCDisposableLibraryBootstrapEnvironmentIsExact()) {
+        return FCPCCDisposableLibraryBootstrapResultWithCurrentTargetMetadata(@"rejected", @"bootstrap_environment_flag_not_exact");
+    }
+    if (!FCPCCReadOnlyHostGatePasses(&reason)) {
+        return FCPCCDisposableLibraryBootstrapResultWithCurrentTargetMetadata(@"rejected", reason ?: @"bootstrap_host_containment_unverified");
+    }
+    if (!FCPCCDisposableLibraryBootstrapExactTargetIsAbsent(&reason)) {
+        return FCPCCDisposableLibraryBootstrapResultWithCurrentTargetMetadata(@"rejected", reason);
+    }
+    if (!FCPCCDisposableLibraryBootstrapActiveLibrarySetIsEmpty(&reason)) {
+        return FCPCCDisposableLibraryBootstrapResultWithCurrentTargetMetadata(@"rejected", reason);
+    }
+
+    FCPCCValidatedFixedMethod createLibraryDocument = {0};
+    if (!FCPCCResolveFixedMethod(&FCPCCDisposableLibraryDocumentCreateContract, &createLibraryDocument, &reason)) {
+        return FCPCCDisposableLibraryBootstrapResultWithCurrentTargetMetadata(@"rejected", reason);
+    }
+    // Recheck immediately before invoking the model initializer.  The path is
+    // never opened for truncation, removed, or reused after any failure.
+    if (!FCPCCDisposableLibraryBootstrapExactTargetIsAbsent(&reason)) {
+        return FCPCCDisposableLibraryBootstrapResultWithCurrentTargetMetadata(@"rejected", reason);
+    }
+
+    NSURL *targetURL = [NSURL fileURLWithPath:FCPCCDisposableLibraryBootstrapTargetPath isDirectory:YES];
+    NSError *creationError = nil;
+    id allocatedDocument = [createLibraryDocument.targetClass alloc];
+    id document = allocatedDocument == nil ? nil
+        : ((FCPCCLibraryDocumentInitializer)createLibraryDocument.implementation)(allocatedDocument,
+                                                                                     createLibraryDocument.selector,
+                                                                                     targetURL,
+                                                                                     YES,
+                                                                                     &creationError);
+    if (document == nil || creationError != nil) {
+        return FCPCCDisposableLibraryBootstrapResultWithCurrentTargetMetadata(@"creation_failed", @"bootstrap_model_creation_failed_target_retained");
+    }
+
+    NSDocumentController *documentController = [NSDocumentController sharedDocumentController];
+    if (documentController == nil) {
+        return FCPCCDisposableLibraryBootstrapResultWithCurrentTargetMetadata(@"partial_creation_unverified", @"bootstrap_public_document_controller_unavailable_target_retained");
+    }
+    // These are the public NSDocument registration and presentation APIs. No
+    // responder action, dialog, or UI simulation is involved.
+    [documentController addDocument:document];
+    [document makeWindowControllers];
+    [document showWindows];
+
+    FCPCCDisposableLibraryBootstrapResult *verified = FCPCCDisposableLibraryBootstrapVerifiedResult(&reason);
+    if (verified == nil) {
+        return FCPCCDisposableLibraryBootstrapResultWithCurrentTargetMetadata(@"partial_creation_unverified", reason ?: @"bootstrap_postcreate_verification_failed_target_retained");
+    }
+    return verified;
+}
+
+#if defined(FCPCC_RUNTIME_TESTING)
+BOOL FCPCCDisposableLibraryBootstrapTestEnvironmentIsExact(NSString *value) {
+    return [value isEqualToString:FCPCCDisposableLibraryBootstrapEnvironmentValue];
+}
+
+BOOL FCPCCDisposableLibraryBootstrapTestActiveLibraryCountAllowsCreation(NSUInteger activeLibraryCount) {
+    return activeLibraryCount == 0;
+}
+
+BOOL FCPCCDisposableLibraryBootstrapTestValidateAbsentCanonicalTarget(NSString *parentPath,
+                                                                        NSString *targetPath,
+                                                                        NSString **reason) {
+    NSString *localReason = nil;
+    BOOL valid = FCPCCDisposableLibraryBootstrapValidateAbsentCanonicalTarget(parentPath, targetPath, &localReason);
+    if (reason != NULL) {
+        *reason = localReason;
+    }
+    return valid;
+}
+#endif
 
 static NSString *FCPCCCanonicalCMTimeToken(CMTime time) {
     return [NSString stringWithFormat:@"%lld/%d/%u/%lld",
@@ -2730,6 +3069,60 @@ nativePixelPositionConversionVerified:NO
 
 @end
 
+typedef NS_ENUM(NSUInteger, FCPCCDisposableLibraryBootstrapLifecycleState) {
+    FCPCCDisposableLibraryBootstrapLifecycleStateNew = 0,
+    FCPCCDisposableLibraryBootstrapLifecycleStateWaitingForDidFinishLaunching,
+    FCPCCDisposableLibraryBootstrapLifecycleStateRunning,
+    FCPCCDisposableLibraryBootstrapLifecycleStateFinished,
+};
+
+static FCPCCDisposableLibraryBootstrapLifecycleState FCPCCDisposableLibraryBootstrapState = FCPCCDisposableLibraryBootstrapLifecycleStateNew;
+static id FCPCCDisposableLibraryBootstrapDidFinishLaunchingObserver;
+
+static void FCPCCFinishDisposableLibraryBootstrapScheduling(void) {
+    if (FCPCCDisposableLibraryBootstrapDidFinishLaunchingObserver != nil) {
+        [[NSNotificationCenter defaultCenter] removeObserver:FCPCCDisposableLibraryBootstrapDidFinishLaunchingObserver];
+        FCPCCDisposableLibraryBootstrapDidFinishLaunchingObserver = nil;
+    }
+    FCPCCDisposableLibraryBootstrapState = FCPCCDisposableLibraryBootstrapLifecycleStateFinished;
+}
+
+static void FCPCCHandleDisposableLibraryBootstrapDidFinishLaunching(void) {
+    if (![NSThread isMainThread]
+        || FCPCCDisposableLibraryBootstrapState != FCPCCDisposableLibraryBootstrapLifecycleStateWaitingForDidFinishLaunching) {
+        FCPCCFinishDisposableLibraryBootstrapScheduling();
+        return;
+    }
+    FCPCCDisposableLibraryBootstrapState = FCPCCDisposableLibraryBootstrapLifecycleStateRunning;
+    FCPCCDisposableLibraryBootstrapResult *result = FCPCCRunDisposableLibraryBootstrap();
+    (void)FCPCCWriteDisposableLibraryBootstrapProvenance(result);
+    FCPCCFinishDisposableLibraryBootstrapScheduling();
+}
+
+static void FCPCCBeginDisposableLibraryBootstrapAfterApplicationDidFinishLaunching(void) {
+    // The constructor never creates a library. An observer is enrolled only
+    // when the exact launcher-supplied flag is already present, and its one
+    // callback is the sole route to the model initializer.
+    if (![NSThread isMainThread] || !FCPCCDisposableLibraryBootstrapEnvironmentIsExact()) {
+        return;
+    }
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        FCPCCDisposableLibraryBootstrapDidFinishLaunchingObserver = [[NSNotificationCenter defaultCenter]
+            addObserverForName:NSApplicationDidFinishLaunchingNotification
+                        object:NSApp
+                         queue:nil
+                    usingBlock:^(__unused NSNotification *note) {
+                        FCPCCHandleDisposableLibraryBootstrapDidFinishLaunching();
+                    }];
+        if (FCPCCDisposableLibraryBootstrapDidFinishLaunchingObserver == nil) {
+            FCPCCDisposableLibraryBootstrapState = FCPCCDisposableLibraryBootstrapLifecycleStateFinished;
+            return;
+        }
+        FCPCCDisposableLibraryBootstrapState = FCPCCDisposableLibraryBootstrapLifecycleStateWaitingForDidFinishLaunching;
+    });
+}
+
 __attribute__((constructor))
 static void FCPCCInstallRuntime(void) {
     FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
@@ -2738,6 +3131,7 @@ static void FCPCCInstallRuntime(void) {
     }
     (void)FCPCCInstallOnboardingQueryCompatibility();
     FCPCCBeginCloudFirstLaunchRegistrationSuppression();
+    FCPCCBeginDisposableLibraryBootstrapAfterApplicationDidFinishLaunching();
     dispatch_async(dispatch_get_main_queue(), ^{
         [[FCPCCRuntime sharedRuntime] installMenuWhenReady];
     });

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>9</integer>
+    <integer>10</integer>
     <key>ExpectedHostBundleIdentifier</key>
     <string>com.apple.FinalCut</string>
     <key>ExpectedCopiedHostBundlePath</key>
@@ -73,6 +73,80 @@
             <string>three_property_readback_and_lossless_rollback</string>
         </array>
     </dict>
+    <key>DisposableLibraryBootstrap</key>
+    <dict>
+        <key>ExecutionEnabled</key>
+        <true/>
+        <key>RuntimeDiscoveryAllowed</key>
+        <false/>
+        <key>MethodContractsPinnedIn</key>
+        <string>FCPCommandConsoleRuntime.m:FCPCCDisposableLibraryDocumentCreateContract</string>
+        <key>EnvironmentVariable</key>
+        <string>FCPCC_BOOTSTRAP_DISPOSABLE_LIBRARY</string>
+        <key>EnvironmentValue</key>
+        <string>1</string>
+        <key>CanonicalParentPath</key>
+        <string>/Users/marcboyer/Movies/FCPCommandConsole</string>
+        <key>CanonicalTargetPath</key>
+        <string>/Users/marcboyer/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle</string>
+        <key>ProvenanceDirectory</key>
+        <string>/Users/marcboyer/Movies/FCPCommandConsole/provenance</string>
+        <key>LifecycleNotification</key>
+        <string>NSApplicationDidFinishLaunchingNotification</string>
+        <key>MainThreadOnly</key>
+        <true/>
+        <key>RequiredActiveLibraryCountBeforeCreate</key>
+        <integer>0</integer>
+        <key>RequiredActiveLibraryCountAfterCreate</key>
+        <integer>1</integer>
+        <key>TargetMustBeAbsent</key>
+        <true/>
+        <key>NoSymlinkComponents</key>
+        <true/>
+        <key>NoRetries</key>
+        <true/>
+        <key>NeverOverwriteOrRemove</key>
+        <true/>
+        <key>ModelClass</key>
+        <string>FFLibraryDocument</string>
+        <key>Selector</key>
+        <string>initWithURL:createDefaultEvent:error:</string>
+        <key>MethodKind</key>
+        <string>instance</string>
+        <key>ObjectiveCArgumentCount</key>
+        <integer>5</integer>
+        <key>ObjectiveCReturnType</key>
+        <string>@</string>
+        <key>ObjectiveCTypeEncodingArm64</key>
+        <string>@36@0:8@16B24^@28</string>
+        <key>ObjectiveCTypeEncodingX86_64</key>
+        <string>@36@0:8@16c24^@28</string>
+        <key>ExpectedOriginalImplementationOffsetArm64</key>
+        <string>0x1d9278</string>
+        <key>ExpectedOriginalImplementationOffsetX86_64</key>
+        <string>0x2abf80</string>
+        <key>FlexoRelativeExecutablePath</key>
+        <string>Contents/Frameworks/Flexo.framework/Versions/A/Flexo</string>
+        <key>ExpectedFlexoSHA256</key>
+        <string>704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e</string>
+        <key>ExpectedFlexoArm64UUID</key>
+        <string>AEAE4C0B-7695-3784-A794-AFB4985525A8</string>
+        <key>ExpectedFlexoX86_64UUID</key>
+        <string>525166A8-E6F4-3DCA-B4F9-BD98F16B6552</string>
+        <key>CreateDefaultEvent</key>
+        <true/>
+        <key>PublicRegistrationAPI</key>
+        <string>NSDocumentController.addDocument:</string>
+        <key>PublicPresentationAPIs</key>
+        <array>
+            <string>NSDocument.makeWindowControllers</string>
+            <string>NSDocument.showWindows</string>
+        </array>
+        <key>RequiredPostcreateIdentity</key>
+        <string>canonical_path_device_inode_persistent_uid</string>
+        <key>ProvenanceSchemaVersion</key>
+        <integer>1</integer>
+    </dict>
     <key>ApprovedMethodReplacements</key>
     <array>
         <dict>
@@ -117,6 +191,6 @@
     <key>SourceSnapshotCommit</key>
     <string>f4f6618121309a69b66272b441f34cf8ad57f306</string>
     <key>SourceAttribution</key>
-    <string>Exact Final Cut Pro 12.3 static inspection. The stock pre-injection executable SHA-256 is patcher provenance because the copied host receives one reviewed load command and a new signature. The runtime independently requires the exact copied bundle path, receipt-compatible bundle identifier, unchanged MAS receipt path and SHA-256, version, build, active-slice UUID, and nested ProOnboardingFlowModelOne framework path, SHA-256, active-slice UUID, Objective-C type, and original setter IMP before forwarding that setter with one main-queue asynchronous nil-metadata provider. The only additional replacement is the CCFirstLaunchHelper instance method at arm64 offset 0x924e8 and x86_64 offset 0xc74c0; static inspection pins its PEAppController send at arm64 0x3b648 and x86_64 0x4f1ad, the independent continuation, and the completion-only listener routes at arm64 0x3c32c and x86_64 0x503c8. Its replacement returns without accessing the completion block. The reviewed nested-block encoding is v24@0:8@?&lt;v@?@&quot;NSError&quot;&gt;16. On this supported Objective-C runtime, method_getNumberOfArguments parses that extended encoding as twelve rather than the receiver, selector, and block slots, so Schema 9 intentionally omits an argument-count condition while retaining exact full-encoding, void-return, copied-image, UUID, and architecture-specific original-IMP checks. The Cloud availability guard registers exactly one NSApplicationWillFinishLaunchingNotification observer before its main-thread constructor attempt, retries synchronously only once at that notification when and only when the helper class or exact instance method was unavailable, then removes the observer after installation or every terminal result; it never uses timers, polling, delayed work, or a third attempt.</string>
+    <string>Exact Final Cut Pro 12.3 static inspection. The stock pre-injection executable SHA-256 is patcher provenance because the copied host receives one reviewed load command and a new signature. The runtime independently requires the exact copied bundle path, receipt-compatible bundle identifier, unchanged MAS receipt path and SHA-256, version, build, active-slice UUID, and nested ProOnboardingFlowModelOne framework path, SHA-256, active-slice UUID, Objective-C type, and original setter IMP before forwarding that setter with one main-queue asynchronous nil-metadata provider. The only additional replacement is the CCFirstLaunchHelper instance method at arm64 offset 0x924e8 and x86_64 offset 0xc74c0; static inspection pins its PEAppController send at arm64 0x3b648 and x86_64 0x4f1ad, the independent continuation, and the completion-only listener routes at arm64 0x3c32c and x86_64 0x503c8. Its replacement returns without accessing the completion block. The reviewed nested-block encoding is v24@0:8@?&lt;v@?@&quot;NSError&quot;&gt;16. On this supported Objective-C runtime, method_getNumberOfArguments parses that extended encoding as twelve rather than the receiver, selector, and block slots, so the Cloud guard omits an argument-count condition while retaining exact full-encoding, void-return, copied-image, UUID, and architecture-specific original-IMP checks. Schema 10 additionally admits one launcher-flagged disposable-library bootstrap only after NSApplicationDidFinishLaunchingNotification. It pins FFLibraryDocument initWithURL:createDefaultEvent:error: to the exact Flexo image, SHA-256, slice UUID, ABI, and arm64/x86_64 offsets; requires the one canonical absent target, no symlink path components, zero active libraries before creation, public NSDocument registration/presentation, exactly one postcreate active library, and canonical path/device/inode/persistent UID provenance. It never overwrites, removes, retries, opens another library path, imports media, or creates a project fixture.</string>
 </dict>
 </plist>

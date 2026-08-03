@@ -22,14 +22,14 @@ runtime_verifier="$plugin_dir/patcher/verify-copied-fcp"
 initial_patcher="$plugin_dir/patcher/patch-copied-fcp"
 repair_patcher="$plugin_dir/patcher/repair-library-validation-entitlement"
 allowlist="$repo_dir/config/patch-entitlement-allowlist.json"
-source_app="/Applications/Final Cut Pro.app"
-source_executable="$source_app/Contents/MacOS/Final Cut Pro"
+reviewed_copied_app="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app"
+reviewed_copied_executable="$reviewed_copied_app/Contents/MacOS/Final Cut Pro"
 onboarding_framework_relative_executable_path="Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
-source_onboarding_framework="$source_app/$onboarding_framework_relative_executable_path"
+reviewed_copied_onboarding_framework="$reviewed_copied_app/$onboarding_framework_relative_executable_path"
 flexo_framework_relative_executable_path="Contents/Frameworks/Flexo.framework/Versions/A/Flexo"
-source_flexo_framework="$source_app/$flexo_framework_relative_executable_path"
+reviewed_copied_flexo_framework="$reviewed_copied_app/$flexo_framework_relative_executable_path"
 mas_receipt_relative_path="Contents/_MASReceipt/receipt"
-source_mas_receipt="$source_app/$mas_receipt_relative_path"
+reviewed_copied_mas_receipt="$reviewed_copied_app/$mas_receipt_relative_path"
 onboarding_framework_load_path="@rpath/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne"
 expected_onboarding_framework_sha256="636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce"
 expected_onboarding_framework_arm64_uuid="45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D"
@@ -67,21 +67,21 @@ fi
 if [[ -z "$rg_bin" ]]; then
     fail "rg is required for source audits"
 fi
-if [[ ! -d "$source_app" || ! -f "$source_executable" || ! -f "$source_onboarding_framework" || ! -f "$source_flexo_framework" || ! -f "$source_mas_receipt" ]]; then
-    fail "required source app or reviewed onboarding framework is missing"
+if [[ ! -d "$reviewed_copied_app" || ! -f "$reviewed_copied_executable" || ! -f "$reviewed_copied_onboarding_framework" || ! -f "$reviewed_copied_flexo_framework" || ! -f "$reviewed_copied_mas_receipt" ]]; then
+    fail "reviewed copied FCP 12.3 artifact or its pinned framework is missing"
 fi
 if [[ ! -f "$cloud_first_launch_encoding_probe_source" ]]; then
     fail "Cloud first-launch encoding regression probe is missing"
 fi
 
 # The automatic Cloud Content first-launch route is pinned from the exact
-# installed Final Cut Pro 12.3 executable. These are static inspections only;
-# this test never launches either Final Cut app.
-/usr/bin/otool -arch arm64 -o -v "$source_executable" > "$test_dir/fcp-12-3-cloud-first-launch-objc-arm64.txt"
-/usr/bin/otool -arch x86_64 -o -v "$source_executable" > "$test_dir/fcp-12-3-cloud-first-launch-objc-x86_64.txt"
-/usr/bin/otool -arch arm64 -tvV "$source_executable" > "$test_dir/fcp-12-3-cloud-first-launch-disassembly-arm64.txt"
-/usr/bin/otool -arch x86_64 -tvV "$source_executable" > "$test_dir/fcp-12-3-cloud-first-launch-disassembly-x86_64.txt"
-/usr/bin/otool -arch x86_64 -s __DATA __objc_selrefs "$source_executable" > "$test_dir/fcp-12-3-cloud-first-launch-selrefs-x86_64.txt"
+# reviewed copied Final Cut Pro 12.3 executable. These are static inspections
+# only; the current stock app is deliberately not an input to this test.
+/usr/bin/otool -arch arm64 -o -v "$reviewed_copied_executable" > "$test_dir/fcp-12-3-cloud-first-launch-objc-arm64.txt"
+/usr/bin/otool -arch x86_64 -o -v "$reviewed_copied_executable" > "$test_dir/fcp-12-3-cloud-first-launch-objc-x86_64.txt"
+/usr/bin/otool -arch arm64 -tvV "$reviewed_copied_executable" > "$test_dir/fcp-12-3-cloud-first-launch-disassembly-arm64.txt"
+/usr/bin/otool -arch x86_64 -tvV "$reviewed_copied_executable" > "$test_dir/fcp-12-3-cloud-first-launch-disassembly-x86_64.txt"
+/usr/bin/otool -arch x86_64 -s __DATA __objc_selrefs "$reviewed_copied_executable" > "$test_dir/fcp-12-3-cloud-first-launch-selrefs-x86_64.txt"
 for arm64_metadata_fragment in \
     'CCFirstLaunchHelper' \
     '__INSTANCE_METHODS_CCFirstLaunchHelper' \
@@ -141,7 +141,7 @@ if [[ "$("$rg_bin" -F -o '_objc_msgSend$startListeningForApplicationDidBecomeAct
     fail "installed Final Cut Pro 12.3 first-launch completion has more than one automatic listener route"
 fi
 
-/usr/bin/otool -arch arm64 -o -v "$source_flexo_framework" > "$test_dir/fcp-12-3-flexo-objc-arm64.txt"
+/usr/bin/otool -arch arm64 -o -v "$reviewed_copied_flexo_framework" > "$test_dir/fcp-12-3-flexo-objc-arm64.txt"
 for installed_flexo_fragment in \
     'v64@0:8{?=qiIq}16^d40^d48^d56' \
     'v68@0:8{?=qiIq}16d40d48d56I64' \
@@ -160,21 +160,21 @@ for installed_flexo_fragment in \
     fi
 done
 
-stock_main_before="$(/usr/bin/shasum -a 256 "$source_executable" | /usr/bin/awk '{print $1}')"
-stock_info_before="$(/usr/bin/shasum -a 256 "$source_app/Contents/Info.plist" | /usr/bin/awk '{print $1}')"
-stock_onboarding_before="$(/usr/bin/shasum -a 256 "$source_onboarding_framework" | /usr/bin/awk '{print $1}')"
-/usr/bin/dwarfdump --uuid "$source_onboarding_framework" > "$test_dir/stock-onboarding-framework.uuids.txt"
-stock_onboarding_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$test_dir/stock-onboarding-framework.uuids.txt")"
-stock_onboarding_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$test_dir/stock-onboarding-framework.uuids.txt")"
-stock_mas_receipt_before="$(/usr/bin/shasum -a 256 "$source_mas_receipt" | /usr/bin/awk '{print $1}')"
-if [[ "$stock_onboarding_before" != "$expected_onboarding_framework_sha256" || "$stock_onboarding_arm64_uuid" != "$expected_onboarding_framework_arm64_uuid" || "$stock_onboarding_x86_64_uuid" != "$expected_onboarding_framework_x86_64_uuid" || "$stock_mas_receipt_before" != "$expected_mas_receipt_sha256" ]]; then
-    fail "stock onboarding framework hash or slice UUID does not match the reviewed contract"
+reviewed_copied_main_before="$(/usr/bin/shasum -a 256 "$reviewed_copied_executable" | /usr/bin/awk '{print $1}')"
+reviewed_copied_info_before="$(/usr/bin/shasum -a 256 "$reviewed_copied_app/Contents/Info.plist" | /usr/bin/awk '{print $1}')"
+reviewed_copied_onboarding_before="$(/usr/bin/shasum -a 256 "$reviewed_copied_onboarding_framework" | /usr/bin/awk '{print $1}')"
+/usr/bin/dwarfdump --uuid "$reviewed_copied_onboarding_framework" > "$test_dir/reviewed-copied-onboarding-framework.uuids.txt"
+reviewed_copied_onboarding_arm64_uuid="$(/usr/bin/awk '/\(arm64\)/ {print $2; exit}' "$test_dir/reviewed-copied-onboarding-framework.uuids.txt")"
+reviewed_copied_onboarding_x86_64_uuid="$(/usr/bin/awk '/\(x86_64\)/ {print $2; exit}' "$test_dir/reviewed-copied-onboarding-framework.uuids.txt")"
+reviewed_copied_mas_receipt_before="$(/usr/bin/shasum -a 256 "$reviewed_copied_mas_receipt" | /usr/bin/awk '{print $1}')"
+if [[ "$reviewed_copied_onboarding_before" != "$expected_onboarding_framework_sha256" || "$reviewed_copied_onboarding_arm64_uuid" != "$expected_onboarding_framework_arm64_uuid" || "$reviewed_copied_onboarding_x86_64_uuid" != "$expected_onboarding_framework_x86_64_uuid" || "$reviewed_copied_mas_receipt_before" != "$expected_mas_receipt_sha256" ]]; then
+    fail "reviewed copied onboarding framework hash or slice UUID does not match the pinned contract"
 fi
 for architecture in arm64 x86_64; do
-    /usr/bin/otool -arch "$architecture" -L "$source_executable" > "$test_dir/stock-main-libraries-$architecture.txt"
-    onboarding_framework_load_count="$(/usr/bin/grep -F -c "$onboarding_framework_load_path" "$test_dir/stock-main-libraries-$architecture.txt" || true)"
+    /usr/bin/otool -arch "$architecture" -L "$reviewed_copied_executable" > "$test_dir/reviewed-copied-main-libraries-$architecture.txt"
+    onboarding_framework_load_count="$(/usr/bin/grep -F -c "$onboarding_framework_load_path" "$test_dir/reviewed-copied-main-libraries-$architecture.txt" || true)"
     if [[ "$onboarding_framework_load_count" != "1" ]]; then
-        fail "stock main executable does not directly load exactly one reviewed onboarding framework in $architecture"
+        fail "reviewed copied main executable does not directly load exactly one pinned onboarding framework in $architecture"
     fi
 done
 for forbidden in \
@@ -603,7 +603,7 @@ if [[ -e "$retired_runtime_policy_source" || -e "$retired_runtime_policy_build" 
     fail "retired isolated preference policy remains present"
 fi
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "9" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "10" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
         fail "compatibility policy copied-host, receipt, or onboarding identity is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor_main_thread_immediate_attempt" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "application_will_finish_launching_availability_retry" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "2" ]]; then
@@ -748,7 +748,7 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
     current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$patcher_script")"
     for required_current_policy_fragment in \
         'Print :SchemaVersion' \
-        '" != "9"' \
+        '" != "10"' \
         'ExpectedHostBundleIdentifier' \
         'ExpectedCopiedHostBundlePath' \
         'ExpectedHostVersion' \
@@ -784,14 +784,14 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         'immediate_noop_return_without_completion_access' \
         'ApprovedMethodReplacements:2'; do
         if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q "$required_current_policy_fragment"; then
-            fail "patcher current Schema-9 policy contract is missing: $required_current_policy_fragment"
+            fail "patcher current Schema-10 policy contract is missing: $required_current_policy_fragment"
         fi
     done
     if print -r -- "$current_policy_source" | "$rg_bin" -F -q 'discard_query_block_noop'; then
-        fail "patcher current Schema-9 policy retains the retired query-discard contract"
+        fail "patcher current Schema-10 policy retains the retired query-discard contract"
     fi
     if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q 'invalid Cloud nested-block argument-count condition'; then
-        fail "patcher current Schema-9 policy does not reject a restored Cloud nested-block argument-count condition"
+        fail "patcher current Schema-10 policy does not reject a restored Cloud nested-block argument-count condition"
     fi
 done
 require_fragment 'expected_copied_host_bundle_path="$live_copied_app"' "$runtime_updater" "transactional updater exact live path"
@@ -1120,8 +1120,11 @@ if [[ "$("$rg_bin" -F -c 'codesign --force --sign' "$runtime_updater")" != "2" |
     fail "runtime updater does not limit direct signing and copying to the project-owned framework plus copied top-level app"
 fi
 for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier"; do
-    if "$rg_bin" -n -i -F 'fcpbundle' "$patcher_script" >/dev/null; then
-        fail "patcher references a Final Cut library"
+    patcher_fcpbundle_lines="$("$rg_bin" -n -i -F 'fcpbundle' "$patcher_script" || true)"
+    if [[ -n "$patcher_fcpbundle_lines" ]]; then
+        if [[ "$(print -r -- "$patcher_fcpbundle_lines" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" || "$patcher_fcpbundle_lines" != *'DisposableLibraryBootstrap:CanonicalTargetPath'* || "$patcher_fcpbundle_lines" != *'FCPCommandConsole Test.fcpbundle'* ]]; then
+            fail "patcher library reference is outside the one static bootstrap-policy assertion"
+        fi
     fi
     for forbidden_launcher in '/usr/bin/open' '/bin/open' 'open -a' 'exec ' 'launchctl'; do
         if "$rg_bin" -F -q "$forbidden_launcher" "$patcher_script"; then
@@ -1162,6 +1165,7 @@ fi
 /usr/bin/clang \
   -arch arm64 \
   -mmacosx-version-min=13.0 \
+  -DFCPCC_RUNTIME_TESTING \
   -fobjc-arc \
   -fmodules \
   -Wall \
@@ -1175,7 +1179,43 @@ fi
 "$test_dir/mutation-stub-tests"
 print -r -- 'native_targeted_rotate_zoom_static_evidence=FCP_12_3_arm64 get_type=v64@0:8{?=qiIq}16^d40^d48^d56 set_type=v68@0:8{?=qiIq}16d40d48d56I64 FFHeXForm3DEffect.getPixelPositionAtTime:x:y:z:=0x3e6a10 FFHeXForm3DEffect.setPixelPositionAtTime:curveX:curveY:curveZ:options:=0x3e6c2c FFEffectStack.actionBegin:animationHint:deferUpdates:=0x156684 FFUndoHandler.undoableBegin:=0x32cdc4 live_mutation=unsupported_pending_exact_native_easing_and_native_undo_rollback_contracts'
 
-/usr/bin/codesign -d --entitlements :- "$source_app" > "$test_dir/stock-entitlements.plist" 2> "$test_dir/stock-entitlements.stderr"
+/usr/bin/plutil -create xml1 "$test_dir/reviewed-stock-entitlements.plist"
+for entitlement_key in \
+    com.apple.application-identifier \
+    com.apple.developer.aps-environment \
+    com.apple.developer.icloud-container-environment \
+    com.apple.developer.icloud-container-identifiers \
+    com.apple.developer.icloud-services \
+    com.apple.developer.team-identifier \
+    com.apple.security.application-groups \
+    com.apple.security.assets.movies.read-write \
+    com.apple.security.assets.music.read-only \
+    com.apple.security.assets.pictures.read-only \
+    com.apple.security.automation.apple-events \
+    com.apple.security.device.usb \
+    com.apple.security.files.bookmarks.app-scope \
+    com.apple.security.files.bookmarks.document-scope \
+    com.apple.security.files.user-selected.read-write \
+    com.apple.security.network.client \
+    com.apple.security.network.server \
+    com.apple.security.personal-information.photos-library \
+    com.apple.security.scripting-targets \
+    com.apple.security.temporary-exception.apple-events \
+    com.apple.security.temporary-exception.audio-unit-host \
+    com.apple.security.temporary-exception.files.absolute-path.read-write \
+    com.apple.security.temporary-exception.mach-lookup.global-name \
+    com.apple.security.temporary-exception.sbpl \
+    com.apple.security.temporary-exception.shared-preference.read-write \
+    keychain-access-groups; do
+    /usr/libexec/PlistBuddy -c "Add :$entitlement_key string reviewed-fixture" "$test_dir/reviewed-stock-entitlements.plist" >/dev/null
+done
+for entitlement_key in \
+    com.apple.security.app-sandbox \
+    com.apple.security.device.audio-input \
+    com.apple.security.device.camera \
+    com.apple.security.device.microphone; do
+    /usr/libexec/PlistBuddy -c "Add :$entitlement_key bool true" "$test_dir/reviewed-stock-entitlements.plist" >/dev/null
+done
 /usr/bin/plutil -create xml1 "$test_dir/expected-entitlements.plist"
 for entitlement_key in \
     com.apple.security.cs.disable-library-validation \
@@ -1187,34 +1227,34 @@ done
 /usr/libexec/PlistBuddy -c 'Add :com.apple.security.app-sandbox bool false' "$test_dir/expected-entitlements.plist" >/dev/null
 /bin/cp "$test_dir/expected-entitlements.plist" "$test_dir/signed-entitlements.plist"
 "$entitlement_verifier" \
-    "$test_dir/stock-entitlements.plist" \
+    "$test_dir/reviewed-stock-entitlements.plist" \
     "$test_dir/expected-entitlements.plist" \
     "$test_dir/signed-entitlements.plist" \
     "$allowlist" > "$test_dir/entitlement-verifier.txt"
 /bin/cp "$test_dir/expected-entitlements.plist" "$test_dir/missing-library-validation-entitlements.plist"
 /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.cs.disable-library-validation' "$test_dir/missing-library-validation-entitlements.plist" >/dev/null
-if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/missing-library-validation-entitlements.plist" "$test_dir/missing-library-validation-entitlements.plist" "$allowlist" > "$test_dir/missing-library-validation-verifier.txt" 2>&1; then
+if "$entitlement_verifier" "$test_dir/reviewed-stock-entitlements.plist" "$test_dir/missing-library-validation-entitlements.plist" "$test_dir/missing-library-validation-entitlements.plist" "$allowlist" > "$test_dir/missing-library-validation-verifier.txt" 2>&1; then
     fail "entitlement verifier accepted a missing required library-validation entitlement"
 fi
 /bin/cp "$test_dir/expected-entitlements.plist" "$test_dir/false-library-validation-entitlements.plist"
 /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.cs.disable-library-validation' "$test_dir/false-library-validation-entitlements.plist" >/dev/null
 /usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool false' "$test_dir/false-library-validation-entitlements.plist" >/dev/null
-if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/false-library-validation-entitlements.plist" "$test_dir/false-library-validation-entitlements.plist" "$allowlist" > "$test_dir/false-library-validation-verifier.txt" 2>&1; then
+if "$entitlement_verifier" "$test_dir/reviewed-stock-entitlements.plist" "$test_dir/false-library-validation-entitlements.plist" "$test_dir/false-library-validation-entitlements.plist" "$allowlist" > "$test_dir/false-library-validation-verifier.txt" 2>&1; then
     fail "entitlement verifier accepted com.apple.security.cs.disable-library-validation=false"
 fi
 /bin/cp "$test_dir/expected-entitlements.plist" "$test_dir/sandboxed-final-entitlements.plist"
 /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.app-sandbox' "$test_dir/sandboxed-final-entitlements.plist" >/dev/null
 /usr/libexec/PlistBuddy -c 'Add :com.apple.security.app-sandbox bool true' "$test_dir/sandboxed-final-entitlements.plist" >/dev/null
-if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/sandboxed-final-entitlements.plist" "$test_dir/sandboxed-final-entitlements.plist" "$allowlist" > "$test_dir/sandboxed-final-verifier.txt" 2>&1; then
+if "$entitlement_verifier" "$test_dir/reviewed-stock-entitlements.plist" "$test_dir/sandboxed-final-entitlements.plist" "$test_dir/sandboxed-final-entitlements.plist" "$allowlist" > "$test_dir/sandboxed-final-verifier.txt" 2>&1; then
     fail "entitlement verifier accepted app-sandbox=true as a final endpoint"
 fi
 /bin/cp "$test_dir/signed-entitlements.plist" "$test_dir/bad-signed-entitlements.plist"
 /usr/libexec/PlistBuddy -c 'Add :com.apple.security.get-task-allow bool true' "$test_dir/bad-signed-entitlements.plist" >/dev/null
-if "$entitlement_verifier" "$test_dir/stock-entitlements.plist" "$test_dir/expected-entitlements.plist" "$test_dir/bad-signed-entitlements.plist" "$allowlist" > "$test_dir/bad-entitlement-verifier.txt" 2>&1; then
+if "$entitlement_verifier" "$test_dir/reviewed-stock-entitlements.plist" "$test_dir/expected-entitlements.plist" "$test_dir/bad-signed-entitlements.plist" "$allowlist" > "$test_dir/bad-entitlement-verifier.txt" 2>&1; then
     fail "entitlement verifier accepted an unallowed entitlement"
 fi
 
-/bin/cp "$test_dir/stock-entitlements.plist" "$test_dir/legacy-sandboxed-entitlements.plist"
+/bin/cp "$test_dir/reviewed-stock-entitlements.plist" "$test_dir/legacy-sandboxed-entitlements.plist"
 for entitlement_key in \
     com.apple.application-identifier \
     com.apple.developer.aps-environment \
@@ -1230,8 +1270,8 @@ for entitlement_key in \
     /usr/libexec/PlistBuddy -c "Delete :$entitlement_key" "$test_dir/legacy-sandboxed-entitlements.plist" >/dev/null
 done
 /usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' "$test_dir/legacy-sandboxed-entitlements.plist" >/dev/null
-"$entitlement_verifier" --verify-legacy-migration-input "$test_dir/stock-entitlements.plist" "$test_dir/legacy-sandboxed-entitlements.plist" "$allowlist" > "$test_dir/legacy-entitlement-verifier.txt"
-if "$entitlement_verifier" --verify-legacy-migration-input "$test_dir/stock-entitlements.plist" "$test_dir/expected-entitlements.plist" "$allowlist" > "$test_dir/canonical-as-legacy-verifier.txt" 2>&1; then
+"$entitlement_verifier" --verify-legacy-migration-input "$test_dir/reviewed-stock-entitlements.plist" "$test_dir/legacy-sandboxed-entitlements.plist" "$allowlist" > "$test_dir/legacy-entitlement-verifier.txt"
+if "$entitlement_verifier" --verify-legacy-migration-input "$test_dir/reviewed-stock-entitlements.plist" "$test_dir/expected-entitlements.plist" "$allowlist" > "$test_dir/canonical-as-legacy-verifier.txt" 2>&1; then
     fail "legacy migration verifier accepted the canonical no-sandbox endpoint"
 fi
 
@@ -1243,12 +1283,12 @@ if [[ "$(<"$test_dir/swap-a/identity")" != "b" || "$(<"$test_dir/swap-b/identity
     fail "atomic swap helper did not exchange complete directories"
 fi
 
-stock_main_after="$(/usr/bin/shasum -a 256 "$source_executable" | /usr/bin/awk '{print $1}')"
-stock_info_after="$(/usr/bin/shasum -a 256 "$source_app/Contents/Info.plist" | /usr/bin/awk '{print $1}')"
-stock_onboarding_after="$(/usr/bin/shasum -a 256 "$source_onboarding_framework" | /usr/bin/awk '{print $1}')"
-stock_mas_receipt_after="$(/usr/bin/shasum -a 256 "$source_mas_receipt" | /usr/bin/awk '{print $1}')"
-if [[ "$stock_main_before" != "$stock_main_after" || "$stock_info_before" != "$stock_info_after" || "$stock_onboarding_before" != "$stock_onboarding_after" || "$stock_mas_receipt_before" != "$stock_mas_receipt_after" ]]; then
-    fail "offline tests changed a stock app, onboarding framework, or MAS receipt"
+reviewed_copied_main_after="$(/usr/bin/shasum -a 256 "$reviewed_copied_executable" | /usr/bin/awk '{print $1}')"
+reviewed_copied_info_after="$(/usr/bin/shasum -a 256 "$reviewed_copied_app/Contents/Info.plist" | /usr/bin/awk '{print $1}')"
+reviewed_copied_onboarding_after="$(/usr/bin/shasum -a 256 "$reviewed_copied_onboarding_framework" | /usr/bin/awk '{print $1}')"
+reviewed_copied_mas_receipt_after="$(/usr/bin/shasum -a 256 "$reviewed_copied_mas_receipt" | /usr/bin/awk '{print $1}')"
+if [[ "$reviewed_copied_main_before" != "$reviewed_copied_main_after" || "$reviewed_copied_info_before" != "$reviewed_copied_info_after" || "$reviewed_copied_onboarding_before" != "$reviewed_copied_onboarding_after" || "$reviewed_copied_mas_receipt_before" != "$reviewed_copied_mas_receipt_after" ]]; then
+    fail "offline tests changed the reviewed copied artifact or its pinned identity evidence"
 fi
 
 print -r -- "offline_tests=pass"

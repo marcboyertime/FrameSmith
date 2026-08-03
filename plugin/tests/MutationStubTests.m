@@ -24,6 +24,72 @@ int main(void) {
             }
         }
 
+#if defined(FCPCC_RUNTIME_TESTING)
+        if (require(FCPCCDisposableLibraryBootstrapTestEnvironmentIsExact(@"1")
+                    && !FCPCCDisposableLibraryBootstrapTestEnvironmentIsExact(@"0")
+                    && !FCPCCDisposableLibraryBootstrapTestEnvironmentIsExact(nil),
+                    @"disposable-library bootstrap environment gate was not exact")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableLibraryBootstrapTestActiveLibraryCountAllowsCreation(0)
+                    && !FCPCCDisposableLibraryBootstrapTestActiveLibraryCountAllowsCreation(1),
+                    @"disposable-library bootstrap active-library-count gate was not zero-only")) {
+            return 1;
+        }
+        NSString *bootstrapUnitRoot = [@"/Users/Shared"
+            stringByAppendingPathComponent:[NSString stringWithFormat:@"fcpcc-bootstrap-unit-%@", NSUUID.UUID.UUIDString]];
+        NSError *bootstrapUnitError = nil;
+        if (require([[NSFileManager defaultManager] createDirectoryAtPath:bootstrapUnitRoot
+                                               withIntermediateDirectories:YES
+                                                                attributes:nil
+                                                                     error:&bootstrapUnitError],
+                    @"could not create disposable-library bootstrap unit fixture")) {
+            return 1;
+        }
+        NSString *bootstrapTarget = [bootstrapUnitRoot stringByAppendingPathComponent:@"FCPCommandConsole Test.fcpbundle"];
+        NSString *bootstrapReason = nil;
+        if (require(FCPCCDisposableLibraryBootstrapTestValidateAbsentCanonicalTarget(bootstrapUnitRoot,
+                                                                                       bootstrapTarget,
+                                                                                       &bootstrapReason),
+                    @"absent canonical disposable-library target did not pass")) {
+            return 1;
+        }
+        if (require([[NSFileManager defaultManager] createDirectoryAtPath:bootstrapTarget
+                                               withIntermediateDirectories:NO
+                                                                attributes:nil
+                                                                     error:&bootstrapUnitError]
+                    && !FCPCCDisposableLibraryBootstrapTestValidateAbsentCanonicalTarget(bootstrapUnitRoot,
+                                                                                           bootstrapTarget,
+                                                                                           &bootstrapReason)
+                    && [bootstrapReason isEqualToString:@"bootstrap_target_already_exists"],
+                    @"existing disposable-library target did not fail closed")) {
+            return 1;
+        }
+        if (require([[NSFileManager defaultManager] removeItemAtPath:bootstrapTarget error:&bootstrapUnitError],
+                    @"could not remove disposable-library unit fixture target")) {
+            return 1;
+        }
+        NSString *realParent = [bootstrapUnitRoot stringByAppendingPathComponent:@"real-parent"];
+        NSString *symlinkParent = [bootstrapUnitRoot stringByAppendingPathComponent:@"symlink-parent"];
+        if (require([[NSFileManager defaultManager] createDirectoryAtPath:realParent
+                                               withIntermediateDirectories:NO
+                                                                attributes:nil
+                                                                     error:&bootstrapUnitError]
+                    && [[NSFileManager defaultManager] createSymbolicLinkAtPath:symlinkParent
+                                                              withDestinationPath:realParent
+                                                                            error:&bootstrapUnitError]
+                    && !FCPCCDisposableLibraryBootstrapTestValidateAbsentCanonicalTarget(symlinkParent,
+                                                                                           [symlinkParent stringByAppendingPathComponent:@"FCPCommandConsole Test.fcpbundle"],
+                                                                                           &bootstrapReason),
+                    @"symlinked disposable-library parent did not fail closed")) {
+            return 1;
+        }
+        if (require([[NSFileManager defaultManager] removeItemAtPath:bootstrapUnitRoot error:&bootstrapUnitError],
+                    @"could not remove disposable-library bootstrap unit fixture")) {
+            return 1;
+        }
+#endif
+
         NSString *canonicalLibraryPath = @"/private/tmp/fcpcc-read-only-unit-library.fcpbundle";
         FCPCCLibraryManifestRecord *manifest = [[FCPCCLibraryManifestRecord alloc]
             initWithCanonicalPath:canonicalLibraryPath

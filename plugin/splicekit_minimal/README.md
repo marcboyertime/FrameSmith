@@ -6,6 +6,19 @@ fixed AppKit panel shell included in this directory.
 
 The framework is intentionally not a proof of Final Cut behavior. It installs a
 native menu item and disabled panel shell only after its host containment check.
+
+Schema 10 adds one separately gated disposable-library bootstrap, not a general
+library manager. It can run only from the isolated launcher’s
+`--launch-bootstrap-disposable-library` mode, which supplies the exact one-shot
+environment flag. After `NSApplicationDidFinishLaunchingNotification`, the
+runtime requires the reviewed copied host, exact canonical absent target, no
+active libraries, no symlink components, and the pinned `FFLibraryDocument`
+initializer ABI before creating the one default-event library. It registers and
+presents that document only through public `NSDocument` APIs, immediately
+requires its exact path/device/inode/persistent-UID provenance, and records one
+exclusive-create JSON result. It never removes, overwrites, retries, discovers
+another library, invokes FCPXML, or automates the UI; a failed or partial create
+is retained as evidence.
 Workflow 1 has one typed native adapter for `native.targeted_rotate_zoom`.
 Its fixed Final Cut 12.3 contract records only the inspected selection
 reacquisition, represented-tool/video-effect-stack/xform path, transform
