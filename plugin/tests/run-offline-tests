@@ -12,6 +12,22 @@ runtime_implementation="$runtime_source/FCPCommandConsoleRuntime.m"
 runtime_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime"
 runtime_policy_source="$plugin_dir/splicekit_minimal/Resources/FCPCCOnboardingQueryCompatibility.plist"
 runtime_policy_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
+planner_bridge_source="$runtime_source/FCPCCPlannerHelperBridge.m"
+planner_bridge_header="$runtime_source/FCPCCPlannerHelperBridge.h"
+planner_builder="$plugin_dir/scripts/build-planner-helper"
+planner_payload_source="$plugin_dir/build/planner-helper/payload"
+planner_payload_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/Resources/PlannerHelperPayload"
+planner_helper_name="fcpcommandconsole-planner-helper"
+planner_bundle_name="FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle"
+planner_manifest_name="planner-helper-manifest.json"
+planner_team_identifier="KDV9RC892F"
+planner_immutable_resources=(
+    "Resources/registry/effects/look.old_television.json"
+    "Resources/registry/effects/motion.living_still.json"
+    "Resources/registry/effects/native.targeted_rotate_zoom.json"
+    "Resources/registry/effects/transition.natural_dissolve.json"
+    "Resources/schemas/effect-plan.schema.json"
+)
 cloud_first_launch_encoding_probe_source="$plugin_dir/tests/CloudFirstLaunchEncodingProbe.m"
 retired_runtime_policy_source="$plugin_dir/splicekit_minimal/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
 retired_runtime_policy_build="$plugin_dir/build/FCPCommandConsoleRuntime.framework/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
@@ -61,11 +77,45 @@ require_fragment() {
     fi
 }
 
-if [[ ! -x "$injector" || ! -x "$entitlement_verifier" || ! -f "$runtime_build" || ! -f "$runtime_policy_source" || ! -f "$runtime_policy_build" ]]; then
+verify_planner_helper_payload() {
+    local payload_root="$1"
+    local helper="$payload_root/$planner_helper_name" bundle="$payload_root/$planner_bundle_name" manifest="$payload_root/$planner_manifest_name"
+    local actual_entries expected_entries relative path expected_hash actual_hash metadata
+    [[ -d "$payload_root" && ! -L "$payload_root" && -f "$helper" && ! -L "$helper" && -d "$bundle" && ! -L "$bundle" && -f "$manifest" && ! -L "$manifest" ]] || fail "planner-helper payload is incomplete: $payload_root"
+    actual_entries="$(/usr/bin/find "$payload_root" -mindepth 1 -maxdepth 1 -print | /usr/bin/sed "s|^$payload_root/||" | /usr/bin/sort)"
+    expected_entries="$(printf '%s\n' "$planner_helper_name" "$planner_bundle_name" "$planner_manifest_name" | /usr/bin/sort)"
+    [[ "$actual_entries" == "$expected_entries" ]] || fail "planner-helper payload root contains an unexpected entry: $payload_root"
+    /usr/bin/lipo "$helper" -verify_arch arm64 >/dev/null 2>&1 || fail "planner-helper is not arm64: $payload_root"
+    [[ "$(/usr/bin/lipo -archs "$helper")" == "arm64" ]] || fail "planner-helper contains an unexpected architecture: $payload_root"
+    /usr/bin/codesign --strict --verify "$helper" >/dev/null || fail "planner-helper signature is invalid: $payload_root"
+    metadata="$test_dir/planner-helper-codesign-metadata.txt"
+    /usr/bin/codesign -dvvv "$helper" > /dev/null 2> "$metadata" || fail "planner-helper signature metadata is unavailable"
+    /usr/bin/grep -E -q '^Authority=Apple Development:.+$' "$metadata" || fail "planner-helper is not Apple Development signed"
+    /usr/bin/grep -E -q "^TeamIdentifier=$planner_team_identifier$" "$metadata" || fail "planner-helper signing team is not the reviewed product team"
+    if /usr/bin/grep -E -q '^Signature=adhoc$|flags=.*adhoc' "$metadata"; then
+        fail "planner-helper has an ad-hoc signature"
+    fi
+    /usr/bin/jq -e --arg product "$planner_helper_name" --arg bundle "$planner_bundle_name" --arg team "$planner_team_identifier" '.schema_version == 1 and .product == $product and .configuration == "release" and .architecture == "arm64" and .executable.relative_path == $product and .executable.team_identifier == $team and .executable.architectures == ["arm64"] and .resource_bundle.relative_path == $bundle and (.resource_bundle.resources | length == 5)' "$manifest" >/dev/null || fail "planner-helper manifest identity is not exact"
+    for relative in "${planner_immutable_resources[@]}"; do
+        path="$bundle/$relative"
+        [[ -f "$path" && ! -L "$path" ]] || fail "planner-helper immutable resource is missing: $relative"
+        expected_hash="$(/usr/bin/jq -er --arg path "$relative" '.resource_bundle.resources[] | select(.relative_path == $path) | .sha256' "$manifest")" || fail "planner-helper manifest omits an immutable resource: $relative"
+        actual_hash="$(/usr/bin/shasum -a 256 "$path" | /usr/bin/awk '{print $1}')"
+        [[ "$expected_hash" == "$actual_hash" ]] || fail "planner-helper immutable resource hash differs from manifest: $relative"
+    done
+}
+
+if [[ ! -x "$injector" || ! -x "$entitlement_verifier" || ! -f "$runtime_build" || ! -f "$runtime_policy_source" || ! -f "$runtime_policy_build" || ! -x "$planner_builder" || ! -f "$planner_bridge_source" || ! -f "$planner_bridge_header" || ! -x "$planner_payload_source/$planner_helper_name" || ! -d "$planner_payload_source/$planner_bundle_name" || ! -f "$planner_payload_source/$planner_manifest_name" || ! -x "$planner_payload_build/$planner_helper_name" || ! -d "$planner_payload_build/$planner_bundle_name" || ! -f "$planner_payload_build/$planner_manifest_name" ]]; then
     fail "run plugin/scripts/build-minimal-runtime successfully before tests"
 fi
 if [[ -z "$rg_bin" ]]; then
     fail "rg is required for source audits"
+fi
+if /usr/bin/strings "$runtime_build" | "$rg_bin" -F -q 'initForTestingWithPayloadRootURL:'; then
+    fail "production runtime exposes the testing-only planner payload-root initializer"
+fi
+if /usr/bin/strings "$runtime_build" | "$rg_bin" -F -q 'initWithPayloadRootURL:'; then
+    fail "production runtime exposes a caller-supplied planner payload-root initializer"
 fi
 if [[ ! -d "$reviewed_copied_app" || ! -f "$reviewed_copied_executable" || ! -f "$reviewed_copied_onboarding_framework" || ! -f "$reviewed_copied_flexo_framework" || ! -f "$reviewed_copied_mas_receipt" ]]; then
     fail "reviewed copied FCP 12.3 artifact or its pinned framework is missing"
@@ -73,6 +123,9 @@ fi
 if [[ ! -f "$cloud_first_launch_encoding_probe_source" ]]; then
     fail "Cloud first-launch encoding regression probe is missing"
 fi
+"$planner_builder" --verify-existing >/dev/null
+verify_planner_helper_payload "$planner_payload_source"
+verify_planner_helper_payload "$planner_payload_build"
 
 # The automatic Cloud Content first-launch route is pinned from the exact
 # reviewed copied Final Cut Pro 12.3 executable. These are static inspections
@@ -217,6 +270,39 @@ for forbidden in \
     # legacy audit's file set.
     require_absent "$forbidden" "$runtime_implementation"
     require_absent "$forbidden" "$runtime_header"
+done
+
+planner_nstask_files="$test_dir/planner-nstask-files.txt"
+if "$rg_bin" -l -F 'NSTask' "$runtime_source" --glob '*.[mh]' > "$planner_nstask_files"; then
+    while IFS= read -r nstask_file; do
+        [[ "$nstask_file" == "$planner_bridge_source" ]] || fail "NSTask is permitted only in the exact planner-helper bridge source: $nstask_file"
+    done < "$planner_nstask_files"
+else
+    fail "planner-helper bridge NSTask source is missing"
+fi
+for forbidden_planner_surface in \
+    'system(' 'popen(' 'posix_spawn' '/bin/sh' '/bin/bash' '/usr/bin/env' \
+    'NSURLSession' 'CFNetwork' 'CFSocket' 'socket(' 'bind(' 'listen(' 'accept(' \
+    'NSAppleScript' 'osascript' 'FCPXML' 'Accessibility' 'CGEvent'; do
+    if "$rg_bin" -n -F -- "$forbidden_planner_surface" "$planner_bridge_source" >/dev/null; then
+        fail "planner-helper bridge exposes a forbidden shell, network, or UI surface: $forbidden_planner_surface"
+    fi
+done
+for required_planner_bridge_fragment in \
+    'NSTask' \
+    'executableURL' \
+    'bundleForClass:[FCPCCPlannerHelperBridge class]' \
+    'Versions/A/Resources/PlannerHelperPayload' \
+    'FCPCCPlannerHelperTeamIdentifier' \
+    'KDV9RC892F' \
+    'FCPCCPlannerHelperBridgeErrorMainThreadInvocationRejected' \
+    'FCPCCPlannerHelperBridgeErrorInputOversized' \
+    'FCPCCPlannerHelperBridgeErrorOutputOversized' \
+    'FCPCCPlannerHelperBridgeErrorTimeout' \
+    'FCPCCPlannerHelperBridgeErrorCancelled' \
+    'FCPCCPlannerHelperImmutableResources' \
+    'FCPCCPlannerHelperMaximumTimeout'; do
+    require_fragment "$required_planner_bridge_fragment" "$planner_bridge_source" "planner-helper bridge source"
 done
 
 for required_identifier in \
@@ -608,7 +694,7 @@ if [[ -e "$retired_runtime_policy_source" || -e "$retired_runtime_policy_build" 
     fail "retired isolated preference policy remains present"
 fi
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "13" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "14" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
         fail "compatibility policy copied-host, receipt, or onboarding identity is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor_main_thread_immediate_attempt" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "application_will_finish_launching_availability_retry" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "2" ]]; then
@@ -656,6 +742,17 @@ done
 if ! /usr/bin/cmp -s "$runtime_policy_source" "$runtime_policy_build"; then
     fail "built compatibility policy differs from the project-owned source policy"
 fi
+for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ExecutionEnabled' "$policy_path")" == "true" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:PanelBindingEnabled' "$policy_path")" == "false" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:FixedRelativePayloadRoot' "$policy_path")" == "Versions/A/Resources/PlannerHelperPayload" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ExecutableName' "$policy_path")" == "$planner_helper_name" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ResourceBundleName' "$policy_path")" == "$planner_bundle_name" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ManifestName' "$policy_path")" == "$planner_manifest_name" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:Architecture' "$policy_path")" == "arm64" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:SignatureRequirement' "$policy_path")" == "Apple Development" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:TeamIdentifier' "$policy_path")" == "$planner_team_identifier" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MainThreadInvocationRejected' "$policy_path")" == "true" ]] || fail "planner-helper bridge identity or execution policy is not exact"
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ManifestMaximumBytes' "$policy_path")" == "65536" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:InputMaximumBytes' "$policy_path")" == "262144" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:OutputMaximumBytes' "$policy_path")" == "524288" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:StderrMaximumBytes' "$policy_path")" == "65536" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MaximumBundleBytes' "$policy_path")" == "100000000" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MaximumResourceBytes' "$policy_path")" == "10000000" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:DefaultTimeoutSeconds' "$policy_path")" == "5" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MaximumTimeoutSeconds' "$policy_path")" == "60" ]] || fail "planner-helper bridge bounds are not exact"
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoShell' "$policy_path")" == "true" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoNetwork' "$policy_path")" == "true" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoCallerExecutable' "$policy_path")" == "true" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoCallerPayloadRoot' "$policy_path")" == "true" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:AllowedProcessAPI' "$policy_path")" == "NSTask" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:AllowedNSTaskSource' "$policy_path")" == "FCPCCPlannerHelperBridge.m" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:Protocol' "$policy_path")" == "single_utf8_json_line_request_single_utf8_json_line_response" ]] || fail "planner-helper bridge process or protocol policy is not exact"
+    for (( index = 0; index < ${#planner_immutable_resources[@]}; index++ )); do
+        [[ "$(/usr/libexec/PlistBuddy -c "Print :PlannerHelperBridge:ImmutableResources:$index" "$policy_path")" == "${planner_immutable_resources[$((index + 1))]}" ]] || fail "planner-helper immutable resource order is not exact"
+    done
+    if /usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ImmutableResources:5' "$policy_path" >/dev/null 2>&1; then
+        fail "planner-helper bridge permits an unexpected immutable resource"
+    fi
+done
 
 project_bootstrap_source="$(/usr/bin/sed -n '/^typedef NS_ENUM(NSUInteger, FCPCCDisposableProjectBootstrapState)/,/^#if defined(FCPCC_RUNTIME_TESTING)/p' "$runtime_implementation")"
 require_fragment 'FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT' "$runtime_implementation" "disposable project bootstrap environment gate"
@@ -885,7 +982,7 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
     current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$patcher_script")"
     for required_current_policy_fragment in \
         'Print :SchemaVersion' \
-        '" != "13"' \
+        '" != "14"' \
         'ExpectedHostBundleIdentifier' \
         'ExpectedCopiedHostBundlePath' \
         'ExpectedHostVersion' \
@@ -921,14 +1018,14 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         'immediate_noop_return_without_completion_access' \
         'ApprovedMethodReplacements:2'; do
         if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q "$required_current_policy_fragment"; then
-            fail "patcher current Schema-13 policy contract is missing: $required_current_policy_fragment"
+            fail "patcher current Schema-14 policy contract is missing: $required_current_policy_fragment"
         fi
     done
     if print -r -- "$current_policy_source" | "$rg_bin" -F -q 'discard_query_block_noop'; then
-        fail "patcher current Schema-13 policy retains the retired query-discard contract"
+        fail "patcher current Schema-14 policy retains the retired query-discard contract"
     fi
     if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q 'invalid Cloud nested-block argument-count condition'; then
-        fail "patcher current Schema-13 policy does not reject a restored Cloud nested-block argument-count condition"
+        fail "patcher current Schema-14 policy does not reject a restored Cloud nested-block argument-count condition"
     fi
     project_policy_source="$(/usr/bin/sed -n '/^verify_disposable_project_bootstrap_policy()/,/^}/p' "$patcher_script")"
     for required_project_policy_fragment in \
@@ -973,6 +1070,26 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         'KnownFailedLiveProvenancePath' \
         'exactly_one_open_library_required'; do
         require_fragment "$required_public_open_policy_fragment" "$patcher_script" "Schema-13 public library-open and active-session policy"
+    done
+    for required_planner_boundary_fragment in \
+        'verify_planner_helper_policy' \
+        'verify_planner_helper_payload' \
+        'PlannerHelperBridge:FixedRelativePayloadRoot' \
+        'Versions/A/Resources/PlannerHelperPayload' \
+        'fcpcommandconsole-planner-helper' \
+        'FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle' \
+        'planner-helper-manifest.json' \
+        'Apple Development' \
+        'ImmutableResources' \
+        'FCPCCPlannerHelperBridge.m' \
+        'NSTask' \
+        'NoShell' \
+        'NoNetwork' \
+        'NoCallerExecutable' \
+        'NoCallerPayloadRoot' \
+        'TeamIdentifier' \
+        'KDV9RC892F'; do
+        require_fragment "$required_planner_boundary_fragment" "$patcher_script" "planner-helper fixed resource boundary"
     done
 done
 require_fragment 'expected_copied_host_bundle_path="$live_copied_app"' "$runtime_updater" "transactional updater exact live path"
@@ -1061,6 +1178,34 @@ schema12_branch_line="$("$rg_bin" -n -F -- 'if [[ "$current_policy_schema" == "1
 schema11_branch_line="$("$rg_bin" -n -F -- 'elif [[ "$current_policy_schema" == "11" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
 if [[ -z "$schema12_branch_line" || -z "$schema11_branch_line" || "$schema12_branch_line" -ge "$schema11_branch_line" ]]; then
     fail "Schema-12 exact provenance admission must precede the retained Schema-11 route"
+fi
+for exact_schema13_provenance_fragment in \
+    'expected_schema13_runtime_sha256="a8913e32ed3b8976375a63d25f122e8fd3ce248cbe0c86eff0217e6b9a43298f"' \
+    'expected_schema13_policy_sha256="58770af4327f3d92b5ca64af7344c7759d1d469aa52686c1ef0b1669cac3508e"' \
+    'expected_schema13_copied_cdhash_full="471359233f5b49049b40659e83d3e63292619b935f2e1de56096d5c51b5dc77b"' \
+    'expected_schema13_source_provenance="/Users/marcboyer/Movies/FCPCommandConsole/provenance/patch-20260803T034526Z-update-runtime-9564"' \
+    'verify_exact_schema13_preupdate_policy' \
+    'verify_exact_schema13_complete_update_provenance' \
+    'schema13-preupdate-provenance.txt' \
+    'exact_schema13_complete_update_provenance' \
+    'if [[ "$current_policy_schema" == "13" ]]'; do
+    require_fragment "$exact_schema13_provenance_fragment" "$runtime_updater" "exact Schema-13 to Schema-14 update admission"
+done
+schema13_preupdate_policy_source="$(/usr/bin/sed -n '/^verify_exact_schema13_preupdate_policy()/,/^}/p' "$runtime_updater")"
+for required_schema13_preupdate_policy_fragment in \
+    'Print :SchemaVersion' \
+    '" != "13"' \
+    'expected_schema13_policy_sha256' \
+    'expected_schema13_runtime_sha256' \
+    'PlannerHelperBridge' \
+    'Schema-14 planner-helper bridge policy'; do
+    if ! print -r -- "$schema13_preupdate_policy_source" | "$rg_bin" -F -q -- "$required_schema13_preupdate_policy_fragment"; then
+        fail "exact Schema-13 pre-update policy gate is missing: $required_schema13_preupdate_policy_fragment"
+    fi
+done
+schema13_branch_line="$("$rg_bin" -n -F -- 'if [[ "$current_policy_schema" == "13" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+if [[ -z "$schema13_branch_line" || -z "$schema12_branch_line" || "$schema13_branch_line" -ge "$schema12_branch_line" ]]; then
+    fail "Schema-13 exact provenance admission must precede the retained Schema-12 route"
 fi
 
 updater_current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$runtime_updater")"

@@ -11,6 +11,8 @@ build_dir="$plugin_dir/build"
 runtime_dir="$plugin_dir/splicekit_minimal"
 tool_dir="$plugin_dir/tools/fcpcc-insert-dylib"
 patcher_dir="$plugin_dir/patcher"
+planner_builder="$plugin_dir/scripts/build-planner-helper"
+planner_payload_root="$plugin_dir/build/planner-helper/payload"
 framework_dir="$build_dir/FCPCommandConsoleRuntime.framework"
 runtime_binary="$framework_dir/Versions/A/FCPCommandConsoleRuntime"
 injector_binary="$build_dir/fcpcc-insert-dylib"
@@ -20,6 +22,18 @@ compatibility_policy_name="FCPCCOnboardingQueryCompatibility.plist"
 runtime_policy_source="$runtime_dir/Resources/$compatibility_policy_name"
 runtime_policy_build="$framework_dir/Versions/A/Resources/$compatibility_policy_name"
 retired_runtime_policy_build="$framework_dir/Versions/A/Resources/FCPCCIsolatedCloudContentCompatibility.plist"
+planner_payload_build="$framework_dir/Versions/A/Resources/PlannerHelperPayload"
+planner_helper_name="fcpcommandconsole-planner-helper"
+planner_bundle_name="FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle"
+planner_manifest_name="planner-helper-manifest.json"
+planner_team_identifier="KDV9RC892F"
+planner_immutable_resources=(
+  "Resources/registry/effects/look.old_television.json"
+  "Resources/registry/effects/motion.living_still.json"
+  "Resources/registry/effects/native.targeted_rotate_zoom.json"
+  "Resources/registry/effects/transition.natural_dissolve.json"
+  "Resources/schemas/effect-plan.schema.json"
+)
 
 fail() {
   print -u2 -r -- "build-minimal-runtime: $1"
@@ -51,10 +65,66 @@ verify_disposable_project_bootstrap_policy() {
   fi
 }
 
+verify_planner_helper_policy() {
+  local policy_path="$1"
+  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ExecutionEnabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:PanelBindingEnabled' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:FixedRelativePayloadRoot' "$policy_path")" != "Versions/A/Resources/PlannerHelperPayload" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ExecutableName' "$policy_path")" != "$planner_helper_name" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ResourceBundleName' "$policy_path")" != "$planner_bundle_name" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ManifestName' "$policy_path")" != "$planner_manifest_name" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:Architecture' "$policy_path")" != "arm64" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:SignatureRequirement' "$policy_path")" != "Apple Development" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:TeamIdentifier' "$policy_path")" != "$planner_team_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MainThreadInvocationRejected' "$policy_path")" != "true" ]]; then
+    fail "planner-helper bridge identity, execution, or thread policy is not exact"
+  fi
+  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ManifestMaximumBytes' "$policy_path")" != "65536" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:InputMaximumBytes' "$policy_path")" != "262144" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:OutputMaximumBytes' "$policy_path")" != "524288" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:StderrMaximumBytes' "$policy_path")" != "65536" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MaximumBundleBytes' "$policy_path")" != "100000000" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MaximumResourceBytes' "$policy_path")" != "10000000" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:DefaultTimeoutSeconds' "$policy_path")" != "5" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MaximumTimeoutSeconds' "$policy_path")" != "60" ]]; then
+    fail "planner-helper bridge byte, bundle, resource, or timeout bounds are not exact"
+  fi
+  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoShell' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoNetwork' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoCallerExecutable' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoCallerPayloadRoot' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:AllowedProcessAPI' "$policy_path")" != "NSTask" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:AllowedNSTaskSource' "$policy_path")" != "FCPCCPlannerHelperBridge.m" || "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:Protocol' "$policy_path")" != "single_utf8_json_line_request_single_utf8_json_line_response" ]]; then
+    fail "planner-helper bridge process and protocol policy is not exact"
+  fi
+  local index expected actual
+  for (( index = 0; index < ${#planner_immutable_resources[@]}; index++ )); do
+    expected="${planner_immutable_resources[$((index + 1))]}"
+    actual="$(/usr/libexec/PlistBuddy -c "Print :PlannerHelperBridge:ImmutableResources:$index" "$policy_path")"
+    [[ "$actual" == "$expected" ]] || fail "planner-helper bridge immutable resource order is not exact"
+  done
+  if /usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ImmutableResources:5' "$policy_path" >/dev/null 2>&1; then
+    fail "planner-helper bridge permits an unexpected immutable resource"
+  fi
+}
+
+verify_planner_helper_payload() {
+  local payload_root="$1"
+  local helper="$payload_root/$planner_helper_name"
+  local bundle="$payload_root/$planner_bundle_name"
+  local manifest="$payload_root/$planner_manifest_name"
+  [[ -x "$planner_builder" ]] || fail "planner-helper builder is missing or not executable"
+  [[ -d "$payload_root" && ! -L "$payload_root" && -f "$helper" && ! -L "$helper" && -d "$bundle" && ! -L "$bundle" && -f "$manifest" && ! -L "$manifest" ]] || fail "planner-helper payload root is incomplete"
+  local entries actual_entries expected_entries
+  actual_entries="$(/usr/bin/find "$payload_root" -mindepth 1 -maxdepth 1 -print | /usr/bin/sed "s|^$payload_root/||" | /usr/bin/sort)"
+  expected_entries="$(printf '%s\n' "$planner_helper_name" "$planner_bundle_name" "$planner_manifest_name" | /usr/bin/sort)"
+  [[ "$actual_entries" == "$expected_entries" ]] || fail "planner-helper payload root contains an unexpected entry"
+  /usr/bin/lipo "$helper" -verify_arch arm64 >/dev/null 2>&1 || fail "planner-helper executable is not arm64"
+  [[ "$(/usr/bin/lipo -archs "$helper")" == "arm64" ]] || fail "planner-helper executable contains an unexpected architecture"
+  /usr/bin/codesign --strict --verify "$helper" >/dev/null || fail "planner-helper executable signature is invalid"
+  local metadata="$build_dir/planner-helper-codesign-metadata.txt"
+  /usr/bin/codesign -dvvv "$helper" > /dev/null 2> "$metadata" || fail "planner-helper executable signature metadata is unavailable"
+  /usr/bin/grep -E -q '^Authority=Apple Development:.+$' "$metadata" || fail "planner-helper executable is not Apple Development signed"
+  /usr/bin/grep -E -q "^TeamIdentifier=$planner_team_identifier$" "$metadata" || fail "planner-helper executable signing team is not the reviewed product team"
+  if /usr/bin/grep -E -q '^Signature=adhoc$|flags=.*adhoc' "$metadata"; then
+    fail "planner-helper executable has an ad-hoc signature"
+  fi
+  /usr/bin/jq -e --arg product "$planner_helper_name" --arg bundle "$planner_bundle_name" --arg team "$planner_team_identifier" --argjson resources "$(printf '%s\n' "${planner_immutable_resources[@]}" | /usr/bin/jq -R . | /usr/bin/jq -s .)" '
+    type == "object" and .schema_version == 1 and .product == $product and .configuration == "release" and .architecture == "arm64" and
+    (.executable | type == "object" and .relative_path == $product and .team_identifier == $team and (.architectures == ["arm64"])) and
+    (.resource_bundle | type == "object" and .relative_path == $bundle and .signed == false and (.resources | type == "array" and length == 5 and map(.relative_path) == $resources))
+  ' "$manifest" >/dev/null || fail "planner-helper manifest identity or immutable resource set is not exact"
+  local relative expected_hash actual_hash
+  for relative in "${planner_immutable_resources[@]}"; do
+    expected_hash="$(/usr/bin/jq -er --arg path "$relative" '.resource_bundle.resources[] | select(.relative_path == $path) | .sha256' "$manifest")" || fail "planner-helper manifest omitted an immutable resource"
+    actual_hash="$(/usr/bin/shasum -a 256 "$bundle/$relative" | /usr/bin/awk '{print $1}')"
+    [[ "$expected_hash" == "$actual_hash" ]] || fail "planner-helper immutable resource hash differs from manifest"
+  done
+}
+
 verify_compatibility_policy() {
   local policy_path="$1"
   /usr/bin/plutil -lint "$policy_path" >/dev/null || fail "compatibility policy is invalid"
-  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "13" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "Contents/_MASReceipt/receipt" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7" ]]; then
+  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "14" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "Contents/_MASReceipt/receipt" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "Contents/Frameworks/ProOnboardingFlowModelOne.framework/Versions/A/ProOnboardingFlowModelOne" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "636cc140036217ab1f39d998ac53faaf2dd8682c091f3c041dbde594d1f2dfce" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "45D8AC9D-D544-3CD1-90DB-532DFAAA0E0D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7" ]]; then
     fail "compatibility policy copied-host, receipt, or onboarding identity is not exact"
   fi
   if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor_main_thread_immediate_attempt" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "application_will_finish_launching_availability_retry" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "2" ]]; then
@@ -98,10 +168,16 @@ verify_compatibility_policy() {
   if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:2' "$policy_path" >/dev/null 2>&1; then
     fail "compatibility policy permits an extra method replacement"
   fi
+  verify_planner_helper_policy "$policy_path"
 }
 
 /bin/mkdir -p "$build_dir"
 /bin/mkdir -p "$framework_dir/Versions/A/Resources"
+
+[[ -x "$planner_builder" ]] || fail "planner-helper builder is missing or not executable"
+"$planner_builder" --build >/dev/null
+"$planner_builder" --verify-existing >/dev/null
+verify_planner_helper_payload "$planner_payload_root"
 
 /usr/bin/clang \
   -arch arm64 \
@@ -117,9 +193,12 @@ verify_compatibility_policy() {
   -Werror=unguarded-availability-new \
   -Wl,-fatal_warnings \
   -framework Cocoa \
+  -framework Security \
+  -framework CoreFoundation \
   -install_name @rpath/FCPCommandConsoleRuntime.framework/Versions/A/FCPCommandConsoleRuntime \
   -I "$runtime_dir/Sources" \
   "$runtime_dir/Sources/FCPCommandConsoleRuntime.m" \
+  "$runtime_dir/Sources/FCPCCPlannerHelperBridge.m" \
   -o "$runtime_binary"
 
 /bin/cp "$runtime_dir/Resources/FCPCommandConsoleRuntime-Info.plist" "$framework_dir/Versions/A/Resources/Info.plist"
@@ -127,6 +206,13 @@ verify_compatibility_policy() {
 /bin/cp "$runtime_dir/Resources/LATER_INTEGRATION_INTERFACE.json" "$framework_dir/Versions/A/Resources/LATER_INTEGRATION_INTERFACE.json"
 /bin/cp "$runtime_policy_source" "$runtime_policy_build"
 /bin/rm -f "$retired_runtime_policy_build"
+/bin/rm -rf -- "$planner_payload_build"
+/bin/mkdir -p "$planner_payload_build"
+/bin/cp -p "$planner_payload_root/$planner_helper_name" "$planner_payload_build/$planner_helper_name"
+/bin/cp -R -p "$planner_payload_root/$planner_bundle_name" "$planner_payload_build/$planner_bundle_name"
+/bin/cp -p "$planner_payload_root/$planner_manifest_name" "$planner_payload_build/$planner_manifest_name"
+verify_planner_helper_payload "$planner_payload_build"
+verify_planner_helper_policy "$runtime_policy_build"
 /bin/ln -sfn A "$framework_dir/Versions/Current"
 /bin/ln -sfn Versions/Current/FCPCommandConsoleRuntime "$framework_dir/FCPCommandConsoleRuntime"
 /bin/ln -sfn Versions/Current/Resources "$framework_dir/Resources"

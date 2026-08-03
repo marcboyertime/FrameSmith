@@ -14,6 +14,18 @@ copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"
 runtime_framework="$copied_app/Contents/Frameworks/FCPCommandConsoleRuntime.framework"
 runtime_binary="$runtime_framework/Versions/A/FCPCommandConsoleRuntime"
 runtime_policy="$runtime_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
+planner_payload_root="$runtime_framework/Versions/A/Resources/PlannerHelperPayload"
+planner_helper="$planner_payload_root/fcpcommandconsole-planner-helper"
+planner_bundle="$planner_payload_root/FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle"
+planner_manifest="$planner_payload_root/planner-helper-manifest.json"
+planner_team_identifier="KDV9RC892F"
+planner_immutable_resources=(
+    "Resources/registry/effects/look.old_television.json"
+    "Resources/registry/effects/motion.living_still.json"
+    "Resources/registry/effects/native.targeted_rotate_zoom.json"
+    "Resources/registry/effects/transition.natural_dissolve.json"
+    "Resources/schemas/effect-plan.schema.json"
+)
 entitlement_verifier="$repo_dir/plugin/build/fcpcc-entitlement-verify"
 runtime_root="/Users/marcboyer/Movies/FCPCommandConsole"
 allowed_library="$runtime_root/FCPCommandConsole Test.fcpbundle"
@@ -79,6 +91,68 @@ verify_disposable_project_bootstrap_policy() {
     fi
 }
 
+verify_planner_helper_policy() {
+    [[ "$(plist_value "$runtime_policy" 'PlannerHelperBridge:ExecutionEnabled')" == "true" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:PanelBindingEnabled')" == "false" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:FixedRelativePayloadRoot')" == "Versions/A/Resources/PlannerHelperPayload" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:ExecutableName')" == "fcpcommandconsole-planner-helper" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:ResourceBundleName')" == "FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:ManifestName')" == "planner-helper-manifest.json" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:Architecture')" == "arm64" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:SignatureRequirement')" == "Apple Development" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:TeamIdentifier')" == "$planner_team_identifier" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:MainThreadInvocationRejected')" == "true" ]] || fail "embedded planner-helper bridge identity, execution, or thread policy is not reviewed"
+    [[ "$(plist_value "$runtime_policy" 'PlannerHelperBridge:ManifestMaximumBytes')" == "65536" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:InputMaximumBytes')" == "262144" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:OutputMaximumBytes')" == "524288" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:StderrMaximumBytes')" == "65536" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:MaximumBundleBytes')" == "100000000" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:MaximumResourceBytes')" == "10000000" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:DefaultTimeoutSeconds')" == "5" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:MaximumTimeoutSeconds')" == "60" ]] || fail "embedded planner-helper bridge byte, bundle, resource, or timeout bounds are not reviewed"
+    [[ "$(plist_value "$runtime_policy" 'PlannerHelperBridge:NoShell')" == "true" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:NoNetwork')" == "true" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:NoCallerExecutable')" == "true" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:NoCallerPayloadRoot')" == "true" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:AllowedProcessAPI')" == "NSTask" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:AllowedNSTaskSource')" == "FCPCCPlannerHelperBridge.m" && "$(plist_value "$runtime_policy" 'PlannerHelperBridge:Protocol')" == "single_utf8_json_line_request_single_utf8_json_line_response" ]] || fail "embedded planner-helper bridge process and protocol policy is not reviewed"
+    local index expected
+    for (( index = 0; index < ${#planner_immutable_resources[@]}; index++ )); do
+        expected="${planner_immutable_resources[$((index + 1))]}"
+        [[ "$(plist_value "$runtime_policy" "PlannerHelperBridge:ImmutableResources:$index")" == "$expected" ]] || fail "embedded planner-helper immutable resource order is not reviewed"
+    done
+    if /usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ImmutableResources:5' "$runtime_policy" >/dev/null 2>&1; then
+        fail "embedded planner-helper policy permits an unreviewed immutable resource"
+    fi
+}
+
+verify_planner_helper_payload() {
+    require_exact_directory "$planner_payload_root" "embedded planner-helper payload root"
+    require_exact_regular_file "$planner_helper" "embedded planner-helper executable"
+    require_exact_directory "$planner_bundle" "embedded planner-helper resource bundle"
+    require_exact_regular_file "$planner_manifest" "embedded planner-helper manifest"
+    local actual_entries expected_entries
+    actual_entries="$(/usr/bin/find "$planner_payload_root" -mindepth 1 -maxdepth 1 -print | /usr/bin/sed "s|^$planner_payload_root/||" | /usr/bin/sort)"
+    expected_entries="$(printf '%s\n' fcpcommandconsole-planner-helper FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle planner-helper-manifest.json | /usr/bin/sort)"
+    [[ "$actual_entries" == "$expected_entries" ]] || fail "embedded planner-helper payload root contains an unexpected entry"
+    /usr/bin/lipo "$planner_helper" -verify_arch arm64 >/dev/null 2>&1 || fail "embedded planner-helper executable is not arm64"
+    [[ "$(/usr/bin/lipo -archs "$planner_helper")" == "arm64" ]] || fail "embedded planner-helper executable contains an unexpected architecture"
+    /usr/bin/codesign --strict --verify "$planner_helper" >/dev/null || fail "embedded planner-helper signature is invalid"
+    local helper_metadata helper_sha manifest_helper_sha candidate cdhash manifest_candidate manifest_cdhash
+    helper_metadata="$(/usr/bin/codesign -dvvv "$planner_helper" 2>&1)" || fail "embedded planner-helper signature metadata is unavailable"
+    print -r -- "$helper_metadata" | /usr/bin/grep -E -q '^Authority=Apple Development:.+$' || fail "embedded planner-helper is not Apple Development signed"
+    print -r -- "$helper_metadata" | /usr/bin/grep -E -q "^TeamIdentifier=$planner_team_identifier$" || fail "embedded planner-helper signing team is not the reviewed product team"
+    if print -r -- "$helper_metadata" | /usr/bin/grep -E -q '^Signature=adhoc$|flags=.*adhoc'; then
+        fail "embedded planner-helper has an ad-hoc signature"
+    fi
+    helper_sha="$(/usr/bin/shasum -a 256 "$planner_helper" | /usr/bin/awk '{print $1}')"
+    manifest_helper_sha="$(/usr/bin/jq -er '.executable.sha256' "$planner_manifest")"
+    [[ "$helper_sha" == "$manifest_helper_sha" ]] || fail "embedded planner-helper executable hash differs from manifest"
+    [[ "$(/usr/bin/jq -er '.executable.team_identifier' "$planner_manifest")" == "$planner_team_identifier" ]] || fail "embedded planner-helper manifest team is not the reviewed product team"
+    candidate="$(print -r -- "$helper_metadata" | /usr/bin/sed -n 's/^CandidateCDHashFull sha256=\([0-9A-Fa-f]*\)$/\1/p' | /usr/bin/head -n 1)"
+    cdhash="$(print -r -- "$helper_metadata" | /usr/bin/sed -n 's/^CDHash=\([0-9A-Fa-f]*\)$/\1/p' | /usr/bin/head -n 1)"
+    manifest_candidate="$(/usr/bin/jq -er '.executable.candidate_cdhash_full' "$planner_manifest")"
+    manifest_cdhash="$(/usr/bin/jq -er '.executable.cdhash' "$planner_manifest")"
+    [[ "$candidate" == "$manifest_candidate" && "$cdhash" == "$manifest_cdhash" ]] || fail "embedded planner-helper code-directory hash differs from manifest"
+    local top_level path relative expected_hash actual_hash
+    while IFS= read -r top_level; do
+        [[ "${top_level##*/}" == "Resources" && -d "$top_level" && ! -L "$top_level" ]] || fail "embedded planner-helper bundle contains an unexpected top-level entry"
+    done < <(/usr/bin/find "$planner_bundle" -mindepth 1 -maxdepth 1 -print)
+    while IFS= read -r path; do
+        fail "embedded planner-helper bundle contains a symlink: $path"
+    done < <(/usr/bin/find "$planner_bundle" -type l -print)
+    local actual_resources expected_resources
+    actual_resources="$(/usr/bin/find "$planner_bundle/Resources" -type f -print | /usr/bin/sed "s|^$planner_bundle/||" | /usr/bin/sort)"
+    expected_resources="$(printf '%s\n' "${planner_immutable_resources[@]}" | /usr/bin/sort)"
+    [[ "$actual_resources" == "$expected_resources" ]] || fail "embedded planner-helper immutable resource set is not exact"
+    for relative in "${planner_immutable_resources[@]}"; do
+        path="$planner_bundle/$relative"
+        require_exact_regular_file "$path" "embedded planner-helper immutable resource"
+        expected_hash="$(/usr/bin/jq -er --arg path "$relative" '.resource_bundle.resources[] | select(.relative_path == $path) | .sha256' "$planner_manifest")"
+        actual_hash="$(/usr/bin/shasum -a 256 "$path" | /usr/bin/awk '{print $1}')"
+        [[ "$expected_hash" == "$actual_hash" ]] || fail "embedded planner-helper immutable resource hash differs from manifest"
+    done
+}
+
 make_or_require_exact_directory() {
     local path="$1" label="$2" parent
     if [[ -e "$path" || -L "$path" ]]; then
@@ -91,18 +165,51 @@ make_or_require_exact_directory() {
     require_exact_directory "$path" "$label"
 }
 
+is_exact_fcp_process_path() {
+    local process_path="$1"
+    [[ "$process_path" == "$stock_executable" || "$process_path" == "$copied_executable" ]]
+}
+
 require_not_running() {
-    local audit_path="$1" pgrep_status interpretation
-    if /usr/bin/pgrep -fl '[F]inal Cut Pro' > "$audit_path" 2>&1; then
-        pgrep_status=0
+    local audit_path="$1" pgrep_status interpretation probe_snapshot process_path
+    local probe_error="false" process_match="false"
+    probe_snapshot="$audit_path.process-snapshot"
+    if ! /bin/ps -axo pid=,comm= > "$probe_snapshot" 2> "$audit_path.process-stderr"; then
+        pgrep_status=2
     else
-        pgrep_status=$?
+        pgrep_status=1
+        while IFS=' ' read -r process_pid process_name; do
+            [[ "$process_pid" == <-> && "$process_name" == "Final Cut Pro" ]] || continue
+            if ! process_path="$(/usr/sbin/lsof -a -p "$process_pid" -d txt -Fn 2>> "$audit_path.lsof-stderr" | /usr/bin/sed -n 's/^n//p' | /usr/bin/head -n 1)"; then
+                probe_error="true"
+                continue
+            fi
+            if [[ -z "$process_path" ]]; then
+                probe_error="true"
+                continue
+            fi
+            if is_exact_fcp_process_path "$process_path"; then
+                process_match="true"
+                pgrep_status=0
+                print -r -- "pid=$process_pid process_name=$process_name executable=$process_path exact_target=true" >> "$audit_path"
+            else
+                print -r -- "pid=$process_pid process_name=$process_name executable=$process_path exact_target=false ignored=true" >> "$audit_path"
+            fi
+        done < "$probe_snapshot"
+        [[ "$probe_error" == "true" && "$process_match" != "true" ]] && pgrep_status=2
     fi
-    if interpret_process_probe_status "$pgrep_status" "$audit_path"; then
+    if [[ "$pgrep_status" -eq 0 ]]; then
+        print -r -- "pgrep_status=0 process_match=true" >> "$audit_path"
+    elif [[ "$pgrep_status" -eq 1 ]]; then
+        print -r -- "no Final Cut Pro process observed (pgrep_status=1 exact_executable_identity=true)" >> "$audit_path"
+    else
+        print -r -- "pgrep_status=$pgrep_status process_probe_error=true exact_executable_identity=true" >> "$audit_path"
+    fi
+    if [[ "$pgrep_status" -eq 1 ]]; then
         return 0
-    else
-        interpretation=$?
     fi
+    interpretation=1
+    [[ "$pgrep_status" -eq 2 ]] && interpretation=2
     case "$interpretation" in
         1) fail "a Final Cut Pro process is running; stock and copied app must both be closed (audit=$audit_path)" ;;
         2) fail "Final Cut Pro process probe failed with status=$pgrep_status (audit=$audit_path)" ;;
@@ -232,7 +339,9 @@ verify_copied_identity() {
     require_exact_regular_file "$runtime_binary" "embedded runtime binary"
     require_exact_regular_file "$runtime_policy" "embedded runtime policy"
     /usr/bin/plutil -lint "$runtime_policy" > "$output_dir/runtime-policy-lint.txt"
-    [[ "$(plist_value "$runtime_policy" SchemaVersion)" == "13" && "$(plist_value "$runtime_policy" ExpectedHostBundleIdentifier)" == "com.apple.FinalCut" && "$(plist_value "$runtime_policy" ExpectedCopiedHostBundlePath)" == "$copied_app" && "$(plist_value "$runtime_policy" ExpectedHostVersion)" == "$expected_version" && "$(plist_value "$runtime_policy" ExpectedHostBuild)" == "$expected_build" && "$(plist_value "$runtime_policy" ExpectedMASReceiptRelativePath)" == "$receipt_relative_path" && "$(plist_value "$runtime_policy" ExpectedMASReceiptSHA256)" == "$expected_receipt_sha256" && "$(plist_value "$runtime_policy" ImmutableCompileTimeAllowlist)" == "true" && "$(plist_value "$runtime_policy" RuntimeDiscoveryAllowed)" == "false" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:0')" == "constructor_main_thread_immediate_attempt" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:1')" == "application_will_finish_launching_availability_retry" && "$(plist_value "$runtime_policy" MaximumMethodGuardAttempts)" == "2" ]] || fail "embedded runtime policy is not reviewed"
+    [[ "$(plist_value "$runtime_policy" SchemaVersion)" == "14" && "$(plist_value "$runtime_policy" ExpectedHostBundleIdentifier)" == "com.apple.FinalCut" && "$(plist_value "$runtime_policy" ExpectedCopiedHostBundlePath)" == "$copied_app" && "$(plist_value "$runtime_policy" ExpectedHostVersion)" == "$expected_version" && "$(plist_value "$runtime_policy" ExpectedHostBuild)" == "$expected_build" && "$(plist_value "$runtime_policy" ExpectedMASReceiptRelativePath)" == "$receipt_relative_path" && "$(plist_value "$runtime_policy" ExpectedMASReceiptSHA256)" == "$expected_receipt_sha256" && "$(plist_value "$runtime_policy" ImmutableCompileTimeAllowlist)" == "true" && "$(plist_value "$runtime_policy" RuntimeDiscoveryAllowed)" == "false" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:0')" == "constructor_main_thread_immediate_attempt" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:1')" == "application_will_finish_launching_availability_retry" && "$(plist_value "$runtime_policy" MaximumMethodGuardAttempts)" == "2" ]] || fail "embedded runtime policy is not reviewed"
+    verify_planner_helper_policy
+    verify_planner_helper_payload
     [[ "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:ExecutionEnabled')" == "false" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:RuntimeDiscoveryAllowed')" == "false" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:MethodContractsPinnedIn')" == "FCPCommandConsoleRuntime.m:FCPCCNativeTargetedRotateZoomStaticContracts" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:ExpectedFlexoSHA256')" == "704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:CandidatePixelConvention')" == "product_normalized_top_left_to_centered_pixels_x_right_y_up" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:SetterOptions')" == "0" ]] || fail "embedded native targeted rotate zoom gate is not reviewed"
     for required_live_proof in candidate_pixel_coordinate_convention full_transform_keyframe_enumeration_and_exact_removal project_owned_undo_scope_and_exact_last_assistant_undo three_property_readback_and_lossless_rollback; do
         /usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:RequiredLiveProofs' "$runtime_policy" | /usr/bin/grep -F -q "$required_live_proof" || fail "embedded native targeted rotate zoom gate omits $required_live_proof"

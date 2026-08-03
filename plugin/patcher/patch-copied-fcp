@@ -29,7 +29,21 @@ expected_onboarding_framework_x86_64_uuid="FCAA9A11-C6A5-3EC9-9E65-ADCA14F086F7"
 framework_name="FCPCommandConsoleRuntime.framework"
 built_framework="$plugin_dir/build/$framework_name"
 built_compatibility_policy="$built_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
+planner_payload_source="$plugin_dir/build/planner-helper/payload"
+planner_builder="$plugin_dir/scripts/build-planner-helper"
+planner_helper_name="fcpcommandconsole-planner-helper"
+planner_bundle_name="FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle"
+planner_manifest_name="planner-helper-manifest.json"
+planner_team_identifier="KDV9RC892F"
+planner_immutable_resources=(
+    "Resources/registry/effects/look.old_television.json"
+    "Resources/registry/effects/motion.living_still.json"
+    "Resources/registry/effects/native.targeted_rotate_zoom.json"
+    "Resources/registry/effects/transition.natural_dissolve.json"
+    "Resources/schemas/effect-plan.schema.json"
+)
 embedded_framework="$copied_app/Contents/Frameworks/$framework_name"
+planner_payload_root="$embedded_framework/Versions/A/Resources/PlannerHelperPayload"
 embedded_runtime="$embedded_framework/Versions/A/FCPCommandConsoleRuntime"
 embedded_compatibility_policy="$embedded_framework/Versions/A/Resources/FCPCCOnboardingQueryCompatibility.plist"
 injector="$plugin_dir/build/fcpcc-insert-dylib"
@@ -79,6 +93,50 @@ canonical_entitlements=(
 fail() {
     print -u2 -r -- "patch-copied-fcp: $1"
     exit 1
+}
+
+verify_planner_helper_policy() {
+    local policy_path="$1"
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ExecutionEnabled' "$policy_path")" == "true" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:PanelBindingEnabled' "$policy_path")" == "false" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:FixedRelativePayloadRoot' "$policy_path")" == "Versions/A/Resources/PlannerHelperPayload" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ExecutableName' "$policy_path")" == "$planner_helper_name" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ResourceBundleName' "$policy_path")" == "$planner_bundle_name" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ManifestName' "$policy_path")" == "$planner_manifest_name" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:Architecture' "$policy_path")" == "arm64" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:SignatureRequirement' "$policy_path")" == "Apple Development" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:TeamIdentifier' "$policy_path")" == "$planner_team_identifier" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MainThreadInvocationRejected' "$policy_path")" == "true" ]] || fail "planner-helper bridge policy is not exact"
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ManifestMaximumBytes' "$policy_path")" == "65536" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:InputMaximumBytes' "$policy_path")" == "262144" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:OutputMaximumBytes' "$policy_path")" == "524288" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:StderrMaximumBytes' "$policy_path")" == "65536" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MaximumBundleBytes' "$policy_path")" == "100000000" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MaximumResourceBytes' "$policy_path")" == "10000000" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:DefaultTimeoutSeconds' "$policy_path")" == "5" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:MaximumTimeoutSeconds' "$policy_path")" == "60" ]] || fail "planner-helper bridge bounds are not exact"
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoShell' "$policy_path")" == "true" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoNetwork' "$policy_path")" == "true" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoCallerExecutable' "$policy_path")" == "true" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:NoCallerPayloadRoot' "$policy_path")" == "true" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:AllowedProcessAPI' "$policy_path")" == "NSTask" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:AllowedNSTaskSource' "$policy_path")" == "FCPCCPlannerHelperBridge.m" && "$(/usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:Protocol' "$policy_path")" == "single_utf8_json_line_request_single_utf8_json_line_response" ]] || fail "planner-helper bridge process or protocol policy is not exact"
+    local index expected
+    for (( index = 0; index < ${#planner_immutable_resources[@]}; index++ )); do
+        expected="${planner_immutable_resources[$((index + 1))]}"
+        [[ "$(/usr/libexec/PlistBuddy -c "Print :PlannerHelperBridge:ImmutableResources:$index" "$policy_path")" == "$expected" ]] || fail "planner-helper immutable resource order is not exact"
+    done
+    if /usr/libexec/PlistBuddy -c 'Print :PlannerHelperBridge:ImmutableResources:5' "$policy_path" >/dev/null 2>&1; then
+        fail "planner-helper bridge permits an unexpected immutable resource"
+    fi
+}
+
+verify_planner_helper_payload() {
+    local payload_root="$1"
+    local helper="$payload_root/$planner_helper_name" bundle="$payload_root/$planner_bundle_name" manifest="$payload_root/$planner_manifest_name"
+    [[ -d "$payload_root" && ! -L "$payload_root" && -f "$helper" && ! -L "$helper" && -d "$bundle" && ! -L "$bundle" && -f "$manifest" && ! -L "$manifest" ]] || fail "planner-helper payload is incomplete"
+    local actual_entries expected_entries
+    actual_entries="$(/usr/bin/find "$payload_root" -mindepth 1 -maxdepth 1 -print | /usr/bin/sed "s|^$payload_root/||" | /usr/bin/sort)"
+    expected_entries="$(printf '%s\n' "$planner_helper_name" "$planner_bundle_name" "$planner_manifest_name" | /usr/bin/sort)"
+    [[ "$actual_entries" == "$expected_entries" ]] || fail "planner-helper payload root contains an unexpected entry"
+    /usr/bin/lipo "$helper" -verify_arch arm64 >/dev/null 2>&1 || fail "planner-helper executable is not arm64"
+    [[ "$(/usr/bin/lipo -archs "$helper")" == "arm64" ]] || fail "planner-helper executable contains an unexpected architecture"
+    /usr/bin/codesign --strict --verify "$helper" >/dev/null || fail "planner-helper executable signature is invalid"
+    local metadata="$plugin_dir/build/planner-helper-codesign-metadata.txt"
+    /usr/bin/codesign -dvvv "$helper" > /dev/null 2> "$metadata" || fail "planner-helper signature metadata is unavailable"
+    /usr/bin/grep -E -q '^Authority=Apple Development:.+$' "$metadata" || fail "planner-helper is not Apple Development signed"
+    /usr/bin/grep -E -q "^TeamIdentifier=$planner_team_identifier$" "$metadata" || fail "planner-helper signing team is not the reviewed product team"
+    if /usr/bin/grep -E -q '^Signature=adhoc$|flags=.*adhoc' "$metadata"; then
+        fail "planner-helper has an ad-hoc signature"
+    fi
+    /usr/bin/jq -e --arg product "$planner_helper_name" --arg bundle "$planner_bundle_name" --arg team "$planner_team_identifier" '.schema_version == 1 and .product == $product and .configuration == "release" and .architecture == "arm64" and .executable.relative_path == $product and .executable.team_identifier == $team and .executable.architectures == ["arm64"] and .resource_bundle.relative_path == $bundle and .resource_bundle.signed == false and (.resource_bundle.resources | length == 5)' "$manifest" >/dev/null || fail "planner-helper manifest identity is not exact"
+    local relative expected_hash actual_hash source_resource
+    for relative in "${planner_immutable_resources[@]}"; do
+        source_resource="$payload_root/$planner_bundle_name/$relative"
+        [[ -f "$source_resource" && ! -L "$source_resource" ]] || fail "planner-helper immutable resource is missing"
+        expected_hash="$(/usr/bin/jq -er --arg path "$relative" '.resource_bundle.resources[] | select(.relative_path == $path) | .sha256' "$manifest")" || fail "planner-helper manifest omits an immutable resource"
+        actual_hash="$(/usr/bin/shasum -a 256 "$source_resource" | /usr/bin/awk '{print $1}')"
+        [[ "$expected_hash" == "$actual_hash" ]] || fail "planner-helper immutable resource hash differs from manifest"
+    done
 }
 
 capture_preferences() {
@@ -213,7 +271,7 @@ verify_compatibility_policy() {
     if [[ ! -f "$policy_path" ]] || ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
         fail "$label onboarding compatibility policy is missing or invalid"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "13" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "$expected_host_version" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "$expected_host_build" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "$expected_stock_pre_injection_host_executable_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "14" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "$expected_host_version" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "$expected_host_build" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "$expected_stock_pre_injection_host_executable_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
         fail "$label onboarding compatibility policy host, receipt, or binary identity is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor_main_thread_immediate_attempt" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "application_will_finish_launching_availability_retry" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "2" ]]; then
@@ -257,6 +315,7 @@ verify_compatibility_policy() {
     if /usr/libexec/PlistBuddy -c 'Print :ApprovedMethodReplacements:2' "$policy_path" >/dev/null 2>&1; then
         fail "$label onboarding compatibility policy permits an extra method replacement"
     fi
+    verify_planner_helper_policy "$policy_path"
 }
 
 require_not_running() {
@@ -337,9 +396,11 @@ fi
 if [[ -e "$destination_parent" || -e "$destination_root" || -e "$copied_app" ]]; then
     fail "approved destination or its parent already exists; refusing to overwrite or reuse it"
 fi
-if [[ ! -d "$built_framework" || ! -f "$built_compatibility_policy" || ! -x "$injector" || ! -x "$entitlement_verifier" || ! -f "$allowlist" ]]; then
+if [[ ! -d "$built_framework" || ! -f "$built_compatibility_policy" || ! -d "$planner_payload_source" || ! -x "$planner_builder" || ! -x "$injector" || ! -x "$entitlement_verifier" || ! -f "$allowlist" ]]; then
     fail "run plugin/scripts/build-minimal-runtime successfully before patching"
 fi
+"$planner_builder" --verify-existing >/dev/null
+verify_planner_helper_payload "$planner_payload_source"
 verify_compatibility_policy "$built_compatibility_policy" "built"
 
 source_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_app/Contents/Info.plist")"
@@ -397,6 +458,10 @@ fi
 if [[ ! -f "$embedded_runtime" ]]; then
     fail "embedded runtime was not copied into the isolated app"
 fi
+planner_payload_root="$embedded_framework/Versions/A/Resources/PlannerHelperPayload"
+verify_planner_helper_payload "$planner_payload_root"
+planner_helper_sha_before_signing="$(/usr/bin/shasum -a 256 "$planner_payload_root/$planner_helper_name" | /usr/bin/awk '{print $1}')"
+planner_manifest_sha_before_signing="$(/usr/bin/shasum -a 256 "$planner_payload_root/$planner_manifest_name" | /usr/bin/awk '{print $1}')"
 
 local_entitlements="$patch_dir/local-signing-entitlements.plist"
 create_canonical_entitlements "$local_entitlements"
@@ -442,6 +507,10 @@ fi
 
 /usr/bin/codesign --verify --deep --strict --verbose=4 "$copied_app" > "$patch_dir/codesign-verify.txt" 2>&1
 /usr/bin/codesign --verify --strict --verbose=4 "$embedded_framework" > "$patch_dir/runtime-codesign-verify.txt" 2>&1
+verify_planner_helper_payload "$planner_payload_root"
+if [[ "$(/usr/bin/shasum -a 256 "$planner_payload_root/$planner_helper_name" | /usr/bin/awk '{print $1}')" != "$planner_helper_sha_before_signing" || "$(/usr/bin/shasum -a 256 "$planner_payload_root/$planner_manifest_name" | /usr/bin/awk '{print $1}')" != "$planner_manifest_sha_before_signing" ]]; then
+    fail "nested planner-helper payload changed during framework or app signing"
+fi
 capture_bundle "$copied_app" "$copied_executable" "$patch_dir/copied-after"
 capture_receipt "$copied_app" "$patch_dir/copied-after"
 verify_receipt "$copied_app" "copied-after"

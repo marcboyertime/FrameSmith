@@ -49,7 +49,35 @@ for required_launcher_fragment in \
     'verify_reviewed_copied_cdhash' \
     'CandidateCDHashFull' \
     'create_five_entitlements' \
-    'SchemaVersion)" == "13"' \
+    'SchemaVersion)" == "14"' \
+    'is_exact_fcp_process_path' \
+    'exact_executable_identity=true' \
+    'process-snapshot' \
+    '/usr/sbin/lsof -a -p' \
+    'PlannerHelperBridge:FixedRelativePayloadRoot' \
+    'Versions/A/Resources/PlannerHelperPayload' \
+    'PlannerHelperBridge:ExecutableName' \
+    'fcpcommandconsole-planner-helper' \
+    'PlannerHelperBridge:ResourceBundleName' \
+    'FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle' \
+    'PlannerHelperBridge:ManifestName' \
+    'planner-helper-manifest.json' \
+    'PlannerHelperBridge:SignatureRequirement' \
+    'Apple Development' \
+    'PlannerHelperBridge:TeamIdentifier' \
+    'KDV9RC892F' \
+    'PlannerHelperBridge:ImmutableResources' \
+    'PlannerHelperBridge:ManifestMaximumBytes' \
+    'PlannerHelperBridge:MaximumBundleBytes' \
+    'PlannerHelperBridge:MaximumResourceBytes' \
+    'PlannerHelperBridge:DefaultTimeoutSeconds' \
+    'PlannerHelperBridge:MaximumTimeoutSeconds' \
+    'PlannerHelperBridge:AllowedNSTaskSource' \
+    'FCPCCPlannerHelperBridge.m' \
+    'PlannerHelperBridge:NoCallerPayloadRoot' \
+    'single_utf8_json_line_request_single_utf8_json_line_response' \
+    'verify_planner_helper_payload' \
+    'verify_planner_helper_policy' \
     "CompatibilityInstallPhases:0')\" == \"constructor_main_thread_immediate_attempt" \
     "CompatibilityInstallPhases:1')\" == \"application_will_finish_launching_availability_retry" \
     'MaximumMethodGuardAttempts)" == "2"' \
@@ -137,6 +165,27 @@ fi
 if ! "$rg_bin" -F -q 'pgrep_status=2 process_probe_error=true' "$status_two_audit"; then
     fail "pgrep status 2 diagnostic was not preserved"
 fi
+
+process_identity_helper="$test_dir/process-identity-helper.zsh"
+{
+    print -r -- 'stock_executable="/Applications/Final Cut Pro.app/Contents/MacOS/Final Cut Pro"'
+    print -r -- 'copied_executable="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app/Contents/MacOS/Final Cut Pro"'
+    /usr/bin/sed -n '/^is_exact_fcp_process_path()/,/^}/p' "$launcher"
+} > "$process_identity_helper"
+if ! /bin/zsh -f -c 'source "$1"; is_exact_fcp_process_path "$stock_executable"' -- "$process_identity_helper"; then
+    fail "stock executable identity fixture was rejected"
+fi
+if ! /bin/zsh -f -c 'source "$1"; is_exact_fcp_process_path "$copied_executable"' -- "$process_identity_helper"; then
+    fail "copied executable identity fixture was rejected"
+fi
+for non_target_process_path in \
+    '/usr/bin/nm /Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app/Contents/MacOS/Final Cut Pro' \
+    '/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app/Contents/MacOS/Final Cut Pro-helper' \
+    '/tmp/Final Cut Pro'; do
+    if /bin/zsh -f -c 'source "$1"; is_exact_fcp_process_path "$2"' -- "$process_identity_helper" "$non_target_process_path"; then
+        fail "non-target executable identity fixture was accepted: $non_target_process_path"
+    fi
+done
 
 [[ -d "$copied_app" ]] || fail "reviewed copied Final Cut app is missing for identity-gate test"
 copied_metadata="$test_dir/copied-codesign-metadata.txt"

@@ -59,6 +59,7 @@ for required in \
     'umask 077' \
     'CandidateCDHashFull' \
     'CDHash' \
+    'TeamIdentifier' \
     'resource_bundle' \
     'immutable_resources'; do
     "$rg_bin" -F -q -- "$required" "$builder" || fail "builder is missing required fail-closed fragment"
@@ -87,6 +88,7 @@ bundle_hash="$(directory_hash "$bundle")"
        (.size_bytes | type == "number" and . > 0 and . < 100000000) and
        (.candidate_cdhash_full | type == "string" and test("^[0-9A-Fa-f]{64}$")) and
        (.cdhash | type == "string" and test("^[0-9A-Fa-f]{40}$")) and
+       .team_identifier == "KDV9RC892F" and
        (.architectures == ["arm64"])) and
      (.resource_bundle | type == "object" and .relative_path == $bundle and
        (.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
@@ -130,7 +132,7 @@ fi
 codesign_metadata="$test_dir/codesign-metadata.txt"
 /usr/bin/codesign -dvvv "$helper" > /dev/null 2> "$codesign_metadata" || fail "helper signature metadata is unavailable"
 /usr/bin/grep -E -q '^Authority=Apple Development:.+$' "$codesign_metadata" || fail "helper is not signed by an Apple Development identity"
-/usr/bin/grep -E -q '^TeamIdentifier=[A-Z0-9]{10}$' "$codesign_metadata" || fail "helper signing team identifier is unavailable"
+/usr/bin/grep -E -q '^TeamIdentifier=KDV9RC892F$' "$codesign_metadata" || fail "helper signing team identifier is not the reviewed product team"
 if /usr/bin/grep -E -q '^Signature=adhoc$|flags=.*adhoc' "$codesign_metadata"; then
     fail "helper accepted a forbidden ad-hoc signature"
 fi

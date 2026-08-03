@@ -56,6 +56,24 @@ pasteboard state, marked the session finished, finalized provenance, and then
 released only the identity-matching root. A duplicate active-session start
 fails closed; there is no retry or generic session registry.
 
+Schema 14 adds the product-owned planner-helper bridge as a fixed resource
+boundary only. The framework embeds exactly three direct entries under
+`Versions/A/Resources/PlannerHelperPayload`: the arm64
+`fcpcommandconsole-planner-helper`, its five-resource
+`FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle`, and the signed
+`planner-helper-manifest.json`. The helper is verified as Apple Development
+signed before the framework or copied app is signed; its manifest, code
+directory hashes, architecture, resource paths, and immutable resource hashes
+are rechecked at every boundary. The bridge accepts only bounded UTF-8 JSON
+line requests and one response line, invokes only the exact product-owned
+helper through `NSTask`, rejects main-thread calls, and fails closed on
+symlinks, path escapes, malformed or oversized data, tampering, timeout, or
+cancellation. Shells, network access, caller-selected executables, and
+caller-selected payload roots are not available. `ExecutionEnabled` is true at
+the bridge level, while
+`PanelBindingEnabled` remains false: no panel or Final Cut mutation path is
+connected to this helper.
+
 Workflow 1 has one typed native adapter for `native.targeted_rotate_zoom`.
 Its fixed Final Cut 12.3 contract records only the inspected selection
 reacquisition, represented-tool/video-effect-stack/xform path, transform

@@ -1,0 +1,41 @@
+#!/bin/zsh
+# Build and run the closed Objective-C planner-helper bridge tests.
+
+set -euo pipefail
+umask 077
+
+script_dir="$(cd "$(/usr/bin/dirname "$0")" && /bin/pwd)"
+plugin_dir="$(/usr/bin/dirname "$script_dir")"
+repo_dir="$(/usr/bin/dirname "$plugin_dir")"
+builder="$plugin_dir/scripts/build-planner-helper"
+payload_root="$plugin_dir/build/planner-helper/payload"
+source_file="$plugin_dir/tests/PlannerHelperBridgeTests.m"
+bridge_source="$plugin_dir/splicekit_minimal/Sources/FCPCCPlannerHelperBridge.m"
+bridge_header="$plugin_dir/splicekit_minimal/Sources/FCPCCPlannerHelperBridge.h"
+test_dir="$(/usr/bin/mktemp -d /tmp/fcpcc-planner-helper-bridge-tests.XXXXXX)"
+binary="$test_dir/PlannerHelperBridgeTests"
+
+fail() {
+    print -u2 -r -- "run-planner-helper-bridge-tests: $1"
+    exit 1
+}
+
+trap '/bin/rm -rf -- "$test_dir"' EXIT
+
+[[ -x "$builder" && -f "$source_file" && -f "$bridge_source" && -f "$bridge_header" ]] || fail "bridge sources or planner-helper builder are missing"
+[[ "$(uname -m)" == "arm64" ]] || fail "bridge verification requires an arm64 host"
+
+# The builder's verify-only mode is intentionally the only payload preparation
+# step.  It does not fetch, sign, or modify source; the Objective-C test then
+# copies the verified payload into its own task-specific temporary directory.
+"$builder" --verify-existing >/dev/null
+[[ -x "$payload_root/fcpcommandconsole-planner-helper" && -d "$payload_root/FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle" && -f "$payload_root/planner-helper-manifest.json" ]] || fail "verified planner-helper payload is incomplete"
+
+/usr/bin/clang -target arm64-apple-macosx14.0 -fobjc-arc -fblocks -Wall -Wextra -Werror -DFCPCC_PLANNER_HELPER_BRIDGE_TESTING \
+    -I"$plugin_dir/splicekit_minimal/Sources" \
+    "$bridge_source" "$source_file" \
+    -framework Foundation -framework Security -framework CoreFoundation \
+    -o "$binary"
+
+"$binary" "$payload_root"
+print -r -- "run-planner-helper-bridge-tests: passed arm64=$binary"

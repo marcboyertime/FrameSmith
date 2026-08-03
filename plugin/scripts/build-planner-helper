@@ -15,6 +15,7 @@ payload_root="$build_root/payload"
 swift_scratch="$scratch_root/swiftpm"
 swift_output="$swift_scratch/arm64-apple-macosx/release"
 helper_name="fcpcommandconsole-planner-helper"
+team_identifier="KDV9RC892F"
 bundle_name="FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle"
 helper_source="$repo_dir/Sources/FCPCommandConsolePlannerHelper"
 resource_source="$helper_source/Resources"
@@ -144,7 +145,7 @@ verify_development_signature() {
     local metadata="$scratch_root/codesign-development-metadata.txt"
     /usr/bin/codesign -dvvv "$path" > /dev/null 2> "$metadata" || fail "codesign metadata is unavailable"
     /usr/bin/grep -E -q '^Authority=Apple Development:.+$' "$metadata" || fail "helper is not signed by an Apple Development identity"
-    /usr/bin/grep -E -q '^TeamIdentifier=[A-Z0-9]{10}$' "$metadata" || fail "helper signing team identifier is unavailable"
+    /usr/bin/grep -F -q "TeamIdentifier=$team_identifier" "$metadata" || fail "helper signing team identifier is not the reviewed product team"
     if /usr/bin/grep -E -q '^Signature=adhoc$|flags=.*adhoc' "$metadata"; then
         fail "ad-hoc helper signatures are forbidden"
     fi
@@ -249,6 +250,7 @@ verify_manifest_and_payload() {
     [[ "$manifest_schema" == "1" && "$manifest_product" == "$helper_name" && "$manifest_arch" == "arm64" && "$manifest_path_value" == "$helper_name" ]] || fail "manifest identity fields are not exact"
     [[ "$(/usr/bin/jq -er '.executable.size_bytes' "$manifest_path")" == "$(size_bytes "$payload_helper")" ]] || fail "manifest executable size does not match"
     [[ "$(/usr/bin/jq -er '.resource_bundle.relative_path' "$manifest_path")" == "$bundle_name" ]] || fail "manifest resource bundle path is not exact"
+    [[ "$(/usr/bin/jq -er '.executable.team_identifier' "$manifest_path")" == "$team_identifier" ]] || fail "manifest team identifier is not the reviewed product team"
 
     local relative expected_hash actual_hash
     for relative in "${immutable_resources[@]}"; do
@@ -293,7 +295,8 @@ write_manifest() {
         --argjson bundle_size "$(directory_size_bytes "$payload_bundle")" \
         --argjson resource_entries "$resource_entries" \
         --argjson resource_bundle_signed "${resource_bundle_signed:-false}" \
-        '{schema_version:1,product:$product,configuration:"release",architecture:"arm64",executable:{relative_path:$executable_path,sha256:$executable_hash,size_bytes:$executable_size,candidate_cdhash_full:$executable_candidate,cdhash:$executable_cdhash,architectures:["arm64"]},resource_bundle:{relative_path:$bundle_path,sha256:$bundle_hash,size_bytes:$bundle_size,signed:$resource_bundle_signed,resources:$resource_entries}}' > "$manifest_path"
+        --arg team_identifier "$team_identifier" \
+        '{schema_version:1,product:$product,configuration:"release",architecture:"arm64",executable:{relative_path:$executable_path,sha256:$executable_hash,size_bytes:$executable_size,candidate_cdhash_full:$executable_candidate,cdhash:$executable_cdhash,architectures:["arm64"],team_identifier:$team_identifier},resource_bundle:{relative_path:$bundle_path,sha256:$bundle_hash,size_bytes:$bundle_size,signed:$resource_bundle_signed,resources:$resource_entries}}' > "$manifest_path"
 }
 
 if [[ "$1" == "--build" ]]; then

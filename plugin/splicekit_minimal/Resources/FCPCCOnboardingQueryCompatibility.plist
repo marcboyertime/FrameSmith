@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>13</integer>
+    <integer>14</integer>
     <key>ExpectedHostBundleIdentifier</key>
     <string>com.apple.FinalCut</string>
     <key>ExpectedCopiedHostBundlePath</key>
@@ -37,6 +37,67 @@
     </array>
     <key>MaximumMethodGuardAttempts</key>
     <integer>2</integer>
+    <key>PlannerHelperBridge</key>
+    <dict>
+        <key>ExecutionEnabled</key>
+        <true/>
+        <key>PanelBindingEnabled</key>
+        <false/>
+        <key>FixedRelativePayloadRoot</key>
+        <string>Versions/A/Resources/PlannerHelperPayload</string>
+        <key>ExecutableName</key>
+        <string>fcpcommandconsole-planner-helper</string>
+        <key>ResourceBundleName</key>
+        <string>FCPCommandConsole_FCPCommandConsolePlannerHelper.bundle</string>
+        <key>ManifestName</key>
+        <string>planner-helper-manifest.json</string>
+        <key>Architecture</key>
+        <string>arm64</string>
+        <key>SignatureRequirement</key>
+        <string>Apple Development</string>
+        <key>TeamIdentifier</key>
+        <string>KDV9RC892F</string>
+        <key>ImmutableResources</key>
+        <array>
+            <string>Resources/registry/effects/look.old_television.json</string>
+            <string>Resources/registry/effects/motion.living_still.json</string>
+            <string>Resources/registry/effects/native.targeted_rotate_zoom.json</string>
+            <string>Resources/registry/effects/transition.natural_dissolve.json</string>
+            <string>Resources/schemas/effect-plan.schema.json</string>
+        </array>
+        <key>MainThreadInvocationRejected</key>
+        <true/>
+        <key>ManifestMaximumBytes</key>
+        <integer>65536</integer>
+        <key>InputMaximumBytes</key>
+        <integer>262144</integer>
+        <key>OutputMaximumBytes</key>
+        <integer>524288</integer>
+        <key>StderrMaximumBytes</key>
+        <integer>65536</integer>
+        <key>MaximumBundleBytes</key>
+        <integer>100000000</integer>
+        <key>MaximumResourceBytes</key>
+        <integer>10000000</integer>
+        <key>DefaultTimeoutSeconds</key>
+        <integer>5</integer>
+        <key>MaximumTimeoutSeconds</key>
+        <integer>60</integer>
+        <key>NoShell</key>
+        <true/>
+        <key>NoNetwork</key>
+        <true/>
+        <key>NoCallerExecutable</key>
+        <true/>
+        <key>NoCallerPayloadRoot</key>
+        <true/>
+        <key>AllowedProcessAPI</key>
+        <string>NSTask</string>
+        <key>AllowedNSTaskSource</key>
+        <string>FCPCCPlannerHelperBridge.m</string>
+        <key>Protocol</key>
+        <string>single_utf8_json_line_request_single_utf8_json_line_response</string>
+    </dict>
     <key>ImmutableCompileTimeAllowlist</key>
     <true/>
     <key>RuntimeDiscoveryAllowed</key>
