@@ -157,18 +157,18 @@ for required_launcher_fragment in \
     'HOME="$isolated_home"' \
     'TMPDIR="$isolated_home/tmp"' \
     'XDG_CACHE_HOME="$isolated_home/Library/Caches"' \
+    '__CFPREFERENCES_AVOID_DAEMON=1' \
     '/usr/bin/env -i' \
     '/usr/bin/sandbox-exec -f "$profile"' \
     '"$copied_executable"' \
-    'child_pid=$!' \
-    'wait "$child_pid"' \
+    'launch_isolated_child' \
     'launch=child_exit_status=' \
     'normal_container_preferences=' \
     'normal_user_preferences=' \
     'raw.sha256' \
     'normalized.sha256' \
     'compare_normal_preferences' \
-    'limitation=sandbox-exec_is_deprecated'; do
+    'limitation=sandbox-exec_is_deprecated;_CFPreferences_daemon_avoidance_plus_exact_normal_Final_Cut_preference_file_denials_are_enforced;_before_after_normalized_preference_snapshots_remain_live_proof'; do
     require_fragment "$required_launcher_fragment" "$launcher" "launcher"
 done
 
@@ -266,11 +266,52 @@ for required_profile_fragment in \
     '(regex #"^(.*/)?[^/]*\.[Ff][Cc][Pp][Bb][Uu][Nn][Dd][Ll][Ee]([/].*)?$")' \
     '(require-not (subpath (param "ALLOWED_LIBRARY")))' \
     '(deny file-write* (subpath (param "STOCK_APP")))' \
-    '/Users/marcboyer/Library/Containers/com.apple.FinalCut' \
-    '/Users/marcboyer/Library/Preferences/com.apple.FinalCut.plist' \
+    '(subpath "/Users/marcboyer/Library/Containers/com.apple.FinalCut")' \
+    '(literal "/Users/marcboyer/Library/Preferences/com.apple.FinalCut.plist")' \
     '/Users/marcboyer/Library/Saved Application State/com.apple.FinalCut.savedState' \
     '/Users/marcboyer/Library/Caches/com.apple.FinalCut'; do
     require_fragment "$required_profile_fragment" "$profile" "sandbox profile"
+done
+
+mock_child="$test_dir/mock-isolated-child.zsh"
+mock_profile="$test_dir/mock-child-profile.sb"
+print -r -- '#!/bin/zsh' > "$mock_child"
+print -r -- 'print -r -- "__CFPREFERENCES_AVOID_DAEMON=${__CFPREFERENCES_AVOID_DAEMON-unset}"' >> "$mock_child"
+/bin/chmod 700 "$mock_child"
+print -r -- '(version 1)' > "$mock_profile"
+print -r -- '(allow default)' >> "$mock_profile"
+mock_child_helper="$test_dir/mock-child-helper.zsh"
+{
+    /usr/bin/sed -n '/^launch_isolated_child()/,/^}/p' "$launcher"
+} > "$mock_child_helper"
+mock_isolated_home="$test_dir/mock-isolated-home"
+/bin/mkdir -p "$mock_isolated_home/tmp" "$mock_isolated_home/Library/Caches"
+for mock_mode in plain bootstrap_library bootstrap_project; do
+    mock_stdout="$test_dir/mock-$mock_mode.stdout"
+    mock_stderr="$test_dir/mock-$mock_mode.stderr"
+    if ! __CFPREFERENCES_AVOID_DAEMON=caller_contamination /bin/zsh -f -c '
+        source "$1"
+        isolated_home="$4"
+        profile="$5"
+        allowed_library="$6"
+        stock_app="/Applications/Final Cut Pro.app"
+        copied_executable="$7"
+        case "$8" in
+            plain) bootstrap_environment=() ;;
+            bootstrap_library) bootstrap_environment=(FCPCC_BOOTSTRAP_DISPOSABLE_LIBRARY=1) ;;
+            bootstrap_project) bootstrap_environment=(FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT=1) ;;
+            *) exit 64 ;;
+        esac
+        launch_isolated_child "$2" "$3"
+    ' -- "$mock_child_helper" "$mock_stdout" "$mock_stderr" "$mock_isolated_home" "$mock_profile" "$test_dir/mock-allowed-library" "$mock_child" "$mock_mode"; then
+        fail "mock copied child execution failed for launch mode: $mock_mode"
+    fi
+    if [[ "$(<"$mock_stdout")" != '__CFPREFERENCES_AVOID_DAEMON=1' ]]; then
+        fail "mock copied child did not receive exact daemon-avoidance value in launch mode: $mock_mode"
+    fi
+    if [[ -s "$mock_stderr" ]]; then
+        fail "mock copied child emitted stderr in launch mode: $mock_mode"
+    fi
 done
 
 allowed_bundle="$test_dir/FCPCommandConsole Test.fcpbundle"
@@ -299,4 +340,4 @@ done
 /usr/bin/sandbox-exec "${profile_args[@]}" /usr/bin/stat -f '%z' "$allowed_bundle" > "$test_dir/allowed-metadata.txt" 2>&1 || fail "sandbox profile denied metadata access to the explicitly allowed disposable fixture"
 /usr/bin/sandbox-exec "${profile_args[@]}" /usr/bin/touch "$test_dir/runtime-write-probe" > "$test_dir/runtime-write.txt" 2>&1 || fail "sandbox profile denied a non-library runtime write"
 
-print -r -- "isolated_launcher_profile=pass denied_library_read_write_metadata=pass allowed_fixture=pass runtime_write=pass launcher_static_audit=pass"
+print -r -- "isolated_launcher_profile=pass denied_library_read_write_metadata=pass allowed_fixture=pass runtime_write=pass launcher_static_audit=pass daemon_avoidance_env_mock=pass daemon_avoidance_noninheritance=pass daemon_avoidance_launch_modes=plain,bootstrap_library,bootstrap_project"

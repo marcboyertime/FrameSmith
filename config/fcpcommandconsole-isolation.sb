@@ -24,8 +24,8 @@
 (deny file-write* (subpath (param "STOCK_APP")))
 
 ; Never fall back to the normal Final Cut preference, container, saved-state, or
-; cache locations. HOME and CFFIXED_USER_HOME point at an isolated runtime home
-; in the guarded launcher; these denials make a fallback fail closed instead.
+; cache locations. The launcher also forces CFPreferences direct mode; these exact
+; normal Final Cut preference-path denials make a direct-mode fallback fail closed.
 (deny file-read* file-write* file-read-metadata
   (subpath "/Users/marcboyer/Library/Containers/com.apple.FinalCut"))
 (deny file-read* file-write* file-read-metadata

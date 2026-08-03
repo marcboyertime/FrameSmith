@@ -465,6 +465,27 @@ run_profile_probes() {
     fi
 }
 
+launch_isolated_child() {
+    local child_stdout="$1" child_stderr="$2" child_pid
+    /usr/bin/env -i \
+        PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+        HOME="$isolated_home" \
+        CFFIXED_USER_HOME="$isolated_home" \
+        TMPDIR="$isolated_home/tmp" \
+        XDG_CACHE_HOME="$isolated_home/Library/Caches" \
+        FCPCC_ISOLATED_HOME="$isolated_home" \
+        __CFPREFERENCES_AVOID_DAEMON=1 \
+        "${bootstrap_environment[@]}" \
+        /usr/bin/sandbox-exec -f "$profile" \
+        -D "ALLOWED_LIBRARY=$allowed_library" \
+        -D "STOCK_APP=$stock_app" \
+        "$copied_executable" \
+        > "$child_stdout" \
+        2> "$child_stderr" &
+    child_pid=$!
+    wait "$child_pid"
+}
+
 if [[ "$#" -ne 1 || ( "$1" != "--preflight-only" && "$1" != "--launch" && "$1" != "--launch-bootstrap-disposable-library" && "$1" != "--launch-bootstrap-disposable-project" ) ]]; then
     usage
 fi
@@ -493,8 +514,8 @@ print -r -- "copied_app=$copied_app"
 print -r -- "copied_executable=$copied_executable"
 print -r -- "allowed_disposable_library=$allowed_library"
 print -r -- "isolation_home=$isolated_home"
-print -r -- "environment=HOME=$isolated_home CFFIXED_USER_HOME=$isolated_home TMPDIR=$isolated_home/tmp XDG_CACHE_HOME=$isolated_home/Library/Caches"
-print -r -- "limitation=sandbox-exec_is_deprecated_and_CFFIXED_USER_HOME_cannot_prove_isolation_of_every_daemon_mediated_state_write"
+print -r -- "environment=HOME=$isolated_home CFFIXED_USER_HOME=$isolated_home TMPDIR=$isolated_home/tmp XDG_CACHE_HOME=$isolated_home/Library/Caches FCPCC_ISOLATED_HOME=$isolated_home __CFPREFERENCES_AVOID_DAEMON=1"
+print -r -- "limitation=sandbox-exec_is_deprecated;_CFPreferences_daemon_avoidance_plus_exact_normal_Final_Cut_preference_file_denials_are_enforced;_before_after_normalized_preference_snapshots_remain_live_proof"
 print -r -- "preflight=pass provenance=$preflight_dir"
 [[ "$mode" == "--preflight-only" ]] && exit 0
 require_not_running "$preflight_dir/no-fcp-before-launch.txt"
@@ -513,23 +534,8 @@ else
     print -r -- "bootstrap_disposable_library=not_requested"
     print -r -- "bootstrap_disposable_project=not_requested"
 fi
-/usr/bin/env -i \
-    PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-    HOME="$isolated_home" \
-    CFFIXED_USER_HOME="$isolated_home" \
-    TMPDIR="$isolated_home/tmp" \
-    XDG_CACHE_HOME="$isolated_home/Library/Caches" \
-    FCPCC_ISOLATED_HOME="$isolated_home" \
-    "${bootstrap_environment[@]}" \
-    /usr/bin/sandbox-exec -f "$profile" \
-    -D "ALLOWED_LIBRARY=$allowed_library" \
-    -D "STOCK_APP=$stock_app" \
-    "$copied_executable" \
-    > "$preflight_dir/child.stdout" \
-    2> "$preflight_dir/child.stderr" &
-child_pid=$!
 child_status=0
-wait "$child_pid" || child_status=$?
+launch_isolated_child "$preflight_dir/child.stdout" "$preflight_dir/child.stderr" || child_status=$?
 print -r -- "launch=child_exit_status=$child_status"
 require_not_running "$preflight_dir/no-fcp-after-launch.txt"
 capture_normal_preferences "$preflight_dir/normal-preferences-after-launch"
