@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "purpose": "Stage 3 configuration only; no library is opened or inspected by this file.",
+  "purpose": "Exact enrolled disposable library identity for FCPCommandConsole live mutations.",
   "canonical_path": "/Users/marcboyer/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle",
-  "expected_device": null,
-  "expected_inode": null,
-  "persistent_uid": null,
-  "verification_state": "unverified_until_exactly_one_disposable_library_live_spike"
+  "expected_device": 16777232,
+  "expected_inode": 180223675,
+  "persistent_uid": "180223675",
+  "verification_state": "verified_by_disposable_library_bootstrap_F9FC4D4B-98DD-4C97-9A49-7B171FCF9BA8"
 }
