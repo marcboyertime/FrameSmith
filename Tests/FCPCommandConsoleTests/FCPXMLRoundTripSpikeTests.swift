@@ -37,14 +37,15 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
         return FCPXMLRoundTripSpikeBuilder(fixtureRoot: fixtureRoot, exportRoot: exportRoot, dtdURL: selectedDTD)
     }
 
-    func testBuildCreatesSelfContainedDTDValidThreeProbePackage() throws {
+    func testBuildCreatesReducedDTDValidDissolveAdmissionPackage() throws {
         let operationID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
         let package = try builder().build(operationID: operationID, generatedAt: Date(timeIntervalSince1970: 0))
 
         XCTAssertEqual(package.packageRoot, exportRoot.appendingPathComponent(operationID.uuidString))
-        XCTAssertEqual(package.mediaRecords.map(\.sourceFilename), ["clip-a.mov", "clip-b.mov", "living-still.png"])
+        XCTAssertEqual(package.mediaRecords.map(\.sourceFilename), ["clip-a.mov", "clip-b.mov"])
         XCTAssertTrue(FileManager.default.fileExists(atPath: package.packageRoot.appendingPathComponent("Returned").path))
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(at: package.packageRoot, includingPropertiesForKeys: nil).map(\.lastPathComponent).sorted(), ["FCPCommandConsole-RoundTrip-Spike.fcpxml", "Media", "README.md", "Returned", "evidence.json", "manifest.json", "plan.json", "provenance.json"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(at: package.packageRoot.appendingPathComponent("Media"), includingPropertiesForKeys: nil).map(\.lastPathComponent).sorted(), ["clip-a.mov", "clip-b.mov"])
 
         for record in package.mediaRecords {
             let copied = try ContentHasher.sha256File(record.copiedPath)
@@ -56,14 +57,18 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
 
         let xml = try String(contentsOf: package.fcpxmlURL, encoding: .utf8)
         XCTAssertTrue(xml.contains("<fcpxml version=\"1.13\">"))
-        XCTAssertEqual(xml.components(separatedBy: "<project ").count - 1, 3)
-        XCTAssertTrue(xml.contains("<transition name=\"Bare 1-second transition hypothesis\" offset=\"210/30s\" duration=\"30/30s\"/>"))
-        XCTAssertTrue(xml.contains("<adjust-transform"))
-        XCTAssertTrue(xml.contains("key=\"position\""))
-        XCTAssertTrue(xml.contains("key=\"scale\""))
-        XCTAssertTrue(xml.contains("key=\"rotation\""))
-        XCTAssertTrue(xml.contains("key=\"opacity\""))
-        XCTAssertTrue(xml.contains("duration=\"120/30s\""))
+        XCTAssertEqual(xml.components(separatedBy: "<event ").count - 1, 1)
+        XCTAssertEqual(xml.components(separatedBy: "<project ").count - 1, 1)
+        XCTAssertEqual(xml.components(separatedBy: "<asset-clip ").count - 1, 4)
+        XCTAssertEqual(xml.components(separatedBy: "Browser Clip").count - 1, 2)
+        XCTAssertEqual(xml.components(separatedBy: "audioRate=\"48000\"").count - 1, 2)
+        XCTAssertTrue(xml.contains("<format id=\"r1\" name=\"FFVideoFormat1080p30\"/>"))
+        XCTAssertTrue(xml.contains("format=\"r1\" start=\"0s\" duration=\"8s\" audioRole=\"dialogue\""))
+        XCTAssertTrue(xml.contains("<transition name=\"Bare 1-second transition hypothesis\" duration=\"1s\"/>"))
+        XCTAssertFalse(xml.contains("<transition name=\"Bare 1-second transition hypothesis\" offset="))
+        for forbidden in ["living-still", "adjust-", "<param", "keyframe", "filter", "uid", "offset=", "opacity", "color"] {
+            XCTAssertFalse(xml.localizedCaseInsensitiveContains(forbidden), "Unexpected revision-1 construct: \(forbidden)")
+        }
         XCTAssertFalse(xml.contains(fixtureRoot.path))
         XCTAssertFalse(xml.contains("fixtures & source"))
         XCTAssertTrue(xml.contains("file:///"))
@@ -71,7 +76,7 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
         try validateDTD(package.fcpxmlURL, dtd: try dtdURL())
     }
 
-    func testTypedEvidenceAndProvenanceStartUnknownAndRecordNoAutomationOrPaidUpload() throws {
+    func testRevisionTwoEvidenceAndProvenanceRecordPredecessorFailureAndPendingSemantics() throws {
         let package = try builder().build(operationID: UUID())
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -79,15 +84,31 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
         let provenance = try decoder.decode(FCPXMLRoundTripSpikeProvenance.self, from: Data(contentsOf: package.packageRoot.appendingPathComponent("provenance.json")))
         let plan = try decoder.decode(FCPXMLRoundTripSpikePlan.self, from: Data(contentsOf: package.packageRoot.appendingPathComponent("plan.json")))
 
-        XCTAssertFalse(evidence.checks.isEmpty)
-        XCTAssertTrue(evidence.checks.allSatisfy { $0.status == .unknown })
+        XCTAssertEqual(evidence.schemaVersion, "1.1")
+        XCTAssertEqual(evidence.probeRevision, 2)
+        XCTAssertEqual(provenance.schemaVersion, "1.1")
+        XCTAssertEqual(provenance.probeRevision, 2)
         XCTAssertEqual(provenance.semanticAcceptance, .unknown)
         XCTAssertFalse(provenance.finalCutAutomationPerformed)
         XCTAssertFalse(provenance.paidCallPerformed)
         XCTAssertFalse(provenance.mediaUploadPerformed)
         XCTAssertTrue(provenance.manualImportExportPending)
-        XCTAssertEqual(plan.probes.count, 3)
-        XCTAssertTrue(plan.probes.flatMap(\.assumptions).allSatisfy { $0.localizedCaseInsensitiveContains("unverified") || $0.localizedCaseInsensitiveContains("hypotheses") || $0.localizedCaseInsensitiveContains("hypothesis") })
+        XCTAssertEqual(plan.probes.count, 1)
+        XCTAssertEqual(plan.probeRevision, 2)
+        XCTAssertTrue(plan.probes.flatMap(\.assumptions).allSatisfy { $0.localizedCaseInsensitiveContains("unverified") })
+        XCTAssertEqual(evidence.checks.first(where: { $0.name == "DTD syntax validation" })?.status, .pass)
+        XCTAssertEqual(evidence.checks.first(where: { $0.name == "predecessor import" })?.status, .fail)
+        for name in ["asset admission", "bare transition native semantics", "transition timing and handles", "returned FCPXML round trip"] {
+            XCTAssertEqual(evidence.checks.first(where: { $0.name == name })?.status, .unknown)
+        }
+        let predecessor = provenance.predecessorFailure
+        XCTAssertEqual(predecessor.operationID, "A78B1B9D-60D7-4CD8-960B-FA9104C301E7")
+        XCTAssertEqual(predecessor.crashIncidentID, "42DFFCF1-9E45-41DA-992F-ADB212422B07")
+        XCTAssertEqual(predecessor.applicationVersion, "12.3")
+        XCTAssertEqual(predecessor.applicationBuild, "450152")
+        XCTAssertEqual(predecessor.occurredAt, "2026-08-03T08:24:55-04:00")
+        XCTAssertEqual(predecessor.status, .fail)
+        XCTAssertEqual(evidence.predecessorFailure, predecessor)
     }
 
     func testExistingTargetRefusesOverwriteAndFailedDTDPublishCleansExactStagingDirectory() throws {

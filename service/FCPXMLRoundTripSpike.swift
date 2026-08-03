@@ -47,6 +47,26 @@ public enum FCPXMLRoundTripEvidenceStatus: String, Codable, Equatable, Sendable 
     case unknown
 }
 
+public struct FCPXMLRoundTripSpikePredecessorFailure: Codable, Equatable, Sendable {
+    public let operationID: String
+    public let crashIncidentID: String
+    public let applicationVersion: String
+    public let applicationBuild: String
+    public let occurredAt: String
+    public let importStage: String
+    public let status: FCPXMLRoundTripEvidenceStatus
+
+    public init(operationID: String, crashIncidentID: String, applicationVersion: String, applicationBuild: String, occurredAt: String, importStage: String, status: FCPXMLRoundTripEvidenceStatus) {
+        self.operationID = operationID
+        self.crashIncidentID = crashIncidentID
+        self.applicationVersion = applicationVersion
+        self.applicationBuild = applicationBuild
+        self.occurredAt = occurredAt
+        self.importStage = importStage
+        self.status = status
+    }
+}
+
 public struct FCPXMLRoundTripSpikeMediaRecord: Codable, Equatable, Sendable {
     public let copiedPath: URL
     public let sha256: String
@@ -89,6 +109,7 @@ public struct FCPXMLRoundTripSpikePlan: Codable, Equatable, Sendable {
     }
 
     public let schemaVersion: String
+    public let probeRevision: Int
     public let operationID: UUID
     public let generatedAt: Date
     public let frameRate: String
@@ -97,6 +118,7 @@ public struct FCPXMLRoundTripSpikePlan: Codable, Equatable, Sendable {
 
 public struct FCPXMLRoundTripSpikeProvenance: Codable, Equatable, Sendable {
     public let schemaVersion: String
+    public let probeRevision: Int
     public let operationID: UUID
     public let generatedAt: Date
     public let finalCutAutomationPerformed: Bool
@@ -104,6 +126,7 @@ public struct FCPXMLRoundTripSpikeProvenance: Codable, Equatable, Sendable {
     public let mediaUploadPerformed: Bool
     public let manualImportExportPending: Bool
     public let semanticAcceptance: FCPXMLRoundTripEvidenceStatus
+    public let predecessorFailure: FCPXMLRoundTripSpikePredecessorFailure
 }
 
 public struct FCPXMLRoundTripSpikeEvidence: Codable, Equatable, Sendable {
@@ -114,13 +137,16 @@ public struct FCPXMLRoundTripSpikeEvidence: Codable, Equatable, Sendable {
     }
 
     public let schemaVersion: String
+    public let probeRevision: Int
     public let operationID: UUID
     public let generatedAt: Date
+    public let predecessorFailure: FCPXMLRoundTripSpikePredecessorFailure
     public let checks: [Check]
 }
 
 public struct FCPXMLRoundTripSpikeManifest: Codable, Equatable, Sendable {
     public let schemaVersion: String
+    public let probeRevision: Int
     public let operationID: UUID
     public let media: [FCPXMLRoundTripSpikeMediaRecord]
     public let expectedPackageEntries: [String]
@@ -163,21 +189,24 @@ public struct FCPXMLRoundTripSpikeBuilder: Sendable {
             let mediaRecords = try copyFixtures(to: mediaRoot, publishedMediaRoot: finalRoot.appendingPathComponent("Media", isDirectory: true))
             let plan = makePlan(operationID: operationID, generatedAt: generatedAt)
             let provenance = FCPXMLRoundTripSpikeProvenance(
-                schemaVersion: "1.0",
+                schemaVersion: "1.1",
+                probeRevision: 2,
                 operationID: operationID,
                 generatedAt: generatedAt,
                 finalCutAutomationPerformed: false,
                 paidCallPerformed: false,
                 mediaUploadPerformed: false,
                 manualImportExportPending: true,
-                semanticAcceptance: .unknown
+                semanticAcceptance: .unknown,
+                predecessorFailure: predecessorFailure()
             )
             let evidence = makeEvidence(operationID: operationID, generatedAt: generatedAt)
             let manifest = FCPXMLRoundTripSpikeManifest(
-                schemaVersion: "1.0",
+                schemaVersion: "1.1",
+                probeRevision: 2,
                 operationID: operationID,
                 media: mediaRecords,
-                expectedPackageEntries: ["Media/clip-a.mov", "Media/clip-b.mov", "Media/living-still.png", "FCPCommandConsole-RoundTrip-Spike.fcpxml", "plan.json", "provenance.json", "manifest.json", "evidence.json", "README.md", "Returned/"]
+                expectedPackageEntries: ["Media/clip-a.mov", "Media/clip-b.mov", "FCPCommandConsole-RoundTrip-Spike.fcpxml", "plan.json", "provenance.json", "manifest.json", "evidence.json", "README.md", "Returned/"]
             )
             try writeJSON(plan, to: stagingRoot.appendingPathComponent("plan.json"))
             try writeJSON(provenance, to: stagingRoot.appendingPathComponent("provenance.json"))
@@ -257,7 +286,7 @@ public struct FCPXMLRoundTripSpikeBuilder: Sendable {
     }
 
     private func copyFixtures(to mediaRoot: URL, publishedMediaRoot: URL) throws -> [FCPXMLRoundTripSpikeMediaRecord] {
-        let filenames = ["clip-a.mov", "clip-b.mov", "living-still.png"]
+        let filenames = ["clip-a.mov", "clip-b.mov"]
         return try filenames.map { filename in
             let source = fixtureRoot.appendingPathComponent(filename)
             guard !isSymbolicLink(source) else { throw FCPXMLRoundTripSpikeError.symlinkFixture(source) }
@@ -276,25 +305,36 @@ public struct FCPXMLRoundTripSpikeBuilder: Sendable {
 
     private func makePlan(operationID: UUID, generatedAt: Date) -> FCPXMLRoundTripSpikePlan {
         FCPXMLRoundTripSpikePlan(
-            schemaVersion: "1.0", operationID: operationID, generatedAt: generatedAt, frameRate: "30 fps (1/30s rational timing)",
+            schemaVersion: "1.1", probeRevision: 2, operationID: operationID, generatedAt: generatedAt, frameRate: "30 fps admission probe",
             probes: [
-                .init(projectName: "Probe 1 — Bare 1-Second Transition", purpose: "Two copied movie clips with a bare 1-second transition.", assumptions: ["A bare transition is a DTD-valid but unverified syntax probe.", "Final Cut's native transition interpretation is unverified pending returned FCPXML."]),
-                .init(projectName: "Probe 2 — Targeted Transform Hypothesis", purpose: "Copied clip-a with explicit position, scale, and rotation keyframe attempts.", assumptions: ["Transform parameter names, keys, and units are hypotheses.", "Target metadata uses normalized-frame coordinates and is unverified pending returned FCPXML."]),
-                .init(projectName: "Probe 3 — Living Still Opacity Hypothesis", purpose: "Four-second copied still with transform and opacity/fade keyframe attempts.", assumptions: ["Transform and opacity parameter names, keys, and units are hypotheses.", "Native monochrome/desaturation and modest contrast must be added manually after import; its semantic result is unverified."])
+                .init(projectName: "FCPCommandConsole Dissolve Admission Probe", purpose: "Minimal two-asset admission probe with browser clips and a bare 1-second transition.", assumptions: ["Asset admission and native transition semantics are unverified pending manual import and returned FCPXML."])
             ]
         )
     }
 
     private func makeEvidence(operationID: UUID, generatedAt: Date) -> FCPXMLRoundTripSpikeEvidence {
         FCPXMLRoundTripSpikeEvidence(
-            schemaVersion: "1.0", operationID: operationID, generatedAt: generatedAt,
+            schemaVersion: "1.1", probeRevision: 2, operationID: operationID, generatedAt: generatedAt, predecessorFailure: predecessorFailure(),
             checks: [
-                .init(name: "DTD validation", status: .unknown, note: "Package generation performs this syntax check; this ledger starts unknown until reviewed."),
+                .init(name: "DTD syntax validation", status: .pass, note: "xmllint --nonet validated this generated source against the installed FCPXML 1.13 DTD before publication."),
+                .init(name: "predecessor import", status: .fail, note: "Operation A78B1B9D-60D7-4CD8-960B-FA9104C301E7 aborted during asset-clip import; incident 42DFFCF1-9E45-41DA-992F-ADB212422B07."),
+                .init(name: "asset admission", status: .unknown, note: "Requires manual import into the disposable Final Cut library."),
                 .init(name: "bare transition native semantics", status: .unknown, note: "Requires manual import and returned FCPXML inspection."),
-                .init(name: "targeted transform native semantics", status: .unknown, note: "Parameter names, keys, and units are hypotheses pending returned FCPXML."),
-                .init(name: "living still transform and opacity native semantics", status: .unknown, note: "Parameter names, keys, and units are hypotheses pending returned FCPXML."),
-                .init(name: "manual monochrome and contrast", status: .unknown, note: "Must be applied natively by the user to the designated living-still probe clip.")
+                .init(name: "transition timing and handles", status: .unknown, note: "Requires manual import and returned FCPXML inspection."),
+                .init(name: "returned FCPXML round trip", status: .unknown, note: "Requires a manually exported FCPXML in Returned/.")
             ]
+        )
+    }
+
+    private func predecessorFailure() -> FCPXMLRoundTripSpikePredecessorFailure {
+        FCPXMLRoundTripSpikePredecessorFailure(
+            operationID: "A78B1B9D-60D7-4CD8-960B-FA9104C301E7",
+            crashIncidentID: "42DFFCF1-9E45-41DA-992F-ADB212422B07",
+            applicationVersion: "12.3",
+            applicationBuild: "450152",
+            occurredAt: "2026-08-03T08:24:55-04:00",
+            importStage: "FFXMLImporter AssetClipImport addAssetClip:toObject:parentFormatID:",
+            status: .fail
         )
     }
 
@@ -308,32 +348,21 @@ public struct FCPXMLRoundTripSpikeBuilder: Sendable {
         }
         let clipAURL = xmlAttribute(fileURLString(try requiredMediaRecord(named: "clip-a.mov", in: byName).copiedPath))
         let clipBURL = xmlAttribute(fileURLString(try requiredMediaRecord(named: "clip-b.mov", in: byName).copiedPath))
-        let stillURL = xmlAttribute(fileURLString(try requiredMediaRecord(named: "living-still.png", in: byName).copiedPath))
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <fcpxml version="1.13">
           <resources>
-            <format id="r1" name="FFVideoFormat1080p30" frameDuration="1/30s" width="1920" height="1080" colorSpace="1-1-1 (Rec. 709)"/>
-            <asset id="r2" name="clip-a.mov" start="0s" duration="240/30s" hasVideo="1" format="r1" hasAudio="1" audioSources="1" audioChannels="2" audioRate="48k"><media-rep kind="original-media" src="\(clipAURL)"/></asset>
-            <asset id="r3" name="clip-b.mov" start="0s" duration="240/30s" hasVideo="1" format="r1" hasAudio="1" audioSources="1" audioChannels="2" audioRate="48k"><media-rep kind="original-media" src="\(clipBURL)"/></asset>
-            <asset id="r4" name="living-still.png" start="0s" duration="120/30s" hasVideo="1" format="r1"><media-rep kind="original-media" src="\(stillURL)"/></asset>
+            <format id="r1" name="FFVideoFormat1080p30"/>
+            <asset id="r2" name="clip-a.mov" start="0s" duration="8s" hasVideo="1" hasAudio="1" format="r1" audioSources="1" audioChannels="2" audioRate="48000"><media-rep kind="original-media" src="\(clipAURL)"/></asset>
+            <asset id="r3" name="clip-b.mov" start="0s" duration="8s" hasVideo="1" hasAudio="1" format="r1" audioSources="1" audioChannels="2" audioRate="48000"><media-rep kind="original-media" src="\(clipBURL)"/></asset>
           </resources>
-          <event name="FCPCommandConsole Round-Trip Spike — Manual Import Only">
-            <project name="Probe 1 — Bare 1-Second Transition"><sequence format="r1" duration="450/30s" tcStart="0s" tcFormat="NDF"><spine>
-              <asset-clip name="clip-a.mov — transition source A" ref="r2" offset="0s" duration="240/30s" start="0s"/>
-              <transition name="Bare 1-second transition hypothesis" offset="210/30s" duration="30/30s"/>
-              <asset-clip name="clip-b.mov — transition source B" ref="r3" offset="210/30s" duration="240/30s" start="0s"/>
-            </spine></sequence></project>
-            <project name="Probe 2 — Targeted Transform Hypothesis"><sequence format="r1" duration="120/30s" tcStart="0s" tcFormat="NDF"><spine>
-              <asset-clip name="clip-a.mov — normalized target 0.68, 0.34 (hypothesis)" ref="r2" offset="0s" duration="120/30s" start="0s">
-                <adjust-transform position="0 0" scale="1 1" rotation="0"><param name="Position" key="position" value="0 0"><keyframeAnimation><keyframe time="0s" value="0 0" interp="linear"/><keyframe time="120/30s" value="-48 36" interp="easeIn"/></keyframeAnimation></param><param name="Scale" key="scale" value="1 1"><keyframeAnimation><keyframe time="0s" value="1 1" interp="linear"/><keyframe time="120/30s" value="1.3 1.3" interp="easeIn"/></keyframeAnimation></param><param name="Rotation" key="rotation" value="0"><keyframeAnimation><keyframe time="0s" value="0" interp="linear"/><keyframe time="120/30s" value="12" interp="easeIn"/></keyframeAnimation></param></adjust-transform>
-              </asset-clip>
-            </spine></sequence></project>
-            <project name="Probe 3 — Living Still Opacity Hypothesis"><sequence format="r1" duration="120/30s" tcStart="0s" tcFormat="NDF"><spine>
-              <asset-clip name="DESIGNATED: apply native monochrome/desaturation plus modest contrast manually" ref="r4" offset="0s" duration="120/30s" start="0s">
-                <adjust-transform position="0 0" scale="1 1" rotation="0"><param name="Position" key="position" value="0 0"><keyframeAnimation><keyframe time="0s" value="0 0" interp="linear"/><keyframe time="120/30s" value="24 0" interp="easeIn"/></keyframeAnimation></param><param name="Scale" key="scale" value="1 1"><keyframeAnimation><keyframe time="0s" value="1 1" interp="linear"/><keyframe time="120/30s" value="1.08 1.08" interp="easeIn"/></keyframeAnimation></param></adjust-transform>
-                <adjust-blend amount="1"><param name="Opacity" key="opacity" value="1"><keyframeAnimation><keyframe time="0s" value="1" interp="linear"/><keyframe time="108/30s" value="1" interp="linear"/><keyframe time="120/30s" value="0" interp="easeOut"/></keyframeAnimation></param></adjust-blend>
-              </asset-clip>
+          <event name="FCPCommandConsole Dissolve Admission Probe">
+            <asset-clip name="clip-a.mov Browser Clip" ref="r2" format="r1" start="0s" duration="8s" audioRole="dialogue"/>
+            <asset-clip name="clip-b.mov Browser Clip" ref="r3" format="r1" start="0s" duration="8s" audioRole="dialogue"/>
+            <project name="FCPCommandConsole Dissolve Admission Probe"><sequence format="r1"><spine>
+              <asset-clip name="clip-a.mov" ref="r2" format="r1" start="0s" duration="8s" audioRole="dialogue"/>
+              <transition name="Bare 1-second transition hypothesis" duration="1s"/>
+              <asset-clip name="clip-b.mov" ref="r3" format="r1" start="0s" duration="8s" audioRole="dialogue"/>
             </spine></sequence></project>
           </event>
         </fcpxml>
@@ -425,17 +454,17 @@ public struct FCPXMLRoundTripSpikeBuilder: Sendable {
 
     private func readme(operationID: UUID) -> String {
         """
-        # FCPCommandConsole FCPXML Round-Trip Spike
+        # FCPCommandConsole Dissolve Admission Probe (Revision 2)
 
         Operation: \(operationID.uuidString)
 
-        This package is a syntax-validated manual probe, not an accepted Final Cut result. It did not automate Final Cut Pro, call a paid service, or upload media. All native semantic evidence begins as `unknown` in `evidence.json`.
+        This is a syntax-validated, reduced admission probe—not an accepted Final Cut result. It did not automate Final Cut Pro, call a paid service, or upload media. Revision 1 failed during import before semantics were observed; its exact incident metadata is recorded in `provenance.json` and `evidence.json`.
 
         1. In Final Cut Pro, manually import `FCPCommandConsole-RoundTrip-Spike.fcpxml` into the disposable **FCPCommandConsole Test** library only. Do not import into any production library.
-        2. Inspect the three named projects: the bare one-second transition, the targeted transform keyframe attempts, and the living-still transform/opacity attempt.
-        3. In **Probe 3 — Living Still Opacity Hypothesis**, select the clip named **DESIGNATED: apply native monochrome/desaturation plus modest contrast manually**. Apply Final Cut's native monochrome or desaturation adjustment and modest contrast manually. This package deliberately does not contain an effect UID.
-        4. Export the imported event or relevant projects as FCPXML into this package's empty `Returned/` folder. Do not replace the generated source FCPXML.
-        5. Return the exported FCPXML to the primary session for semantic inspection. A DTD-valid source file does not prove Final Cut accepted the names, keys, units, transition, transform, opacity, or color changes as intended.
+        2. Verify that one project and two browser clips appear without Final Cut reporting an error or crashing. Then inspect whether the bare one-second transition appears.
+        3. If Final Cut reports an error or crashes, stop immediately and report it. Do not retry the prior package or alter this immutable package.
+        4. If import succeeds, export the event or project as FCPXML into this package's empty `Returned/` folder. Do not replace the generated source FCPXML.
+        5. Return the exported FCPXML to the primary session. Do not apply color, inspect transforms, or test opacity in this revision.
         """
     }
 }
