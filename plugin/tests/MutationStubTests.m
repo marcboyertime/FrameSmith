@@ -38,6 +38,37 @@ FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeave
     NSUInteger projectCreationInvocationCount,
     NSUInteger importInvocationCount,
     NSUInteger appendInvocationCount);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectResumeTestArmingIsExclusive(
+    BOOL createArm,
+    BOOL resumeArm,
+    BOOL libraryArm);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectResumeTestAdmissionAllowsOnlyExactEmptyProject(
+    BOOL completeTraversal,
+    NSUInteger enrolledLibraryCount,
+    NSUInteger defaultEventCount,
+    NSUInteger exactSequenceCount,
+    BOOL stableSequenceIdentifier,
+    NSUInteger ownedClipCount,
+    NSUInteger primaryStorylineCount);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectResumeTestNeverCreatesProject(
+    BOOL resumeArmed,
+    NSUInteger projectCreationInvocationCount,
+    NSUInteger resumeInvocationCount,
+    NSUInteger importInvocationCount,
+    NSUInteger appendInvocationCount);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectResumeTestNilReadinessIsPendingOnlyAtReviewedBoundary(
+    BOOL receiverIsNil,
+    BOOL editorReadinessBoundary);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectResumeTestLibraryOpenIsAdmittedOnceAndNeverCreates(
+    BOOL resumeArmed,
+    NSUInteger libraryOpenInvocationCount,
+    NSUInteger libraryCreateInvocationCount,
+    NSUInteger projectCreationInvocationCount);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectResumeTestEmptyProjectInvariant(
+    BOOL ownedClipsRecognized,
+    NSUInteger ownedClipCount,
+    BOOL ownedItemIsPinnedSequence,
+    NSUInteger importedMediaCount);
 FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestActiveSessionOwnershipStartsAsyncBranch(void);
 FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestDuplicateActiveSessionStartFailsClosed(void);
 FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestFinishReleasesIdentityMatchingSession(void);
@@ -121,6 +152,54 @@ int main(void) {
                     && FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeavesProjectMutationsAtZero(YES, NO, 0, 0, 0)
                     && !FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeavesProjectMutationsAtZero(NO, YES, 1, 0, 0),
                     @"failed public library-open completion did not preserve zero project mutations")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableProjectResumeTestArmingIsExclusive(NO, YES, NO)
+                    && !FCPCCDisposableProjectResumeTestArmingIsExclusive(YES, YES, NO)
+                    && !FCPCCDisposableProjectResumeTestArmingIsExclusive(NO, NO, NO)
+                    && !FCPCCDisposableProjectResumeTestArmingIsExclusive(NO, YES, YES),
+                    @"Schema 16 resume arm overlapped project creation or library creation")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableProjectResumeTestAdmissionAllowsOnlyExactEmptyProject(YES, 1, 1, 1, YES, 0, 0)
+                    && !FCPCCDisposableProjectResumeTestAdmissionAllowsOnlyExactEmptyProject(YES, 2, 1, 1, YES, 0, 0)
+                    && !FCPCCDisposableProjectResumeTestAdmissionAllowsOnlyExactEmptyProject(YES, 1, 2, 1, YES, 0, 0)
+                    && !FCPCCDisposableProjectResumeTestAdmissionAllowsOnlyExactEmptyProject(YES, 1, 1, 2, YES, 0, 0)
+                    && !FCPCCDisposableProjectResumeTestAdmissionAllowsOnlyExactEmptyProject(YES, 1, 1, 1, NO, 0, 0)
+                    && !FCPCCDisposableProjectResumeTestAdmissionAllowsOnlyExactEmptyProject(YES, 1, 1, 1, YES, 1, 0)
+                    && !FCPCCDisposableProjectResumeTestAdmissionAllowsOnlyExactEmptyProject(YES, 1, 1, 1, YES, 0, 1),
+                    @"Schema 16 resume admission accepted ambiguous or nonempty project state")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableProjectResumeTestNeverCreatesProject(YES, 0, 1, 3, 3)
+                    && !FCPCCDisposableProjectResumeTestNeverCreatesProject(YES, 1, 1, 0, 0)
+                    && !FCPCCDisposableProjectResumeTestNeverCreatesProject(YES, 0, 2, 0, 0)
+                    && !FCPCCDisposableProjectResumeTestNeverCreatesProject(NO, 0, 1, 0, 0),
+                    @"Schema 16 resume did not preserve zero project-create invocations")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableProjectResumeTestNilReadinessIsPendingOnlyAtReviewedBoundary(YES, YES)
+                    && !FCPCCDisposableProjectResumeTestNilReadinessIsPendingOnlyAtReviewedBoundary(YES, NO)
+                    && !FCPCCDisposableProjectResumeTestNilReadinessIsPendingOnlyAtReviewedBoundary(NO, YES),
+                    @"Schema 16 nil receiver readiness was not bounded to reviewed editor stages")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableProjectResumeTestLibraryOpenIsAdmittedOnceAndNeverCreates(YES, 1, 0, 0)
+                    && FCPCCDisposableProjectResumeTestLibraryOpenIsAdmittedOnceAndNeverCreates(YES, 0, 0, 0)
+                    && !FCPCCDisposableProjectResumeTestLibraryOpenIsAdmittedOnceAndNeverCreates(YES, 2, 0, 0)
+                    && !FCPCCDisposableProjectResumeTestLibraryOpenIsAdmittedOnceAndNeverCreates(YES, 1, 1, 0)
+                    && !FCPCCDisposableProjectResumeTestLibraryOpenIsAdmittedOnceAndNeverCreates(YES, 1, 0, 1)
+                    && !FCPCCDisposableProjectResumeTestLibraryOpenIsAdmittedOnceAndNeverCreates(NO, 1, 0, 0),
+                    @"Schema 16 resume library open was not the admitted one-shot non-creating route")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableProjectResumeTestEmptyProjectInvariant(YES, 1, YES, 0)
+                    && !FCPCCDisposableProjectResumeTestEmptyProjectInvariant(YES, 0, YES, 0)
+                    && !FCPCCDisposableProjectResumeTestEmptyProjectInvariant(YES, 2, YES, 0)
+                    && !FCPCCDisposableProjectResumeTestEmptyProjectInvariant(YES, 1, NO, 0)
+                    && !FCPCCDisposableProjectResumeTestEmptyProjectInvariant(NO, 1, YES, 0)
+                    && !FCPCCDisposableProjectResumeTestEmptyProjectInvariant(YES, 1, YES, 3),
+                    @"Schema 16 resume empty-project invariant accepted a wrong or unobservable relationship")) {
             return 1;
         }
         if (require(FCPCCDisposableProjectBootstrapTestActiveSessionOwnershipStartsAsyncBranch()

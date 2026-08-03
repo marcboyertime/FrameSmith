@@ -128,7 +128,7 @@ verify_audio_unit_validation_containment_policy() {
           "ThirdPartyAudioUnitsAvailability": "unavailable_only_in_copied_app_process"
         }
     ' >/dev/null; then
-        fail "audio-unit validation containment policy is not the exact Schema 15 contract: $policy_path"
+        fail "audio-unit validation containment policy is not the exact Schema 16 output contract: $policy_path"
     fi
 }
 
@@ -804,7 +804,7 @@ if [[ -e "$retired_runtime_policy_source" || -e "$retired_runtime_policy_build" 
     fail "retired isolated preference policy remains present"
 fi
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "15" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "16" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
         fail "compatibility policy copied-host, receipt, or onboarding identity is not exact"
     fi
     verify_audio_unit_validation_containment_policy "$policy_path"
@@ -1146,7 +1146,7 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
     current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$patcher_script")"
     for required_current_policy_fragment in \
         'Print :SchemaVersion' \
-        '" != "15"' \
+        '" != "16"' \
         'ExpectedHostBundleIdentifier' \
         'ExpectedCopiedHostBundlePath' \
         'ExpectedHostVersion' \
@@ -1181,16 +1181,18 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         '0xc74c0' \
         'immediate_noop_return_without_completion_access' \
         'ApprovedMethodReplacements:2' \
+        'verify_disposable_project_bootstrap_policy' \
+        'verify_disposable_project_resume_policy' \
         'verify_audio_unit_validation_containment_policy'; do
         if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q "$required_current_policy_fragment"; then
-            fail "patcher current Schema 15 policy contract is missing: $required_current_policy_fragment"
+            fail "patcher current Schema 16 policy contract is missing: $required_current_policy_fragment"
         fi
     done
     if print -r -- "$current_policy_source" | "$rg_bin" -F -q 'discard_query_block_noop'; then
-        fail "patcher current Schema 15 policy retains the retired query-discard contract"
+        fail "patcher current Schema 16 policy retains the retired query-discard contract"
     fi
     if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q 'invalid Cloud nested-block argument-count condition'; then
-        fail "patcher current Schema 15 policy does not reject a restored Cloud nested-block argument-count condition"
+        fail "patcher current Schema 16 policy does not reject a restored Cloud nested-block argument-count condition"
     fi
     audio_unit_policy_source="$(/usr/bin/sed -n '/^verify_audio_unit_validation_containment_policy()/,/^}/p' "$patcher_script")"
     for required_audio_unit_policy_fragment in \
@@ -1216,7 +1218,7 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         'NoRetryUIFCPXMLOrGenericDispatch' \
         'ThirdPartyAudioUnitsAvailability'; do
         if ! print -r -- "$audio_unit_policy_source" | "$rg_bin" -F -q -- "$required_audio_unit_policy_fragment"; then
-            fail "patcher Schema 15 Audio Unit containment policy contract is missing: $required_audio_unit_policy_fragment"
+            fail "patcher Schema 16 Audio Unit containment policy contract is missing: $required_audio_unit_policy_fragment"
         fi
     done
     project_policy_source="$(/usr/bin/sed -n '/^verify_disposable_project_bootstrap_policy()/,/^}/p' "$patcher_script")"
@@ -1224,6 +1226,7 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         'DisposableProjectBootstrap:ExecutionEnabled' \
         'FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT' \
         'FCPCCDisposableProjectBootstrapContracts' \
+        'DisposableProjectBootstrap:ObservationIntervalMilliseconds' \
         'FFProjectDocument' \
         'actionNewProject:name:sequence:actionName:error:' \
         'FFLibrary' \
@@ -1243,6 +1246,35 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         'FixtureSHA256:2'; do
         if ! print -r -- "$project_policy_source" | "$rg_bin" -F -q -- "$required_project_policy_fragment"; then
             fail "patcher disposable-project policy contract is missing: $required_project_policy_fragment"
+        fi
+    done
+    # The Schema 16 resume arm is a separate fail-closed contract. It must be
+    # exclusive of both create arms and must never invoke project creation.
+    resume_policy_source="$(/usr/bin/sed -n '/^verify_disposable_project_resume_policy()/,/^}/p' "$patcher_script")"
+    for required_resume_policy_fragment in \
+        'DisposableProjectResume:ExecutionEnabled' \
+        'FCPCC_RESUME_DISPOSABLE_PROJECT' \
+        'DisposableProjectResume:CreateArmMustBeAbsent' \
+        'DisposableProjectResume:LibraryCreateArmMustBeAbsent' \
+        'disposable_project_resume' \
+        'actionNewProject:name:sequence:actionName:error:' \
+        'DisposableProjectResume:NoAutoRetry' \
+        'DisposableProjectResume:PublicLibraryOpenAdmitted' \
+        'NSDocumentController.openDocumentWithContentsOfURL:display:completionHandler:' \
+        'DisposableProjectResume:PublicLibraryOpenMaximumInvocations' \
+        'DisposableProjectResume:PublicLibraryOpenNeverCreatesRemovesOrOverwritesLibrary' \
+        'DisposableProjectResume:PublicLibraryOpenNoRetry' \
+        'DisposableProjectResume:RequiredOwnedClipCount' \
+        'DisposableProjectResume:RequiredOwnedProjectClass' \
+        'FFAnchoredSequence' \
+        'DisposableProjectResume:OwnedClipsIncludeExistingProject' \
+        'DisposableProjectResume:ProjectSetObservationRecordedOnly' \
+        'DisposableProjectResume:SequenceDisplayNameClass' \
+        'DisposableProjectResume:SequenceIdentifierClass' \
+        'FFBinObject' \
+        'DisposableProjectResume:SequenceIsNotAnFFAnchoredObject'; do
+        if ! print -r -- "$resume_policy_source" | "$rg_bin" -F -q -- "$required_resume_policy_fragment"; then
+            fail "patcher Schema 16 disposable-project resume policy contract is missing: $required_resume_policy_fragment"
         fi
     done
     for required_public_open_policy_fragment in \
@@ -1394,10 +1426,8 @@ for exact_schema14_provenance_fragment in \
     'verify_exact_schema14_preupdate_policy' \
     'verify_exact_schema14_complete_update_provenance' \
     'schema14-preupdate-provenance.txt' \
-    'exact_schema14_complete_update_provenance' \
-    'if [[ "$current_policy_schema" != "14" ]]' \
-    'Schema 15 update requires the one exact installed Schema-14 source'; do
-    require_fragment "$exact_schema14_provenance_fragment" "$runtime_updater" "exact Schema-14 to Schema 15 update admission"
+    'exact_schema14_complete_update_provenance'; do
+    require_fragment "$exact_schema14_provenance_fragment" "$runtime_updater" "retained historical exact Schema-14 update admission"
 done
 schema14_preupdate_policy_source="$(/usr/bin/sed -n '/^verify_exact_schema14_preupdate_policy()/,/^}/p' "$runtime_updater")"
 for required_schema14_preupdate_policy_fragment in \
@@ -1412,8 +1442,39 @@ for required_schema14_preupdate_policy_fragment in \
     fi
 done
 if "$rg_bin" -n -F '[[ "$current_policy_schema" == "' "$runtime_updater" >/dev/null; then
-    fail "Schema 15 updater retains a generic or legacy schema-selection route"
+    fail "Schema 16 updater retains a generic or legacy schema-selection route"
 fi
+
+# The Schema-16 update admits exactly one predecessor: the reviewed installed
+# Schema-15 artifact and its independently recorded verifier transaction. The
+# runtime, policy, helper, CDHash, and team are all pinned before any staging.
+for exact_schema15_provenance_fragment in \
+    'expected_schema15_runtime_sha256="856c25f6614fe627fa8ea634f5ace0b67a01ba35319560e1d4c1d493c864b47d"' \
+    'expected_schema15_policy_sha256="081c0e15616afae5109773bf633c922662fd160f3b186aad2e21c7efeb7fd125"' \
+    'expected_schema15_helper_sha256="ca4c63838e115f80c0657d95550bd8cc3cc09535c519ef542f3d21a8f191a299"' \
+    'expected_schema15_copied_cdhash_full="21e99732e747821cb4aa06467b195f33247a15fad7535ea132e77609c3820b44"' \
+    'expected_schema15_team_identifier="KDV9RC892F"' \
+    'expected_schema15_source_provenance="/Users/marcboyer/Movies/FCPCommandConsole/provenance/patch-20260803T053233Z-verify-56034"' \
+    'verify_exact_schema15_preupdate_policy' \
+    'verify_exact_schema15_complete_update_provenance' \
+    'schema15-preupdate-provenance.txt' \
+    'exact_schema15_complete_update_provenance' \
+    'if [[ "$current_policy_schema" != "15" ]]' \
+    'Schema 16 update requires the one exact installed Schema-15 source'; do
+    require_fragment "$exact_schema15_provenance_fragment" "$runtime_updater" "exact Schema-15 to Schema 16 update admission"
+done
+schema15_preupdate_policy_source="$(/usr/bin/sed -n '/^verify_exact_schema15_preupdate_policy()/,/^}/p' "$runtime_updater")"
+for required_schema15_preupdate_policy_fragment in \
+    'Print :SchemaVersion' \
+    '" != "15"' \
+    'expected_schema15_policy_sha256' \
+    'expected_schema15_runtime_sha256' \
+    'expected_schema15_helper_sha256' \
+    'Print :AudioUnitValidationContainment'; do
+    if ! print -r -- "$schema15_preupdate_policy_source" | "$rg_bin" -F -q -- "$required_schema15_preupdate_policy_fragment"; then
+        fail "exact Schema-15 pre-update policy gate is missing: $required_schema15_preupdate_policy_fragment"
+    fi
+done
 
 updater_current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$runtime_updater")"
 for retired_current_updater_fragment in \
@@ -1439,14 +1500,14 @@ for required_migration_fragment in \
 done
 legacy_gate_line="$("$rg_bin" -n -F -- 'elif "$entitlement_verifier" --verify-legacy-migration-input' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
 legacy_classification_line="$("$rg_bin" -n -F -- 'entitlement_state=exact_retired_sandboxed_copy' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
-schema14_gate_line="$("$rg_bin" -n -F -- 'if [[ "$current_policy_schema" != "14" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+schema15_gate_line="$("$rg_bin" -n -F -- 'if [[ "$current_policy_schema" != "15" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
 migration_gate_line="$("$rg_bin" -n -F -- 'if [[ "$migration_required" != "false" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
-schema14_provenance_line="$("$rg_bin" -n -F -- 'verify_exact_schema14_complete_update_provenance' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/tail -n 1)"
-if [[ -z "$legacy_gate_line" || -z "$legacy_classification_line" || -z "$schema14_gate_line" || -z "$migration_gate_line" || -z "$schema14_provenance_line" || "$legacy_gate_line" -ge "$legacy_classification_line" || "$legacy_classification_line" -ge "$schema14_gate_line" || "$schema14_gate_line" -ge "$migration_gate_line" || "$migration_gate_line" -ge "$schema14_provenance_line" ]]; then
-    fail "Schema 15 admission must classify legacy entitlements, require exact installed Schema-14, reject migration before provenance verification, and then verify exact provenance"
+schema15_provenance_line="$("$rg_bin" -n -F -- 'verify_exact_schema15_complete_update_provenance' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/tail -n 1)"
+if [[ -z "$legacy_gate_line" || -z "$legacy_classification_line" || -z "$schema15_gate_line" || -z "$migration_gate_line" || -z "$schema15_provenance_line" || "$legacy_gate_line" -ge "$legacy_classification_line" || "$legacy_classification_line" -ge "$schema15_gate_line" || "$schema15_gate_line" -ge "$migration_gate_line" || "$migration_gate_line" -ge "$schema15_provenance_line" ]]; then
+    fail "Schema 16 admission must classify legacy entitlements, require exact installed Schema-15, reject migration before provenance verification, and then verify exact provenance"
 fi
 if "$rg_bin" -n -F '[[ "$current_policy_schema" == "' "$runtime_updater" >/dev/null; then
-    fail "Schema 15 updater retains a generic or legacy schema-selection route"
+    fail "Schema 16 updater retains a generic or legacy schema-selection route"
 fi
 
 # The deployed Schema-7 source remains independently constrained. The current

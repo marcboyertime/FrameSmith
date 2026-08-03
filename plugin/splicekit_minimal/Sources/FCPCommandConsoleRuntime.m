@@ -53,6 +53,10 @@ static NSString * const FCPCCDisposableLibraryBootstrapProvenanceDirectory = @"/
 static NSString * const FCPCCDisposableLibraryBootstrapProvenancePrefix = @"disposable-library-bootstrap-";
 static NSString * const FCPCCDisposableProjectBootstrapEnvironmentName = @"FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT";
 static NSString * const FCPCCDisposableProjectBootstrapEnvironmentValue = @"1";
+// Schema 16 deliberately does not reuse the project-creation arm.  The
+// resume arm can operate only on the already-created, enrolled empty project.
+static NSString * const FCPCCDisposableProjectResumeEnvironmentName = @"FCPCC_RESUME_DISPOSABLE_PROJECT";
+static NSString * const FCPCCDisposableProjectResumeEnvironmentValue = @"1";
 static NSString * const FCPCCDisposableProjectBootstrapFixturesRootPath = @"/Users/marcboyer/Movies/FCPCommandConsole/fixtures";
 static NSString * const FCPCCDisposableProjectBootstrapClipAPath = @"/Users/marcboyer/Movies/FCPCommandConsole/fixtures/clip-a.mov";
 static NSString * const FCPCCDisposableProjectBootstrapClipBPath = @"/Users/marcboyer/Movies/FCPCommandConsole/fixtures/clip-b.mov";
@@ -64,10 +68,18 @@ static const char * const FCPCCDisposableProjectBootstrapClipBSHA256 = "a38a03bf
 static const char * const FCPCCDisposableProjectBootstrapLivingStillSHA256 = "170df5348f53221de630c7d7b385e6189f53a27baa2f2246ec7df4f379ed2567";
 static NSString * const FCPCCDisposableProjectBootstrapPasteboardPrefix = @"com.fcpcommandconsole.disposable-project.";
 static const NSUInteger FCPCCDisposableProjectBootstrapMaximumObservationTurns = 24;
+// Each observation turn waits a fixed interval. Re-dispatching with no delay
+// drains the whole 24-turn budget within a few runloop iterations, which cannot
+// observe a host UI state that takes seconds to become ready.
+static const NSUInteger FCPCCDisposableProjectBootstrapObservationIntervalMilliseconds = 1000;
 static const NSTimeInterval FCPCCDisposableProjectBootstrapLibraryOpenCompletionTimeoutSeconds = 30.0;
 
 static BOOL FCPCCFileSHA256MatchesExpectedHex(NSString *path, const char *expectedHex);
 static BOOL FCPCCDisposableProjectBootstrapEnvironmentIsExact(void);
+static BOOL FCPCCDisposableProjectResumeEnvironmentIsExact(void);
+static BOOL FCPCCDisposableProjectOperationEnvironmentIsExact(void);
+static NSString *FCPCCDisposableProjectBootstrapBoundedProvenanceString(NSString *value,
+                                                                          NSString *fallback);
 
 CGPoint FCPCCProductNormalizedPointToCandidateFCPPixels(CGPoint normalizedPoint,
                                                          CGSize frameSize) {
@@ -1398,6 +1410,20 @@ static const FCPCCFixedObjCMethodContract FCPCCContainedItemsContract = {
 static const FCPCCFixedObjCMethodContract FCPCCDisplayNameContract = {
     "FFAnchoredObject", "displayName", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0xa77f8, 0xe7260,
 };
+// Separately admitted Schema 16 sequence contracts. FFAnchoredSequence is NOT a
+// descendant of FFAnchoredObject in Final Cut 12.3: its chain is
+// FFAnchoredSequence -> FFMediaState -> FFMedia -> FFBinObject. The anchored
+// object contracts below therefore never match a sequence receiver. displayName
+// is overridden on FFAnchoredSequence itself; identifier resolves on FFBinObject.
+// Offsets were read from the pinned Flexo image
+// (704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e) with
+// otool -o -v, the same static route used for every other contract here.
+static const FCPCCFixedObjCMethodContract FCPCCSequenceDisplayNameContract = {
+    "FFAnchoredSequence", "displayName", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0xd37bc, 0x127880,
+};
+static const FCPCCFixedObjCMethodContract FCPCCSequenceIdentifierContract = {
+    "FFBinObject", "identifier", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0x272af0, 0x380e80,
+};
 static const FCPCCFixedObjCMethodContract FCPCCIdentifierContract = {
     "FFAnchoredObject", "identifier", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0xa7a50, 0xe75d0,
 };
@@ -1815,7 +1841,7 @@ static BOOL FCPCCInstallAudioUnitValidationContainmentForDisposableProjectBootst
     // Mark failed before each fixed read-only check: no later lifecycle route
     // can turn a failed contract into a second availability attempt.
     FCPCCAudioUnitValidationContainmentState = FCPCCAudioUnitValidationContainmentInstallStateFailed;
-    if (!FCPCCDisposableProjectBootstrapEnvironmentIsExact()) {
+    if (!FCPCCDisposableProjectOperationEnvironmentIsExact()) {
         FCPCCReportAudioUnitValidationContainmentInstall(FCPCCAudioUnitValidationContainmentInstallStatusEnvironmentNotExact);
         return NO;
     }
@@ -1881,7 +1907,7 @@ static BOOL FCPCCInstallAudioUnitValidationContainmentForDisposableProjectBootst
 
 static BOOL FCPCCAudioUnitValidationContainmentAllowsDisposableProjectBootstrapScheduling(void) {
     return FCPCCAudioUnitValidationContainmentSchedulingAllowedForState(
-        FCPCCDisposableProjectBootstrapEnvironmentIsExact(),
+        FCPCCDisposableProjectOperationEnvironmentIsExact(),
         FCPCCAudioUnitValidationContainmentState);
 }
 
@@ -1956,9 +1982,11 @@ static BOOL FCPCCAudioUnitValidationContainmentAllowsDisposableProjectBootstrapS
 static BOOL FCPCCDisposableLibraryBootstrapEnvironmentIsExact(void) {
     const char *value = getenv(FCPCCDisposableLibraryBootstrapEnvironmentName.UTF8String);
     const char *projectValue = getenv(FCPCCDisposableProjectBootstrapEnvironmentName.UTF8String);
+    const char *resumeValue = getenv(FCPCCDisposableProjectResumeEnvironmentName.UTF8String);
     return value != NULL
         && strcmp(value, FCPCCDisposableLibraryBootstrapEnvironmentValue.UTF8String) == 0
-        && projectValue == NULL;
+        && projectValue == NULL
+        && resumeValue == NULL;
 }
 
 static BOOL FCPCCDisposableLibraryBootstrapPathHasNoSymlinkComponents(NSString *path,
@@ -2302,6 +2330,8 @@ typedef struct {
     FCPCCValidatedFixedMethod containedItems;
     FCPCCValidatedFixedMethod displayName;
     FCPCCValidatedFixedMethod identifier;
+    FCPCCValidatedFixedMethod sequenceDisplayName;
+    FCPCCValidatedFixedMethod sequenceIdentifier;
     FCPCCValidatedFixedMethod frameSize;
     FCPCCValidatedFixedMethod frameDuration;
     FCPCCValidatedFixedMethod timelineRange;
@@ -2374,15 +2404,24 @@ typedef struct {
 @property (nonatomic) NSUInteger importInvocationCount;
 @property (nonatomic) NSUInteger appendInvocationCount;
 @property (nonatomic) NSUInteger libraryOpenInvocationCount;
+@property (nonatomic) NSUInteger resumeInvocationCount;
+@property (nonatomic) BOOL resumeArmed;
 @property (nonatomic) BOOL libraryOpenCompletionDelivered;
 @property (nonatomic) BOOL libraryOpenCompletionSucceeded;
 @property (nonatomic, strong, nullable) dispatch_source_t libraryOpenCompletionTimeoutSource;
+@property (nonatomic, strong, nullable) dispatch_source_t observationTimerSource;
 @property (nonatomic, copy) NSString *libraryOpenStatus;
 @property (nonatomic, copy) NSString *libraryOpenReason;
 @property (nonatomic) BOOL fixtureHashesVerifiedBeforeMutation;
 @property (nonatomic) BOOL hasObservedProjectFormat;
 @property (nonatomic) CGSize observedFrameSize;
 @property (nonatomic) CMTime observedFrameDuration;
+@property (nonatomic, copy, nullable) NSString *fixedFailureStage;
+@property (nonatomic, copy, nullable) NSString *expectedReceiverClass;
+@property (nonatomic, copy, nullable) NSString *expectedReceiverSelector;
+@property (nonatomic, copy, nullable) NSString *actualReceiverState;
+@property (nonatomic, copy, nullable) NSString *observedOwnedClipsState;
+@property (nonatomic, copy, nullable) NSString *observedProjectSetState;
 @property (nonatomic, copy, nullable) NSString *status;
 @property (nonatomic, copy, nullable) NSString *reason;
 - (instancetype)init;
@@ -2400,6 +2439,8 @@ typedef struct {
         _observedFrameDuration = kCMTimeInvalid;
         _libraryOpenStatus = @"not_evaluated";
         _libraryOpenReason = @"project_bootstrap_library_open_not_evaluated";
+        _resumeArmed = FCPCCDisposableProjectResumeEnvironmentIsExact();
+        _fixedFailureStage = _resumeArmed ? @"resume_armed" : nil;
     }
     return self;
 }
@@ -2428,6 +2469,75 @@ static BOOL FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(FCPCCD
     return YES;
 }
 
+// Resume diagnostics deliberately contain only fixed contract metadata and a
+// bounded nil/class state. They never serialize an object pointer, description,
+// or arbitrary runtime-provided selector.
+static BOOL FCPCCDisposableProjectBootstrapValidateResumeReceiver(FCPCCDisposableProjectBootstrapSession *session,
+                                                                   id receiver,
+                                                                   const FCPCCValidatedFixedMethod *method,
+                                                                   NSString *stage,
+                                                                   BOOL nilIsPending,
+                                                                   BOOL *pending,
+                                                                   NSString **reason) {
+    if (pending != NULL) {
+        *pending = NO;
+    }
+    NSString *expectedClass = method != NULL && method->targetClass != Nil
+        ? NSStringFromClass(method->targetClass) : @"fixed_class_unavailable";
+    NSString *expectedSelector = method != NULL && method->selector != NULL
+        ? NSStringFromSelector(method->selector) : @"fixed_selector_unavailable";
+    session.fixedFailureStage = FCPCCDisposableProjectBootstrapBoundedProvenanceString(stage, @"resume_fixed_receiver_stage_unavailable");
+    session.expectedReceiverClass = FCPCCDisposableProjectBootstrapBoundedProvenanceString(expectedClass, @"fixed_class_unavailable");
+    session.expectedReceiverSelector = FCPCCDisposableProjectBootstrapBoundedProvenanceString(expectedSelector, @"fixed_selector_unavailable");
+    if (receiver == nil) {
+        session.actualReceiverState = @"nil";
+        if (nilIsPending) {
+            if (pending != NULL) {
+                *pending = YES;
+            }
+            *reason = [NSString stringWithFormat:@"schema_16_resume_%@_fixed_receiver_nil_pending", stage];
+        } else {
+            *reason = [NSString stringWithFormat:@"schema_16_resume_%@_fixed_receiver_nil", stage];
+        }
+        return NO;
+    }
+    NSString *actualClass = NSStringFromClass([receiver class]);
+    session.actualReceiverState = FCPCCDisposableProjectBootstrapBoundedProvenanceString(actualClass, @"class_unavailable");
+    if (method == NULL || method->targetClass == Nil || ![receiver isKindOfClass:method->targetClass]) {
+        *reason = [NSString stringWithFormat:@"schema_16_resume_%@_fixed_receiver_class_mismatch", stage];
+        return NO;
+    }
+    Class dynamicClass = object_getClass(receiver);
+    Method resolvedMethod = dynamicClass == Nil ? NULL : class_getInstanceMethod(dynamicClass, method->selector);
+    if (resolvedMethod == NULL || method_getImplementation(resolvedMethod) != method->implementation) {
+        *reason = [NSString stringWithFormat:@"schema_16_resume_%@_fixed_receiver_implementation_mismatch", stage];
+        return NO;
+    }
+    return YES;
+}
+
+static BOOL FCPCCDisposableProjectBootstrapValidateReceiver(FCPCCDisposableProjectBootstrapSession *session,
+                                                            id receiver,
+                                                            const FCPCCValidatedFixedMethod *method,
+                                                            NSString *stage,
+                                                            BOOL nilIsPending,
+                                                            BOOL *pending,
+                                                            NSString **reason) {
+    if (session != nil && session.resumeArmed) {
+        return FCPCCDisposableProjectBootstrapValidateResumeReceiver(session,
+                                                                       receiver,
+                                                                       method,
+                                                                       stage,
+                                                                       nilIsPending,
+                                                                       pending,
+                                                                       reason);
+    }
+    if (pending != NULL) {
+        *pending = NO;
+    }
+    return FCPCCReceiverUsesValidatedMethod(receiver, method, reason);
+}
+
 static void FCPCCFinishDisposableProjectBootstrapScheduling(void);
 static void FCPCCAdvanceDisposableProjectBootstrap(FCPCCDisposableProjectBootstrapSession *session);
 
@@ -2442,6 +2552,21 @@ static BOOL FCPCCDisposableProjectBootstrapEnvironmentIsExact(void) {
     return FCPCCDisposableProjectBootstrapEnvironmentValuesAreExact(
         getenv(FCPCCDisposableProjectBootstrapEnvironmentName.UTF8String),
         getenv(FCPCCDisposableLibraryBootstrapEnvironmentName.UTF8String));
+}
+
+static BOOL FCPCCDisposableProjectResumeEnvironmentIsExact(void) {
+    const char *projectValue = getenv(FCPCCDisposableProjectBootstrapEnvironmentName.UTF8String);
+    const char *resumeValue = getenv(FCPCCDisposableProjectResumeEnvironmentName.UTF8String);
+    const char *libraryValue = getenv(FCPCCDisposableLibraryBootstrapEnvironmentName.UTF8String);
+    return projectValue == NULL
+        && resumeValue != NULL
+        && strcmp(resumeValue, FCPCCDisposableProjectResumeEnvironmentValue.UTF8String) == 0
+        && libraryValue == NULL;
+}
+
+static BOOL FCPCCDisposableProjectOperationEnvironmentIsExact(void) {
+    return FCPCCDisposableProjectBootstrapEnvironmentIsExact()
+        || FCPCCDisposableProjectResumeEnvironmentIsExact();
 }
 
 static NSString *FCPCCDisposableProjectBootstrapFixturePathAtIndex(NSUInteger index) {
@@ -2549,6 +2674,8 @@ static BOOL FCPCCResolveDisposableProjectBootstrapContracts(FCPCCDisposableProje
         && FCPCCResolveFixedMethod(&FCPCCEditorTimelineModuleContract, &contracts->editorTimelineModule, reason)
         && FCPCCResolveFixedMethod(&FCPCCTimelineSequenceContract, &contracts->timelineSequence, reason)
         && FCPCCResolveFixedMethod(&FCPCCPrimaryObjectContract, &contracts->primaryObject, reason)
+        && FCPCCResolveFixedMethod(&FCPCCSequenceDisplayNameContract, &contracts->sequenceDisplayName, reason)
+        && FCPCCResolveFixedMethod(&FCPCCSequenceIdentifierContract, &contracts->sequenceIdentifier, reason)
         && FCPCCResolveFixedMethod(&FCPCCContainedItemsContract, &contracts->containedItems, reason)
         && FCPCCResolveFixedMethod(&FCPCCDisplayNameContract, &contracts->displayName, reason)
         && FCPCCResolveFixedMethod(&FCPCCIdentifierContract, &contracts->identifier, reason)
@@ -2575,7 +2702,47 @@ static NSArray *FCPCCDisposableProjectBootstrapArrayFromSetOrArray(id value) {
     if ([value isKindOfClass:[NSSet class]]) {
         return [(NSSet *)value allObjects];
     }
+    // An ordered to-many relationship is an equally exact collection. Reading it
+    // preserves the model's own order, so fixture-order checks stay exact.
+    if ([value isKindOfClass:[NSOrderedSet class]]) {
+        return [(NSOrderedSet *)value array];
+    }
     return nil;
+}
+
+// Bounded observation of a fixed to-many relationship: the collection's class
+// name and, when the type is recognized, its element count. It never records a
+// pointer, an object description, or an arbitrary selector.
+static NSString *FCPCCDisposableProjectBootstrapBoundedCollectionState(id value) {
+    if (value == nil) {
+        return @"nil";
+    }
+    NSString *className = NSStringFromClass([value class]);
+    if (className.length == 0 || className.length > 128) {
+        className = @"class_unavailable";
+    }
+    NSArray *items = FCPCCDisposableProjectBootstrapArrayFromSetOrArray(value);
+    if (items == nil) {
+        return [NSString stringWithFormat:@"%@:unsupported_collection_type", className];
+    }
+    NSMutableArray<NSString *> *elementClasses = [[NSMutableArray alloc] init];
+    for (id element in items) {
+        if (elementClasses.count >= 4) {
+            [elementClasses addObject:@"truncated"];
+            break;
+        }
+        NSString *elementClass = element == nil ? @"nil" : NSStringFromClass([element class]);
+        if (elementClass.length == 0 || elementClass.length > 128) {
+            elementClass = @"class_unavailable";
+        }
+        if (![elementClasses containsObject:elementClass]) {
+            [elementClasses addObject:elementClass];
+        }
+    }
+    return [NSString stringWithFormat:@"%@:count=%lu:elements=%@",
+            className,
+            (unsigned long)items.count,
+            elementClasses.count > 0 ? [elementClasses componentsJoinedByString:@","] : @"none"];
 }
 
 static BOOL FCPCCDisposableProjectBootstrapCollectionIsEmpty(id value) {
@@ -2670,12 +2837,14 @@ static BOOL FCPCCWriteDisposableProjectBootstrapProvenance(FCPCCDisposableProjec
 
     NSMutableDictionary<NSString *, id> *payload = [[NSMutableDictionary alloc] initWithDictionary:@{
         @"schema_version": @1,
-        @"operation": @"disposable_project_bootstrap",
+        @"operation": session.resumeArmed ? @"disposable_project_resume" : @"disposable_project_bootstrap",
         @"status": FCPCCDisposableProjectBootstrapBoundedProvenanceString(session.status, @"project_bootstrap_status_unavailable"),
         @"reason": FCPCCDisposableProjectBootstrapBoundedProvenanceString(session.reason, @"project_bootstrap_reason_unavailable"),
         @"project_name": FCPCCDisposableProjectBootstrapProjectName,
         @"observation_turns": @(session.observationTurns),
         @"project_creation_invocation_count": @(session.projectCreationInvocationCount),
+        @"resume_armed": @(session.resumeArmed),
+        @"resume_invocation_count": @(session.resumeInvocationCount),
         @"import_invocation_count": @(session.importInvocationCount),
         @"append_invocation_count": @(session.appendInvocationCount),
         @"library_open_invocation_count": @(session.libraryOpenInvocationCount),
@@ -2687,6 +2856,16 @@ static BOOL FCPCCWriteDisposableProjectBootstrapProvenance(FCPCCDisposableProjec
     }];
     if (FCPCCBoundedNonemptyString(session.sequenceIdentifier) && session.sequenceIdentifier.length <= 256) {
         payload[@"sequence_identifier"] = session.sequenceIdentifier;
+    }
+    if (session.resumeArmed) {
+        payload[@"fixed_receiver_diagnostic"] = @{
+            @"stage": FCPCCDisposableProjectBootstrapBoundedProvenanceString(session.fixedFailureStage, @"resume_stage_unavailable"),
+            @"expected_class": FCPCCDisposableProjectBootstrapBoundedProvenanceString(session.expectedReceiverClass, @"fixed_class_unavailable"),
+            @"expected_selector": FCPCCDisposableProjectBootstrapBoundedProvenanceString(session.expectedReceiverSelector, @"fixed_selector_unavailable"),
+            @"actual_receiver_state": FCPCCDisposableProjectBootstrapBoundedProvenanceString(session.actualReceiverState, @"not_observed"),
+            @"owned_clips_state": FCPCCDisposableProjectBootstrapBoundedProvenanceString(session.observedOwnedClipsState, @"not_observed"),
+            @"project_set_state": FCPCCDisposableProjectBootstrapBoundedProvenanceString(session.observedProjectSetState, @"not_observed"),
+        };
     }
     if (session.hasObservedProjectFormat
         && isfinite(session.observedFrameSize.width)
@@ -2744,6 +2923,10 @@ static void FCPCCFinishDisposableProjectBootstrap(FCPCCDisposableProjectBootstra
         dispatch_source_cancel(session.libraryOpenCompletionTimeoutSource);
         session.libraryOpenCompletionTimeoutSource = nil;
     }
+    if (session.observationTimerSource != nil) {
+        dispatch_source_cancel(session.observationTimerSource);
+        session.observationTimerSource = nil;
+    }
     session.state = FCPCCDisposableProjectBootstrapStateFinished;
     (void)FCPCCWriteDisposableProjectBootstrapProvenance(session);
     (void)FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(session);
@@ -2766,15 +2949,53 @@ static void FCPCCScheduleDisposableProjectBootstrapObservation(FCPCCDisposablePr
                                                    session.libraryOpenReason);
             return;
         }
+        // Exhausting the bounded observation is only uncertain if a mutation was
+        // actually attempted. With zero project-create, import, and append
+        // invocations there is nothing to be uncertain about, so this reports
+        // rejected, consistent with every other terminal path here.
         FCPCCFinishDisposableProjectBootstrap(session,
-                                               @"partial_unverified",
+                                               FCPCCDisposableProjectBootstrapHasMutated(session) ? @"partial_unverified" : @"rejected",
                                                @"project_bootstrap_bounded_observation_exhausted");
         return;
     }
     session.observationTurns += 1;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        FCPCCAdvanceDisposableProjectBootstrap(session);
+    // A one-shot main-queue timer source, the same reviewed scheduling surface
+    // the public library open uses. The other delayed-dispatch APIs are retired
+    // here and are rejected by the offline audit; this is the only permitted way
+    // to wait between observation turns.
+    if (session.observationTimerSource != nil) {
+        dispatch_source_cancel(session.observationTimerSource);
+        session.observationTimerSource = nil;
+    }
+    __weak FCPCCDisposableProjectBootstrapSession *weakSession = session;
+    dispatch_source_t observationSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,
+                                                                  0,
+                                                                  0,
+                                                                  dispatch_get_main_queue());
+    if (observationSource == nil) {
+        FCPCCFinishDisposableProjectBootstrap(session,
+                                               FCPCCDisposableProjectBootstrapHasMutated(session) ? @"partial_unverified" : @"rejected",
+                                               @"project_bootstrap_observation_timer_source_unavailable");
+        return;
+    }
+    session.observationTimerSource = observationSource;
+    dispatch_source_set_timer(observationSource,
+                              dispatch_time(DISPATCH_TIME_NOW,
+                                            (int64_t)FCPCCDisposableProjectBootstrapObservationIntervalMilliseconds * (int64_t)NSEC_PER_MSEC),
+                              DISPATCH_TIME_FOREVER,
+                              0);
+    dispatch_source_set_event_handler(observationSource, ^{
+        FCPCCDisposableProjectBootstrapSession *timedSession = weakSession;
+        if (timedSession == nil) {
+            return;
+        }
+        if (timedSession.observationTimerSource != nil) {
+            dispatch_source_cancel(timedSession.observationTimerSource);
+            timedSession.observationTimerSource = nil;
+        }
+        FCPCCAdvanceDisposableProjectBootstrap(timedSession);
     });
+    dispatch_resume(observationSource);
 }
 
 static FCPCCDisposableProjectBootstrapLibraryOpenDecision FCPCCDisposableProjectBootstrapLibraryOpenDecisionForEnumeration(BOOL completeTraversal,
@@ -3026,8 +3247,10 @@ static id FCPCCDisposableProjectBootstrapResolveExactEnrolledLibrary(FCPCCDispos
         return nil;
     }
     id library = [(NSArray *)activeLibraries firstObject];
-    if (!FCPCCReceiverUsesValidatedMethod(library, &session->_contracts.libraryEvents, reason)
-        || !FCPCCReceiverUsesValidatedMethod(library, &session->_contracts.deepLoadedSequences, reason)) {
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, library, &session->_contracts.libraryEvents,
+                                                          @"enrolled_library", NO, NULL, reason)
+        || !FCPCCDisposableProjectBootstrapValidateReceiver(session, library, &session->_contracts.deepLoadedSequences,
+                                                             @"enrolled_library", NO, NULL, reason)) {
         return nil;
     }
     return library;
@@ -3119,15 +3342,124 @@ static BOOL FCPCCDisposableProjectBootstrapBeginProjectCreation(FCPCCDisposableP
     return YES;
 }
 
+// Schema 16 never asks Final Cut to create a project. It admits only the
+// one existing exact-name sequence and records its stable identifier before
+// the editor-readiness boundary is allowed to be pending.
+static BOOL FCPCCDisposableProjectBootstrapPrepareResumeExistingProject(FCPCCDisposableProjectBootstrapSession *session,
+                                                                          NSString **reason) {
+    session.library = FCPCCDisposableProjectBootstrapResolveExactEnrolledLibrary(session, reason);
+    if (session.library == nil) {
+        return NO;
+    }
+    id eventsValue = ((FCPCCObjectGetter)session.contracts.libraryEvents.implementation)(session.library,
+                                                                                            session.contracts.libraryEvents.selector);
+    if (![eventsValue isKindOfClass:[NSArray class]] || [eventsValue count] != 1) {
+        *reason = @"schema_16_resume_default_event_count_not_exactly_one";
+        return NO;
+    }
+    id eventRecord = [(NSArray *)eventsValue firstObject];
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, eventRecord, &session->_contracts.eventProject,
+                                                          @"default_event", NO, NULL, reason)) {
+        return NO;
+    }
+    id mediaEventProject = ((FCPCCObjectGetter)session.contracts.eventProject.implementation)(eventRecord,
+                                                                                                 session.contracts.eventProject.selector);
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, mediaEventProject, &session->_contracts.mediaEventOwnedClips,
+                                                          @"default_media_project", NO, NULL, reason)
+        || !FCPCCDisposableProjectBootstrapValidateReceiver(session, mediaEventProject, &session->_contracts.newClipFromURL,
+                                                             @"default_media_project", NO, NULL, reason)
+        || !FCPCCDisposableProjectBootstrapValidateReceiver(session, mediaEventProject, &session->_contracts.addOwnedClip,
+                                                             @"default_media_project", NO, NULL, reason)) {
+        return NO;
+    }
+    // ownedClips holds imported media only; the created project lives in the
+    // separate projectSet relationship. Each failure mode is named separately so
+    // an absent or unrecognized relationship is never reported as a non-empty
+    // one, which is what the earlier shared emptiness helper conflated.
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, mediaEventProject, &session->_contracts.mediaEventProjectSet,
+                                                          @"default_media_project", NO, NULL, reason)) {
+        return NO;
+    }
+    id ownedClipsValue = ((FCPCCObjectGetter)session.contracts.mediaEventOwnedClips.implementation)(mediaEventProject,
+                                                                                                       session.contracts.mediaEventOwnedClips.selector);
+    session.observedOwnedClipsState = FCPCCDisposableProjectBootstrapBoundedCollectionState(ownedClipsValue);
+    if (ownedClipsValue == nil) {
+        *reason = @"schema_16_resume_owned_clips_relationship_absent";
+        return NO;
+    }
+    NSArray *ownedClips = FCPCCDisposableProjectBootstrapArrayFromSetOrArray(ownedClipsValue);
+    if (ownedClips == nil) {
+        *reason = @"schema_16_resume_owned_clips_type_unsupported";
+        return NO;
+    }
+    // Live observation and the event's own on-disk catalog both show ownedClips
+    // is an NSSet holding the event's existing project as an FFAnchoredSequence,
+    // not imported media alone. The exact pre-resume state is therefore one
+    // owned project and no imported media. Zero would mean the project the
+    // resume arm is supposed to reuse does not exist.
+    if (ownedClips.count != 1) {
+        *reason = @"schema_16_resume_owned_clip_count_not_exactly_one_existing_project";
+        return NO;
+    }
+    // The single owned item must satisfy the pinned FFAnchoredSequence contract,
+    // so an imported media clip can never satisfy this gate.
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, ownedClips.firstObject, &session->_contracts.primaryObject,
+                                                          @"owned_project", NO, NULL, reason)) {
+        return NO;
+    }
+    // projectSet is observed and recorded only. Its stored semantics are not
+    // established for this host, so it is never used as an admission gate.
+    id projectSetValue = ((FCPCCObjectGetter)session.contracts.mediaEventProjectSet.implementation)(mediaEventProject,
+                                                                                                       session.contracts.mediaEventProjectSet.selector);
+    session.observedProjectSetState = FCPCCDisposableProjectBootstrapBoundedCollectionState(projectSetValue);
+    id sequencesValue = ((FCPCCObjectGetter)session.contracts.deepLoadedSequences.implementation)(session.library,
+                                                                                                      session.contracts.deepLoadedSequences.selector);
+    NSArray *sequences = FCPCCDisposableProjectBootstrapArrayFromSetOrArray(sequencesValue);
+    if (sequences == nil || sequences.count != 1) {
+        *reason = @"schema_16_resume_exact_sequence_count_not_exactly_one";
+        return NO;
+    }
+    id sequence = sequences.firstObject;
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, sequence, &session->_contracts.sequenceDisplayName,
+                                                          @"exact_sequence", NO, NULL, reason)
+        || !FCPCCDisposableProjectBootstrapValidateReceiver(session, sequence, &session->_contracts.sequenceIdentifier,
+                                                             @"exact_sequence", NO, NULL, reason)) {
+        return NO;
+    }
+    id displayName = ((FCPCCObjectGetter)session.contracts.sequenceDisplayName.implementation)(sequence,
+                                                                                                  session.contracts.sequenceDisplayName.selector);
+    if (![displayName isKindOfClass:[NSString class]]
+        || ![(NSString *)displayName isEqualToString:FCPCCDisposableProjectBootstrapProjectName]) {
+        *reason = @"schema_16_resume_exact_sequence_name_mismatch";
+        return NO;
+    }
+    NSString *identifier = FCPCCNormalizedTypedIdentifier(((FCPCCObjectGetter)session.contracts.sequenceIdentifier.implementation)(
+        sequence,
+        session.contracts.sequenceIdentifier.selector));
+    if (identifier == nil) {
+        *reason = @"schema_16_resume_exact_sequence_stable_identifier_unavailable";
+        return NO;
+    }
+    session.eventRecord = eventRecord;
+    session.mediaEventProject = mediaEventProject;
+    session.sequence = sequence;
+    session.sequenceIdentifier = identifier;
+    session.fixedFailureStage = @"resume_existing_project_preflight_verified";
+    return YES;
+}
+
 static BOOL FCPCCDisposableProjectBootstrapValidateImportedMedia(FCPCCDisposableProjectBootstrapSession *session,
                                                                   id media,
                                                                   NSString *expectedSourcePath,
                                                                   FCPCCDisposableProjectClipEvidence **evidenceOut,
                                                                   NSString **reason) {
     if (evidenceOut == NULL
-        || !FCPCCReceiverUsesValidatedMethod(media, &session->_contracts.mediaClippedRange, reason)
-        || !FCPCCReceiverUsesValidatedMethod(media, &session->_contracts.mediaIdentifier, reason)
-        || !FCPCCReceiverUsesValidatedMethod(media, &session->_contracts.mediaOriginalMediaURL, reason)) {
+        || !FCPCCDisposableProjectBootstrapValidateReceiver(session, media, &session->_contracts.mediaClippedRange,
+                                                             @"imported_media", NO, NULL, reason)
+        || !FCPCCDisposableProjectBootstrapValidateReceiver(session, media, &session->_contracts.mediaIdentifier,
+                                                             @"imported_media", NO, NULL, reason)
+        || !FCPCCDisposableProjectBootstrapValidateReceiver(session, media, &session->_contracts.mediaOriginalMediaURL,
+                                                             @"imported_media", NO, NULL, reason)) {
         return NO;
     }
     CMTimeRange clippedRange = ((FCPCCCMTimeRangeGetter)session.contracts.mediaClippedRange.implementation)(
@@ -3163,12 +3495,14 @@ static BOOL FCPCCDisposableProjectBootstrapValidateImportedMedia(FCPCCDisposable
 
 static NSArray *FCPCCDisposableProjectBootstrapPrimaryStorylineItems(FCPCCDisposableProjectBootstrapSession *session,
                                                                        NSString **reason) {
-    if (!FCPCCReceiverUsesValidatedMethod(session.sequence, &session->_contracts.primaryObject, reason)) {
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, session.sequence, &session->_contracts.primaryObject,
+                                                          @"primary_storyline", NO, NULL, reason)) {
         return nil;
     }
     id primaryObject = ((FCPCCObjectGetter)session.contracts.primaryObject.implementation)(session.sequence,
                                                                                               session.contracts.primaryObject.selector);
-    if (!FCPCCReceiverUsesValidatedMethod(primaryObject, &session->_contracts.containedItems, reason)) {
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, primaryObject, &session->_contracts.containedItems,
+                                                          @"primary_storyline", NO, NULL, reason)) {
         return nil;
     }
     id itemsValue = ((FCPCCObjectGetter)session.contracts.containedItems.implementation)(primaryObject,
@@ -3243,13 +3577,13 @@ static FCPCCDisposableProjectBootstrapObservationResult FCPCCDisposableProjectBo
     }
     id exactSequence = nil;
     for (id candidate in sequences) {
-        if (!FCPCCReceiverUsesValidatedMethod(candidate, &session->_contracts.displayName, reason)
-            || !FCPCCReceiverUsesValidatedMethod(candidate, &session->_contracts.identifier, reason)) {
+        if (!FCPCCReceiverUsesValidatedMethod(candidate, &session->_contracts.sequenceDisplayName, reason)
+            || !FCPCCReceiverUsesValidatedMethod(candidate, &session->_contracts.sequenceIdentifier, reason)) {
             return FCPCCDisposableProjectBootstrapObservationResultFailed;
         }
-        id displayNameValue = ((FCPCCObjectGetter)session.contracts.displayName.implementation)(
+        id displayNameValue = ((FCPCCObjectGetter)session.contracts.sequenceDisplayName.implementation)(
             candidate,
-            session.contracts.displayName.selector);
+            session.contracts.sequenceDisplayName.selector);
         if (![displayNameValue isKindOfClass:[NSString class]]) {
             *reason = @"project_bootstrap_created_sequence_display_name_unavailable";
             return FCPCCDisposableProjectBootstrapObservationResultFailed;
@@ -3267,7 +3601,7 @@ static FCPCCDisposableProjectBootstrapObservationResult FCPCCDisposableProjectBo
         return FCPCCDisposableProjectBootstrapObservationResultPending;
     }
     NSString *identifier = FCPCCDisposableProjectBootstrapValidatedIdentifier(exactSequence,
-                                                                                &session->_contracts.identifier,
+                                                                                &session->_contracts.sequenceIdentifier,
                                                                                 reason);
     if (identifier == nil) {
         return FCPCCDisposableProjectBootstrapObservationResultFailed;
@@ -3280,18 +3614,27 @@ static FCPCCDisposableProjectBootstrapObservationResult FCPCCDisposableProjectBo
 static FCPCCDisposableProjectBootstrapObservationResult FCPCCDisposableProjectBootstrapLoadExactSequenceInEditor(FCPCCDisposableProjectBootstrapSession *session,
                                                                                                                    NSString **reason) {
     id appController = NSApp.delegate;
-    if (!FCPCCReceiverUsesValidatedMethod(appController, &session->_contracts.activeEditorContainer, reason)) {
+    BOOL pending = NO;
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, appController, &session->_contracts.activeEditorContainer,
+                                                          @"app_controller", NO, &pending, reason)) {
         return FCPCCDisposableProjectBootstrapObservationResultFailed;
     }
     id editorContainer = ((FCPCCObjectGetter)session.contracts.activeEditorContainer.implementation)(
         appController,
         session.contracts.activeEditorContainer.selector);
     if (editorContainer == nil) {
-        *reason = @"project_bootstrap_active_editor_container_pending";
+        session.fixedFailureStage = session.resumeArmed ? @"editor_container_readiness" : session.fixedFailureStage;
+        session.expectedReceiverClass = session.resumeArmed ? @"PEEditorContainerModule" : session.expectedReceiverClass;
+        session.expectedReceiverSelector = session.resumeArmed ? @"loadEditorForSequence:" : session.expectedReceiverSelector;
+        session.actualReceiverState = session.resumeArmed ? @"nil" : session.actualReceiverState;
+        *reason = session.resumeArmed ? @"schema_16_resume_editor_container_readiness_fixed_receiver_nil_pending"
+                                      : @"project_bootstrap_active_editor_container_pending";
         return FCPCCDisposableProjectBootstrapObservationResultPending;
     }
-    if (!FCPCCReceiverUsesValidatedMethod(editorContainer, &session->_contracts.loadEditorForSequence, reason)
-        || !FCPCCReceiverUsesValidatedMethod(editorContainer, &session->_contracts.editorTimelineModule, reason)) {
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, editorContainer, &session->_contracts.loadEditorForSequence,
+                                                          @"editor_container_load", NO, &pending, reason)
+        || !FCPCCDisposableProjectBootstrapValidateReceiver(session, editorContainer, &session->_contracts.editorTimelineModule,
+                                                             @"editor_container_timeline", NO, &pending, reason)) {
         return FCPCCDisposableProjectBootstrapObservationResultFailed;
     }
     ((FCPCCVoidObjectMethod)session.contracts.loadEditorForSequence.implementation)(
@@ -3304,41 +3647,68 @@ static FCPCCDisposableProjectBootstrapObservationResult FCPCCDisposableProjectBo
 static FCPCCDisposableProjectBootstrapObservationResult FCPCCDisposableProjectBootstrapObserveExactLoadedEditor(FCPCCDisposableProjectBootstrapSession *session,
                                                                                                                   NSString **reason) {
     id appController = NSApp.delegate;
-    if (!FCPCCReceiverUsesValidatedMethod(appController, &session->_contracts.activeEditorContainer, reason)) {
+    BOOL pending = NO;
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, appController, &session->_contracts.activeEditorContainer,
+                                                          @"app_controller", NO, &pending, reason)) {
         return FCPCCDisposableProjectBootstrapObservationResultFailed;
     }
     id editorContainer = ((FCPCCObjectGetter)session.contracts.activeEditorContainer.implementation)(
         appController,
         session.contracts.activeEditorContainer.selector);
     if (editorContainer == nil) {
-        *reason = @"project_bootstrap_active_editor_container_pending";
+        session.fixedFailureStage = session.resumeArmed ? @"editor_container_readiness" : session.fixedFailureStage;
+        session.expectedReceiverClass = session.resumeArmed ? @"PEEditorContainerModule" : session.expectedReceiverClass;
+        session.expectedReceiverSelector = session.resumeArmed ? @"timelineModule" : session.expectedReceiverSelector;
+        session.actualReceiverState = session.resumeArmed ? @"nil" : session.actualReceiverState;
+        *reason = session.resumeArmed ? @"schema_16_resume_editor_container_readiness_fixed_receiver_nil_pending"
+                                      : @"project_bootstrap_active_editor_container_pending";
         return FCPCCDisposableProjectBootstrapObservationResultPending;
     }
-    if (!FCPCCReceiverUsesValidatedMethod(editorContainer, &session->_contracts.editorTimelineModule, reason)) {
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, editorContainer, &session->_contracts.editorTimelineModule,
+                                                          @"editor_container_timeline", NO, &pending, reason)) {
         return FCPCCDisposableProjectBootstrapObservationResultFailed;
     }
     id timeline = ((FCPCCObjectGetter)session.contracts.editorTimelineModule.implementation)(
         editorContainer,
         session.contracts.editorTimelineModule.selector);
     if (timeline == nil) {
-        *reason = @"project_bootstrap_timeline_module_pending";
+        session.fixedFailureStage = session.resumeArmed ? @"timeline_module_readiness" : session.fixedFailureStage;
+        session.expectedReceiverClass = session.resumeArmed ? @"FFAnchoredTimelineModule" : session.expectedReceiverClass;
+        session.expectedReceiverSelector = session.resumeArmed ? @"sequence" : session.expectedReceiverSelector;
+        session.actualReceiverState = session.resumeArmed ? @"nil" : session.actualReceiverState;
+        *reason = session.resumeArmed ? @"schema_16_resume_timeline_module_readiness_fixed_receiver_nil_pending"
+                                      : @"project_bootstrap_timeline_module_pending";
         return FCPCCDisposableProjectBootstrapObservationResultPending;
     }
-    if (!FCPCCReceiverUsesValidatedMethod(timeline, &session->_contracts.timelineSequence, reason)
-        || !FCPCCReceiverUsesValidatedMethod(timeline, &session->_contracts.timelinePerformEdit, reason)) {
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, timeline, &session->_contracts.timelineSequence,
+                                                          @"timeline_module", NO, &pending, reason)
+        || !FCPCCDisposableProjectBootstrapValidateReceiver(session, timeline, &session->_contracts.timelinePerformEdit,
+                                                             @"timeline_module", NO, &pending, reason)) {
         return FCPCCDisposableProjectBootstrapObservationResultFailed;
     }
     id loadedSequence = ((FCPCCObjectGetter)session.contracts.timelineSequence.implementation)(
         timeline,
         session.contracts.timelineSequence.selector);
     if (loadedSequence == nil) {
-        *reason = @"project_bootstrap_loaded_sequence_pending";
+        session.fixedFailureStage = session.resumeArmed ? @"loaded_sequence_readiness" : session.fixedFailureStage;
+        session.expectedReceiverClass = session.resumeArmed ? @"FFAnchoredSequence" : session.expectedReceiverClass;
+        session.expectedReceiverSelector = session.resumeArmed ? @"identifier" : session.expectedReceiverSelector;
+        session.actualReceiverState = session.resumeArmed ? @"nil" : session.actualReceiverState;
+        *reason = session.resumeArmed ? @"schema_16_resume_loaded_sequence_readiness_fixed_receiver_nil_pending"
+                                      : @"project_bootstrap_loaded_sequence_pending";
         return FCPCCDisposableProjectBootstrapObservationResultPending;
     }
-    NSString *loadedIdentifier = FCPCCDisposableProjectBootstrapValidatedIdentifier(loadedSequence,
-                                                                                     &session->_contracts.identifier,
-                                                                                      reason);
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, loadedSequence, &session->_contracts.sequenceIdentifier,
+                                                          @"loaded_sequence", YES, &pending, reason)) {
+        return pending ? FCPCCDisposableProjectBootstrapObservationResultPending
+                       : FCPCCDisposableProjectBootstrapObservationResultFailed;
+    }
+    NSString *loadedIdentifier = FCPCCNormalizedTypedIdentifier(((FCPCCObjectGetter)session.contracts.sequenceIdentifier.implementation)(
+        loadedSequence,
+        session.contracts.sequenceIdentifier.selector));
     if (loadedIdentifier == nil) {
+        *reason = session.resumeArmed ? @"schema_16_resume_loaded_sequence_stable_identifier_unavailable"
+                                      : @"project_bootstrap_stable_identifier_unavailable";
         return FCPCCDisposableProjectBootstrapObservationResultFailed;
     }
     if (![loadedIdentifier isEqualToString:session.sequenceIdentifier]) {
@@ -3348,8 +3718,10 @@ static FCPCCDisposableProjectBootstrapObservationResult FCPCCDisposableProjectBo
     // Continue the empty-primary check against the exact editor-loaded object,
     // not merely the earlier deep-loaded object whose identifier matched.
     session.sequence = loadedSequence;
-    if (!FCPCCReceiverUsesValidatedMethod(loadedSequence, &session->_contracts.frameSize, reason)
-        || !FCPCCReceiverUsesValidatedMethod(loadedSequence, &session->_contracts.frameDuration, reason)) {
+    if (!FCPCCDisposableProjectBootstrapValidateReceiver(session, loadedSequence, &session->_contracts.frameSize,
+                                                          @"loaded_sequence_format", NO, &pending, reason)
+        || !FCPCCDisposableProjectBootstrapValidateReceiver(session, loadedSequence, &session->_contracts.frameDuration,
+                                                             @"loaded_sequence_format", NO, &pending, reason)) {
         return FCPCCDisposableProjectBootstrapObservationResultFailed;
     }
     CGSize frameSize = ((FCPCCCGSizeGetter)session.contracts.frameSize.implementation)(
@@ -3616,6 +3988,30 @@ static FCPCCDisposableProjectBootstrapObservationResult FCPCCDisposableProjectBo
     return FCPCCDisposableProjectBootstrapObservationResultVerified;
 }
 
+// Schema 16 resume continues only once the exact enrolled library is proven
+// open. It never creates a project or a library; it admits only the one
+// existing exact-name sequence and then waits at the reviewed editor-readiness
+// boundary. Both the already-open arm and the admitted public-open arm reach
+// the resume route through this single continuation.
+static BOOL FCPCCDisposableProjectBootstrapBeginResumeAfterLibraryReady(FCPCCDisposableProjectBootstrapSession *session,
+                                                                          NSString **reason) {
+    if (!FCPCCDisposableProjectBootstrapPrepareResumeExistingProject(session, reason)) {
+        return NO;
+    }
+    if (session.projectCreationInvocationCount != 0) {
+        *reason = @"schema_16_resume_project_creation_invocation_forbidden";
+        return NO;
+    }
+    FCPCCDisposableProjectBootstrapObservationResult observation =
+        FCPCCDisposableProjectBootstrapLoadExactSequenceInEditor(session, reason);
+    if (observation == FCPCCDisposableProjectBootstrapObservationResultFailed) {
+        return NO;
+    }
+    session.state = FCPCCDisposableProjectBootstrapStateWaitingForEditor;
+    FCPCCScheduleDisposableProjectBootstrapObservation(session);
+    return YES;
+}
+
 static void FCPCCAdvanceDisposableProjectBootstrap(FCPCCDisposableProjectBootstrapSession *session) {
     if (session == nil
         || session.state == FCPCCDisposableProjectBootstrapStateFinished
@@ -3655,6 +4051,12 @@ static void FCPCCAdvanceDisposableProjectBootstrap(FCPCCDisposableProjectBootstr
             }
             if (observation != FCPCCDisposableProjectBootstrapObservationResultVerified) {
                 FCPCCFinishDisposableProjectBootstrap(session, @"rejected", reason);
+                return;
+            }
+            if (session.resumeArmed) {
+                if (!FCPCCDisposableProjectBootstrapBeginResumeAfterLibraryReady(session, &reason)) {
+                    FCPCCFinishDisposableProjectBootstrap(session, @"rejected", reason);
+                }
                 return;
             }
             if (!FCPCCDisposableProjectBootstrapBeginProjectCreation(session, &reason)) {
@@ -3751,7 +4153,9 @@ static void FCPCCAdvanceDisposableProjectBootstrap(FCPCCDisposableProjectBootstr
             }
             FCPCCFinishDisposableProjectBootstrap(session,
                                                    @"verified",
-                                                   @"project_created_imported_appended_primary_storyline_verified");
+                                                   session.resumeArmed
+                                                   ? @"project_resumed_imported_appended_primary_storyline_verified"
+                                                   : @"project_created_imported_appended_primary_storyline_verified");
             return;
 
         case FCPCCDisposableProjectBootstrapStatePreflight:
@@ -3780,8 +4184,9 @@ static void FCPCCRunDisposableProjectBootstrap(FCPCCDisposableProjectBootstrapSe
         FCPCCFinishDisposableProjectBootstrap(session, @"rejected", @"project_bootstrap_requires_main_thread");
         return;
     }
-    if (!FCPCCDisposableProjectBootstrapEnvironmentIsExact()) {
-        FCPCCFinishDisposableProjectBootstrap(session, @"rejected", @"project_bootstrap_environment_flag_not_exact");
+    if (!FCPCCDisposableProjectOperationEnvironmentIsExact()
+        || session.resumeArmed != FCPCCDisposableProjectResumeEnvironmentIsExact()) {
+        FCPCCFinishDisposableProjectBootstrap(session, @"rejected", @"project_bootstrap_or_resume_environment_flag_not_exact");
         return;
     }
     if (!FCPCCAudioUnitValidationContainmentAllowsDisposableProjectBootstrapScheduling()) {
@@ -3805,6 +4210,51 @@ static void FCPCCRunDisposableProjectBootstrap(FCPCCDisposableProjectBootstrapSe
         return;
     }
     session.contracts = contracts;
+    if (session.resumeArmed) {
+        if (session.projectCreationInvocationCount != 0 || session.resumeInvocationCount != 0) {
+            FCPCCFinishDisposableProjectBootstrap(session, @"rejected", @"schema_16_resume_duplicate_or_create_invocation_forbidden");
+            return;
+        }
+        session.resumeInvocationCount = 1;
+        // The resume arm reaches the enrolled library only through the same
+        // separately admitted public open the create arm uses. It never creates
+        // or removes a library, and it never opens more than once.
+        FCPCCLibraryManifestRecord *resumeManifest = [FCPCCLibraryManifestRecord bundledManifest];
+        FCPCCFixedModelTraversalAdapter *resumeAdapter = [[FCPCCFixedModelTraversalAdapter alloc] init];
+        FCPCCReadOnlyLibrarySet *resumeActiveSet = [resumeAdapter enumerateCompleteOpenLibrarySet];
+        FCPCCDisposableProjectBootstrapLibraryOpenDecision resumeOpenDecision = FCPCCDisposableProjectBootstrapInitialLibraryOpenDecision(resumeActiveSet,
+                                                                                                                                              resumeManifest,
+                                                                                                                                              &reason);
+        if (resumeOpenDecision == FCPCCDisposableProjectBootstrapLibraryOpenDecisionReject) {
+            session.libraryOpenStatus = @"not_invoked";
+            session.libraryOpenReason = reason.length > 0
+                ? reason
+                : @"schema_16_resume_initial_open_library_state_unverified";
+            FCPCCFinishDisposableProjectBootstrap(session, @"rejected", session.libraryOpenReason);
+            return;
+        }
+        if (resumeOpenDecision == FCPCCDisposableProjectBootstrapLibraryOpenDecisionOpenEnrolledLibrary) {
+            NSURL *resumeLibraryURL = nil;
+            if (!FCPCCDisposableProjectBootstrapValidateCanonicalEnrolledLibraryForPublicOpen(resumeManifest,
+                                                                                                 &resumeLibraryURL,
+                                                                                                 &reason)) {
+                session.libraryOpenStatus = @"not_invoked";
+                session.libraryOpenReason = reason.length > 0
+                    ? reason
+                    : @"schema_16_resume_enrolled_library_preopen_validation_failed";
+                FCPCCFinishDisposableProjectBootstrap(session, @"rejected", session.libraryOpenReason);
+                return;
+            }
+            FCPCCDisposableProjectBootstrapDispatchPublicEnrolledLibraryOpen(session, resumeLibraryURL);
+            return;
+        }
+        session.libraryOpenStatus = @"not_required_exact_enrolled_library_already_open";
+        session.libraryOpenReason = @"schema_16_resume_exact_enrolled_library_already_open";
+        if (!FCPCCDisposableProjectBootstrapBeginResumeAfterLibraryReady(session, &reason)) {
+            FCPCCFinishDisposableProjectBootstrap(session, @"rejected", reason);
+        }
+        return;
+    }
     FCPCCLibraryManifestRecord *manifest = [FCPCCLibraryManifestRecord bundledManifest];
     FCPCCFixedModelTraversalAdapter *adapter = [[FCPCCFixedModelTraversalAdapter alloc] init];
     FCPCCReadOnlyLibrarySet *activeSet = [adapter enumerateCompleteOpenLibrarySet];
@@ -3926,6 +4376,71 @@ BOOL FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeavesProjectMutationsA
         && projectCreationInvocationCount == 0
         && importInvocationCount == 0
         && appendInvocationCount == 0;
+}
+
+BOOL FCPCCDisposableProjectResumeTestArmingIsExclusive(BOOL createArm,
+                                                        BOOL resumeArm,
+                                                        BOOL libraryArm) {
+    return !createArm && resumeArm && !libraryArm;
+}
+
+BOOL FCPCCDisposableProjectResumeTestAdmissionAllowsOnlyExactEmptyProject(BOOL completeTraversal,
+                                                                            NSUInteger enrolledLibraryCount,
+                                                                            NSUInteger defaultEventCount,
+                                                                            NSUInteger exactSequenceCount,
+                                                                            BOOL stableSequenceIdentifier,
+                                                                            NSUInteger ownedClipCount,
+                                                                            NSUInteger primaryStorylineCount) {
+    return completeTraversal
+        && enrolledLibraryCount == 1
+        && defaultEventCount == 1
+        && exactSequenceCount == 1
+        && stableSequenceIdentifier
+        && ownedClipCount == 0
+        && primaryStorylineCount == 0;
+}
+
+BOOL FCPCCDisposableProjectResumeTestNeverCreatesProject(BOOL resumeArmed,
+                                                         NSUInteger projectCreationInvocationCount,
+                                                         NSUInteger resumeInvocationCount,
+                                                         NSUInteger importInvocationCount,
+                                                         NSUInteger appendInvocationCount) {
+    return resumeArmed
+        && projectCreationInvocationCount == 0
+        && resumeInvocationCount == 1
+        && importInvocationCount <= 3
+        && appendInvocationCount <= 3;
+}
+
+BOOL FCPCCDisposableProjectResumeTestNilReadinessIsPendingOnlyAtReviewedBoundary(BOOL receiverIsNil,
+                                                                                   BOOL editorReadinessBoundary) {
+    return receiverIsNil && editorReadinessBoundary;
+}
+
+// The exact pre-resume empty-project invariant. ownedClips holds the event's one
+// existing project as a pinned FFAnchoredSequence, so its count must be exactly
+// one and that item must satisfy the pinned sequence contract, with no imported
+// media. An unrecognized or absent relationship never satisfies the bound.
+BOOL FCPCCDisposableProjectResumeTestEmptyProjectInvariant(BOOL ownedClipsRecognized,
+                                                            NSUInteger ownedClipCount,
+                                                            BOOL ownedItemIsPinnedSequence,
+                                                            NSUInteger importedMediaCount) {
+    return ownedClipsRecognized
+        && ownedClipCount == 1
+        && ownedItemIsPinnedSequence
+        && importedMediaCount == 0;
+}
+
+// The resume arm may reach the enrolled library only through the separately
+// admitted public open, at most once, and never through a create arm.
+BOOL FCPCCDisposableProjectResumeTestLibraryOpenIsAdmittedOnceAndNeverCreates(BOOL resumeArmed,
+                                                                               NSUInteger libraryOpenInvocationCount,
+                                                                               NSUInteger libraryCreateInvocationCount,
+                                                                               NSUInteger projectCreationInvocationCount) {
+    return resumeArmed
+        && libraryOpenInvocationCount <= 1
+        && libraryCreateInvocationCount == 0
+        && projectCreationInvocationCount == 0;
 }
 
 BOOL FCPCCDisposableProjectBootstrapTestActiveSessionOwnershipStartsAsyncBranch(void) {
@@ -5242,7 +5757,7 @@ static void FCPCCHandleDisposableProjectBootstrapDidFinishLaunching(void) {
         }
         return;
     }
-    if (!FCPCCDisposableProjectBootstrapEnvironmentIsExact()) {
+    if (!FCPCCDisposableProjectOperationEnvironmentIsExact()) {
         FCPCCFinishDisposableProjectBootstrapScheduling();
         return;
     }
@@ -5270,7 +5785,7 @@ static void FCPCCHandleDisposableProjectBootstrapDidFinishLaunching(void) {
 static void FCPCCBeginDisposableProjectBootstrapAfterApplicationDidFinishLaunching(void) {
     // Project creation and all subsequent model calls remain behind a single
     // exact launcher flag. The observer only starts the bounded state machine.
-    if (![NSThread isMainThread] || !FCPCCDisposableProjectBootstrapEnvironmentIsExact()) {
+    if (![NSThread isMainThread] || !FCPCCDisposableProjectOperationEnvironmentIsExact()) {
         return;
     }
     if (!FCPCCAudioUnitValidationContainmentAllowsDisposableProjectBootstrapScheduling()) {
@@ -5299,7 +5814,7 @@ static void FCPCCInstallRuntime(void) {
     if (!containment.isVerified || !FCPCCCopiedHostImageUUIDMatches()) {
         return;
     }
-    if (FCPCCDisposableProjectBootstrapEnvironmentIsExact()) {
+    if (FCPCCDisposableProjectOperationEnvironmentIsExact()) {
         (void)FCPCCInstallAudioUnitValidationContainmentForDisposableProjectBootstrap();
     }
     (void)FCPCCInstallOnboardingQueryCompatibility();

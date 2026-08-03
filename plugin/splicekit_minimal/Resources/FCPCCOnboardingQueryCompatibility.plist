@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>15</integer>
+    <integer>16</integer>
     <key>ExpectedHostBundleIdentifier</key>
     <string>com.apple.FinalCut</string>
     <key>ExpectedCopiedHostBundlePath</key>
@@ -282,6 +282,8 @@
         <true/>
         <key>MaximumObservationTurns</key>
         <integer>24</integer>
+        <key>ObservationIntervalMilliseconds</key>
+        <integer>1000</integer>
         <key>RequiredPrecreateState</key>
         <string>one_enrolled_library_one_default_event_zero_owned_clips_zero_projects_zero_deep_loaded_sequences</string>
         <key>ProjectCreationClass</key>
@@ -350,6 +352,87 @@
         <string>/Users/marcboyer/Movies/FCPCommandConsole/provenance</string>
         <key>ProvenanceSchemaVersion</key>
         <integer>1</integer>
+    </dict>
+    <key>DisposableProjectResume</key>
+    <dict>
+        <key>ExecutionEnabled</key>
+        <true/>
+        <key>RuntimeDiscoveryAllowed</key>
+        <false/>
+        <key>EnvironmentVariable</key>
+        <string>FCPCC_RESUME_DISPOSABLE_PROJECT</string>
+        <key>EnvironmentValue</key>
+        <string>1</string>
+        <key>CreateEnvironmentVariable</key>
+        <string>FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT</string>
+        <key>CreateArmMustBeAbsent</key>
+        <true/>
+        <key>LibraryCreateArmMustBeAbsent</key>
+        <true/>
+        <key>Operation</key>
+        <string>disposable_project_resume</string>
+        <key>KnownPartialLiveProvenancePath</key>
+        <string>/Users/marcboyer/Movies/FCPCommandConsole/provenance/disposable-project-bootstrap-B42DFA39-B63E-4050-9CDD-B4E2B00DACBA.json</string>
+        <key>KnownPartialLiveReason</key>
+        <string>fcp_12_3_fixed_contract_receiver_class_mismatch</string>
+        <key>RequiredPreResumeState</key>
+        <string>one_enrolled_library_one_default_event_media_project_exactly_one_owned_ffanchoredsequence_project_one_exact_name_sequence_nonempty_stable_identifier_zero_imported_media_zero_primary_storyline_items</string>
+        <key>RejectsAmbiguityExtrasOrSourceHashChange</key>
+        <true/>
+        <key>ProjectCreationSelectorMustNeverBeInvoked</key>
+        <string>actionNewProject:name:sequence:actionName:error:</string>
+        <key>PublicLibraryOpenAdmitted</key>
+        <true/>
+        <key>PublicLibraryOpenAPI</key>
+        <string>NSDocumentController.openDocumentWithContentsOfURL:display:completionHandler:</string>
+        <key>PublicLibraryOpenMaximumInvocations</key>
+        <integer>1</integer>
+        <key>PublicLibraryOpenAllowedInitialOpenLibraryCount</key>
+        <integer>0</integer>
+        <key>PublicLibraryOpenRequiredPostopenState</key>
+        <string>exactly_one_enrolled_open_library</string>
+        <key>PublicLibraryOpenNeverCreatesRemovesOrOverwritesLibrary</key>
+        <true/>
+        <key>PublicLibraryOpenNoRetry</key>
+        <true/>
+        <key>RequiredOwnedClipCount</key>
+        <integer>1</integer>
+        <key>RequiredOwnedProjectClass</key>
+        <string>FFAnchoredSequence</string>
+        <key>OwnedClipsIncludeExistingProject</key>
+        <true/>
+        <key>ProjectSetObservationRecordedOnly</key>
+        <true/>
+        <key>SequenceDisplayNameClass</key>
+        <string>FFAnchoredSequence</string>
+        <key>SequenceIdentifierClass</key>
+        <string>FFBinObject</string>
+        <key>SequenceClassChain</key>
+        <string>FFAnchoredSequence_FFMediaState_FFMedia_FFBinObject</string>
+        <key>SequenceIsNotAnFFAnchoredObject</key>
+        <true/>
+        <key>FixedReceiverDiagnostics</key>
+        <string>stage_expected_class_selector_actual_nil_or_class_only</string>
+        <key>NilPendingOnlyAtEditorReadinessBoundaries</key>
+        <true/>
+        <key>NoAutoRetry</key>
+        <true/>
+        <key>RollbackClaim</key>
+        <string>not_attempted_no_rollback_claimed</string>
+        <key>RequiredPostappendVerification</key>
+        <string>exact_fixture_order_exact_adjacency_exact_imported_media_identifiers_actual_project_format</string>
+        <key>FixturePaths</key>
+        <array>
+            <string>/Users/marcboyer/Movies/FCPCommandConsole/fixtures/clip-a.mov</string>
+            <string>/Users/marcboyer/Movies/FCPCommandConsole/fixtures/clip-b.mov</string>
+            <string>/Users/marcboyer/Movies/FCPCommandConsole/fixtures/living-still.png</string>
+        </array>
+        <key>FixtureSHA256</key>
+        <array>
+            <string>cd44c0c9565c8231ec421541f4a4877f340eae7db5129fb46ffa14f0bf871444</string>
+            <string>a38a03bf0ababfedc56c6086479c34649a8fea8b2435b04c4901f3987c66f67c</string>
+            <string>170df5348f53221de630c7d7b385e6189f53a27baa2f2246ec7df4f379ed2567</string>
+        </array>
     </dict>
     <key>AudioUnitValidationContainment</key>
     <dict>
@@ -482,6 +565,6 @@
     <key>SourceSnapshotCommit</key>
     <string>f4f6618121309a69b66272b441f34cf8ad57f306</string>
     <key>SourceAttribution</key>
-    <string>Exact Final Cut Pro 12.3 static inspection. The copied host remains constrained by its exact bundle path, receipt-compatible identifier and receipt SHA-256, version/build, active-slice UUIDs, and the pinned ProOnboardingFlowModelOne identity and method contracts. Schema 10 admitted the launcher-flagged disposable-library bootstrap, which creates only the absent canonical library through the pinned Flexo ABI and never overwrites or removes a library. Schema 11 separately admitted one launcher-flagged disposable-project bootstrap after NSApplicationDidFinishLaunchingNotification. Its recorded failed zero-mutation run at disposable-project-bootstrap-5244F4D3-8B35-4289-9B82-0CFC58CF0829.json rejected exactly_one_open_library_required and is failure evidence, not success evidence. Schema 12 preserves the fixed one-shot project/import/append contracts and adds only a bounded public AppKit open when the complete initial library traversal has zero libraries. Before that one main-queue NSDocumentController openDocumentWithContentsOfURL:display:completionHandler: call, it revalidates only the canonical enrolled fcpbundle path with no symlink components, directory/device/inode, and manifest persistent UID. It permits no dialog, responder action, UI automation, alternate path, retry, library creation, removal, or overwrite. Completion requires a nonnil document and nil error, followed by another complete traversal proving exactly one enrolled library before FFProjectDocument actionNewProject:name:sequence:actionName:error: can run. Schema 13 retains the callback-driven public-open timeout and one-invocation gate, and roots exactly one active, exact-armed Running session strongly before any asynchronous escape. Weak completion handlers are thereby backed until FCPCCFinishDisposableProjectBootstrap clears only the identity-matching root after timeout cancellation, pasteboard cleanup, Finished state, and provenance finalization. It then resolves the exact new sequence through FFLibrary _deepLoadedSequences and the exact editor load, imports only the three fixed files with FFMediaEventProject, and appends them only through the fixed FFPasteboard, FigTimeRangeAndObject, FFEditAction kind 2/all, and FFAnchoredTimelineModule path. It observes and records the actual project format without a fixed frame-rate precondition, verifies exact primary-storyline order, adjacency, and imported media identifiers after every append, performs no automatic mutation retry, and records library-open invocation/status/reason plus any post-mutation uncertainty as partial_unverified with no rollback claim. Schema 15 adds a copied-process-only, exact-environment metaclass replacement of +[Flexo supportsThirdPartyAudioUnits] to false before disposable-project scheduling. It is admitted only after copied-host and exact Flexo hash/UUID/ABI/offset validation, never retries or restores during the process, writes no cache, preference, or Audio Unit artifact, and fails closed before project scheduling if its postverification fails. It preserves Final Cut's original runDeferredRegistration false branch, including registerBuiltInAudioUnits and FFAudioUnitInfoCacheBase forEachSupportedType:. Third-party Audio Units are unavailable only in that armed copied process; this static route evidence does not establish live editability of video, color, or transition workflows.</string>
+    <string>Exact Final Cut Pro 12.3 static inspection. Schema 16 retains Schema 15 copied-process-only Flexo containment and adds only a separate FCPCC_RESUME_DISPOSABLE_PROJECT arm. The create arm and library-create arm must both be absent. The resume route reaches the enrolled library only through the same separately admitted public NSDocumentController openDocumentWithContentsOfURL:display:completionHandler: route, at most once, and it never creates, removes, or overwrites a library. It then proves exactly one enrolled library, zero owned or imported media clips in the default event's ownedClips relationship, and exactly one project in its separate projectSet relationship. An absent or unrecognized to-many relationship is rejected under its own reason and is never treated as an empty one. It then proves one default event/media project, one exact-name sequence with a stable identifier, zero owned/imported clips, and zero primary-storyline items. It never invokes actionNewProject:name:sequence:actionName:error:. Only the fixed pinned import and append contracts may then run, once, for the three pinned fixtures in order. Nil receivers may be pending only at explicit editor readiness boundaries; nonnil class or implementation mismatch fails immediately with bounded stage, expected class/selector, and actual nil/class evidence. Provenance records no pointers or unbounded descriptions, no auto retry, and no rollback claim. This source policy is an offline contract, not a live-success claim.</string>
 </dict>
 </plist>

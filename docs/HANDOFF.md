@@ -51,25 +51,31 @@ Safety-rule review:
 | Historical partial project evidence | /Users/marcboyer/Movies/FCPCommandConsole/provenance/disposable-project-bootstrap-B42DFA39-B63E-4050-9CDD-B4E2B00DACBA.json |
 | Historical postlaunch baseline | /Users/marcboyer/Movies/FCPCommandConsole/provenance/postlaunch-schema15-partial-20260803T054100Z |
 
-The current artifact situation is deliberately not a Schema 15 success:
+UPDATE 2026-08-03T08:5x UTC. The recovery described below was completed and the
+artifact situation has changed. Current verified state:
 
-1. The canonical signed artifact is Schema 14, restored through fail-closed recovery.
-2. A damaged Schema 15 artifact had the exact runtime and helper but a flattened
-   policy. It is damaged and must not be launched or used as an update source.
-3. A rebuild intended to repair that state is unverified and has mismatched runtime,
-   helper, and CandidateCDHashFull values. It is not canonical and must not replace
-   the recovered Schema 14 artifact.
-4. Six interrupted Schema 16 source files are dirty. They are source-in-progress,
-   neither installed nor accepted.
-5. 52 tests and overlay smoke were rerun and passed current at handoff. The current offline suite fails
-   because it still expects a Schema 15 fragment. That failure blocks any source or
-   installation claim until corrected and rerun.
-6. Live workflow acceptance is 0/4.
+1. The canonical artifact is **Schema 16**, installed transactionally from the
+   exact verified Schema 15 predecessor and independently verified. See STATUS.md
+   for its full pin table and provenance directory.
+2. The damaged Schema 15 donor and the unverified rebuilt candidate remain
+   preserved and rejected. Neither was launched or used as an update source.
+3. The Schema 15 recovery needed **no re-signing**: restoring the exact `abb1a7f`
+   policy bytes into an unchanged staged copy of the donor revalidated the
+   original signature chain and reproduced the pinned CandidateCDHashFull
+   `21e99732…` exactly. The staged-donor recipe's step 4 re-sign was therefore
+   never performed.
+4. The offline suite passes. Its blocker was that `run-offline-tests` required the
+   literal fragment `'" != "15"'` in **all three** patcher scripts, while the
+   interrupted work had bumped only `update-copied-runtime`.
+5. Isolated launch containment is now proven live across four real launches.
+6. Live workflow acceptance is still 0/4. The disposable project resume operation
+   ran four times with zero mutations every time. Three contract-level defects
+   were found and fixed; the remaining blocker is that the copied host never
+   presents an editor container. See STATUS.md and "Next work" below.
 
-Recovery chronology: the fail-closed recovery transaction did not launch Final Cut
-and did not run launcher preflight. Its artifact result is recovery evidence only;
-the separate Schema 15 and Schema 16 preflight gates remain required before any
-future copied-app launch.
+Everything below this line that describes a Schema 14 canonical base, a failing
+offline suite, or a pending Schema 15 recovery is **historical**. The safety
+rules, the failure guides, and the workflow acceptance matrix remain in force.
 
 Start a new session with read-only orientation only:
 
@@ -267,24 +273,35 @@ them to its declared canonical source. Do not copy old hash values forward.
 
 ## Completion checklist
 
-- [ ] Recovery record proves the signed Schema 14 canonical base and keeps damaged
-      Schema 15/unverified rebuild candidates rejected.
-- [ ] The six interrupted Schema 16 changes are fully reviewed, tested, and
-      installed only through an exact admitted update from the canonical base.
-- [ ] Offline suite, launcher suite, core tests, and overlay smoke pass currently.
-- [ ] Installed copied app, signature, policy, runtime/helper hashes, CDHash,
+- [x] Recovery record proves the canonical base and keeps damaged Schema 15 and
+      unverified rebuild candidates rejected. Both are preserved, never launched.
+- [x] The interrupted Schema 16 changes are reviewed, tested, and installed only
+      through an exact admitted update from the verified Schema 15 predecessor.
+- [x] Offline suite, launcher suite, core tests, and overlay smoke pass currently.
+- [x] Installed copied app, signature, policy, runtime/helper hashes, CDHash,
       stock identity, preference comparison, and process guard are freshly proven.
-- [ ] Historical partial bootstrap evidence remains preserved and does not inflate
+- [x] Historical partial bootstrap evidence remains preserved and does not inflate
       operation counts or workflow claims.
+- [ ] Bootstrap evidence is complete. **Blocked**: the resume operation has been
+      rejected twice with zero mutations. Current blocker is a wrong pre-resume
+      invariant (owned-clips emptiness after a project already exists).
 - [ ] Each of four workflows has independent live mutation/readback/undo/rollback/
-      provenance/manual acceptance evidence.
-- [ ] STATUS.md, docs/PHASE1_ACCEPTANCE.md, and this handoff reflect only current,
+      provenance/manual acceptance evidence. **0/4.**
+- [x] STATUS.md, docs/PHASE1_ACCEPTANCE.md, and this handoff reflect only current,
       verified facts.
-- [ ] No hard safety rule was violated.
+- [x] No hard safety rule was violated.
+- [ ] The Schema 16 `DisposableProjectResume:PublicLibraryOpen*` admission was
+      authored and admitted by the same agent in one session. It has not had
+      independent review, which is the property that gate exists to provide.
 
 ## Exact artifact ledger
 
-These values are the acceptance pins for the current recovery decision. They are
+HISTORICAL as of 2026-08-03. The Schema 14 row is no longer the canonical base;
+the canonical artifact is Schema 16 and its pins are in STATUS.md. The Schema 15
+row's CandidateCDHashFull `21e99732…` was **reproduced exactly** by the completed
+recovery, confirming the damaged artifact's only defect was the flattened policy.
+
+These values are the acceptance pins for the recovery decision. They are
 not interchangeable across artifacts. A matching file hash does not cure an invalid
 signature, flattened policy, wrong predecessor, or missing full verification.
 
@@ -377,21 +394,28 @@ rm/cp/mv sequences as a substitute for a reviewed atomic swap.
 
 ## Current test and repository evidence
 
+Refreshed 2026-08-03. The offline blocker is fixed; all suites pass.
+
 | Item | Actual current result | Boundary |
 | --- | --- | --- |
-| Base HEAD | f940233 | This handoff baseline; inspect live HEAD before continuing. |
-| Dirty interrupted change | 521 insertions, 47 deletions across six files | In-progress source only. Do not call it installed or complete. |
-| Swift/core tests | 52 passed, rerun current at handoff | Core evidence only; no native Final Cut proof. |
-| Overlay smoke | passed, rerun current at handoff | Overlay artifact evidence only. |
-| Offline runtime suite | failed | Exact failure: run-offline-tests: patcher current Schema 15 policy contract is missing: " != "15". This blocks promotion. |
-| Launcher zsh syntax | passed current at handoff | Syntax evidence only; it does not admit an artifact or live launch. |
-| Git whitespace check | git diff --check passed current at handoff | Repository-diff hygiene only; it does not prove source or runtime behavior. |
-| Launcher/policy result | must be rerun after the source test repair | Earlier results cannot certify a changed source tree. |
+| Base HEAD | eb77c19, worktree dirty and uncommitted | Inspect live HEAD before continuing. |
+| Swift/core tests | 52 passed | Core evidence only; no native Final Cut proof. |
+| Overlay smoke | passed | Overlay artifact evidence only. |
+| Offline runtime suite | passed | Needs a real ripgrep binary on PATH or it aborts. |
+| Isolated launcher suite | passed | Includes the resume launch mode. |
+| Launcher zsh syntax | passed | Syntax evidence only. |
+| Schema 16 launcher preflight | passed | Proves closure, isolation, library admission, preference equality. Not a workflow. |
+| Git whitespace check | passed | Repository-diff hygiene only. |
+| Disposable project resume | rejected twice, zero mutations | Blocked on a wrong pre-resume invariant. |
 | Workflows | 0/4 live accepted | No exception. |
 
-The dirty six files are exactly the six listed above; do not broaden the change set
-with formatting, dependency, documentation, or cleanup work until recovery and test
-gates are stable.
+The change set now spans ten files: the original six plus
+`plugin/patcher/patch-copied-fcp`, `plugin/patcher/verify-copied-fcp`,
+`Scripts/launch-isolated-fcpcommandconsole`, and
+`Scripts/tests/run-isolated-launcher-tests`. The four additions were required to
+keep the Schema 16 contract fail-closed in every verification layer and to pin
+the launcher to the installed artifact. Do not broaden further with formatting,
+dependency, documentation, or cleanup work.
 
 ## Runtime subtree map and evidence retention
 
@@ -470,7 +494,41 @@ The following refinements are intentional and must be retained:
   it does not authorize unsafe product behavior, destructive cleanup, or scope
   expansion.
 
-## Next 30-60 minutes: exact order
+## Next work, from the current verified state
+
+The three contract-level blockers are fixed and proven live. The remaining
+blocker is a product/architecture question, not a mechanical fix.
+
+**Blocker: the copied host never presents an editor container.**
+`[NSApp.delegate activeEditorContainer]` (pinned `PEAppController`,
+`activeEditorContainer`) returns nil for all 24 bounded observation turns. The
+library opens and verifies, the exact sequence is identified and its stable
+identifier recorded, and then `loadEditorForSequence:` has no container to call.
+
+Both the create arm and the resume arm assume a container already exists. Neither
+had ever reached this point before, so the assumption has never been validated.
+It is a pre-existing design gap, not a regression.
+
+Before any further live run, decide:
+
+1. Whether the copied host can be brought to an editor-ready state through a
+   pinned, separately admitted model API, without any UI automation. The host
+   binary's ObjC method symbols are stripped, so identifying such a route is a
+   reverse-engineering exercise and a new compatibility investigation. Record its
+   evidence the same way the Flexo contracts were recorded.
+2. Whether the disposable-project workflows should depend on an editor container
+   at all, or whether import and append can be admitted against the sequence
+   model directly without the timeline module.
+3. If neither is acceptable, treat native timeline mutation as out of scope and
+   say so explicitly, rather than leaving four workflow rows blocked behind an
+   unvalidated UI assumption.
+
+Only after a verified resume result exists should workflow admissions begin. Each
+needs manual human acceptance that no agent can supply.
+
+The historical ordered path below is retained for its safety reasoning.
+
+## Historical: next 30-60 minutes: exact order
 
 1. Read AGENTS.md, status, the six-file diff, recovery outcome.txt, and pre-state.txt.
 2. Confirm the ledger values directly against the current canonical Schema 14 copied

@@ -38,18 +38,41 @@ require_fragment() {
 for required_launcher_fragment in \
     'copied_app="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app"' \
     'copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"' \
-    '--preflight-only|--launch|--launch-bootstrap-disposable-library|--launch-bootstrap-disposable-project' \
+    '--preflight-only|--launch|--launch-bootstrap-disposable-library|--launch-bootstrap-disposable-project|--launch-resume-disposable-project' \
     'require_not_running' \
     'interpret_process_probe_status' \
     'pgrep_status=0' \
     'pgrep_status=1' \
     'pgrep_status=$pgrep_status' \
     'codesign --verify --deep --strict --verbose=4' \
-    'expected_copied_cdhash_full="21e99732e747821cb4aa06467b195f33247a15fad7535ea132e77609c3820b44"' \
+    'expected_copied_cdhash_full="dc11c6ea4b38c392ed183329c43b9080995846373ee0d8090e89c291fb96fc6c"' \
     'verify_reviewed_copied_cdhash' \
     'CandidateCDHashFull' \
     'create_five_entitlements' \
-    'SchemaVersion)" == "15"' \
+    'SchemaVersion)" == "16"' \
+    'verify_disposable_project_resume_policy' \
+    'DisposableProjectResume:ExecutionEnabled' \
+    'DisposableProjectResume:EnvironmentVariable' \
+    'FCPCC_RESUME_DISPOSABLE_PROJECT' \
+    'DisposableProjectResume:CreateArmMustBeAbsent' \
+    'DisposableProjectResume:LibraryCreateArmMustBeAbsent' \
+    'DisposableProjectResume:ProjectCreationSelectorMustNeverBeInvoked' \
+    'DisposableProjectResume:NilPendingOnlyAtEditorReadinessBoundaries' \
+    'DisposableProjectResume:NoAutoRetry' \
+    'DisposableProjectResume:RollbackClaim' \
+    'DisposableProjectResume:PublicLibraryOpenAdmitted' \
+    'DisposableProjectResume:PublicLibraryOpenMaximumInvocations' \
+    'DisposableProjectResume:PublicLibraryOpenNeverCreatesRemovesOrOverwritesLibrary' \
+    'DisposableProjectResume:PublicLibraryOpenNoRetry' \
+    'DisposableProjectResume:RequiredOwnedClipCount' \
+    'DisposableProjectResume:RequiredOwnedProjectClass' \
+    'DisposableProjectResume:OwnedClipsIncludeExistingProject' \
+    'DisposableProjectResume:ProjectSetObservationRecordedOnly' \
+    'DisposableProjectResume:SequenceDisplayNameClass' \
+    'DisposableProjectResume:SequenceIdentifierClass' \
+    'DisposableProjectResume:SequenceClassChain' \
+    'DisposableProjectResume:SequenceIsNotAnFFAnchoredObject' \
+    'not_attempted_no_rollback_claimed' \
     'verify_audio_unit_validation_containment_policy' \
     'AudioUnitValidationContainment' \
     'ExpectedFlexoSHA256' \
@@ -125,6 +148,7 @@ for required_launcher_fragment in \
     'bootstrap_disposable_project=reviewed_one_shot_requested' \
     'DisposableLibraryBootstrap:CanonicalTargetPath' \
     'DisposableProjectBootstrap:ProjectCreationSelector' \
+    'DisposableProjectBootstrap:ObservationIntervalMilliseconds' \
     'DisposableProjectBootstrap:PublicLibraryOpenAPI' \
     'NSDocumentController.openDocumentWithContentsOfURL:display:completionHandler:' \
     'DisposableProjectBootstrap:PublicLibraryOpenDisplay' \
@@ -286,7 +310,7 @@ mock_child_helper="$test_dir/mock-child-helper.zsh"
 } > "$mock_child_helper"
 mock_isolated_home="$test_dir/mock-isolated-home"
 /bin/mkdir -p "$mock_isolated_home/tmp" "$mock_isolated_home/Library/Caches"
-for mock_mode in plain bootstrap_library bootstrap_project; do
+for mock_mode in plain bootstrap_library bootstrap_project resume_project; do
     mock_stdout="$test_dir/mock-$mock_mode.stdout"
     mock_stderr="$test_dir/mock-$mock_mode.stderr"
     if ! __CFPREFERENCES_AVOID_DAEMON=caller_contamination /bin/zsh -f -c '
@@ -300,6 +324,7 @@ for mock_mode in plain bootstrap_library bootstrap_project; do
             plain) bootstrap_environment=() ;;
             bootstrap_library) bootstrap_environment=(FCPCC_BOOTSTRAP_DISPOSABLE_LIBRARY=1) ;;
             bootstrap_project) bootstrap_environment=(FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT=1) ;;
+            resume_project) bootstrap_environment=(FCPCC_RESUME_DISPOSABLE_PROJECT=1) ;;
             *) exit 64 ;;
         esac
         launch_isolated_child "$2" "$3"
@@ -340,4 +365,4 @@ done
 /usr/bin/sandbox-exec "${profile_args[@]}" /usr/bin/stat -f '%z' "$allowed_bundle" > "$test_dir/allowed-metadata.txt" 2>&1 || fail "sandbox profile denied metadata access to the explicitly allowed disposable fixture"
 /usr/bin/sandbox-exec "${profile_args[@]}" /usr/bin/touch "$test_dir/runtime-write-probe" > "$test_dir/runtime-write.txt" 2>&1 || fail "sandbox profile denied a non-library runtime write"
 
-print -r -- "isolated_launcher_profile=pass denied_library_read_write_metadata=pass allowed_fixture=pass runtime_write=pass launcher_static_audit=pass daemon_avoidance_env_mock=pass daemon_avoidance_noninheritance=pass daemon_avoidance_launch_modes=plain,bootstrap_library,bootstrap_project"
+print -r -- "isolated_launcher_profile=pass denied_library_read_write_metadata=pass allowed_fixture=pass runtime_write=pass launcher_static_audit=pass daemon_avoidance_env_mock=pass daemon_avoidance_noninheritance=pass daemon_avoidance_launch_modes=plain,bootstrap_library,bootstrap_project,resume_project"

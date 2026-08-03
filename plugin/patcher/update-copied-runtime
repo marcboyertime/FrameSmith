@@ -87,6 +87,15 @@ expected_schema14_runtime_sha256="d9ef52a70e6d4467debdc89b569422b3fb5768322fbe94
 expected_schema14_policy_sha256="6b9a32e7f7801e62aa7b6399c881d827f8d7ede84d9f106ab63fdf5a3585ad95"
 expected_schema14_copied_cdhash_full="f53b89063f7215d1978835ded99a1f7246a997bc87606159c23b3753731e4171"
 expected_schema14_source_provenance="/Users/marcboyer/Movies/FCPCommandConsole/provenance/patch-20260803T043514Z-update-runtime-66133"
+# Schema 16 accepts one and only one installed Schema-15 artifact. The helper
+# payload, signed runtime, policy, CDHash, team, and independent verifier
+# provenance are all pinned before staging a replacement.
+expected_schema15_runtime_sha256="856c25f6614fe627fa8ea634f5ace0b67a01ba35319560e1d4c1d493c864b47d"
+expected_schema15_policy_sha256="081c0e15616afae5109773bf633c922662fd160f3b186aad2e21c7efeb7fd125"
+expected_schema15_helper_sha256="ca4c63838e115f80c0657d95550bd8cc3cc09535c519ef542f3d21a8f191a299"
+expected_schema15_copied_cdhash_full="21e99732e747821cb4aa06467b195f33247a15fad7535ea132e77609c3820b44"
+expected_schema15_team_identifier="KDV9RC892F"
+expected_schema15_source_provenance="/Users/marcboyer/Movies/FCPCommandConsole/provenance/patch-20260803T053233Z-verify-56034"
 framework_name="FCPCommandConsoleRuntime.framework"
 built_framework="$plugin_dir/build/$framework_name"
 built_runtime="$built_framework/Versions/A/FCPCommandConsoleRuntime"
@@ -476,7 +485,7 @@ verify_disposable_project_bootstrap_policy() {
     local policy_path="$1"
     local label="$2"
     verify_schema13_public_library_open_and_active_session_policy "$policy_path" "$label"
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ExecutionEnabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:MethodContractsPinnedIn' "$policy_path")" != "FCPCommandConsoleRuntime.m:FCPCCDisposableProjectBootstrapContracts" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EnvironmentVariable' "$policy_path")" != "FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EnvironmentValue' "$policy_path")" != "1" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:CanonicalLibraryPath' "$policy_path")" != "/Users/marcboyer/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:FixturesRootPath' "$policy_path")" != "/Users/marcboyer/Movies/FCPCommandConsole/fixtures" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ProjectName' "$policy_path")" != "FCPCommandConsole Test" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:LifecycleNotification' "$policy_path")" != "NSApplicationDidFinishLaunchingNotification" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:MainQueueBoundedStateMachine' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:MaximumObservationTurns' "$policy_path")" != "24" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:RequiredPrecreateState' "$policy_path")" != "one_enrolled_library_one_default_event_zero_owned_clips_zero_projects_zero_deep_loaded_sequences" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ExecutionEnabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:MethodContractsPinnedIn' "$policy_path")" != "FCPCommandConsoleRuntime.m:FCPCCDisposableProjectBootstrapContracts" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EnvironmentVariable' "$policy_path")" != "FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EnvironmentValue' "$policy_path")" != "1" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:CanonicalLibraryPath' "$policy_path")" != "/Users/marcboyer/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:FixturesRootPath' "$policy_path")" != "/Users/marcboyer/Movies/FCPCommandConsole/fixtures" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ProjectName' "$policy_path")" != "FCPCommandConsole Test" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:LifecycleNotification' "$policy_path")" != "NSApplicationDidFinishLaunchingNotification" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:MainQueueBoundedStateMachine' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:MaximumObservationTurns' "$policy_path")" != "24" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ObservationIntervalMilliseconds' "$policy_path")" != "1000" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:RequiredPrecreateState' "$policy_path")" != "one_enrolled_library_one_default_event_zero_owned_clips_zero_projects_zero_deep_loaded_sequences" ]]; then
         fail "$label disposable project bootstrap admission gate is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ProjectCreationClass' "$policy_path")" != "FFProjectDocument" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ProjectCreationSelector' "$policy_path")" != "actionNewProject:name:sequence:actionName:error:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:DeepLoadedSequenceClass' "$policy_path")" != "FFLibrary" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:DeepLoadedSequenceSelector' "$policy_path")" != "_deepLoadedSequences" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EditorLoadClass' "$policy_path")" != "PEEditorContainerModule" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EditorLoadSelector' "$policy_path")" != "loadEditorForSequence:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ImportClass' "$policy_path")" != "FFMediaEventProject" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:NewClipSelector' "$policy_path")" != "newClipFromURL:manageFileType:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:AddOwnedClipSelector' "$policy_path")" != "addOwnedClipsObject:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PasteboardClass' "$policy_path")" != "FFPasteboard" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PasteboardInitSelector' "$policy_path")" != "initWithName:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PasteboardWriteSelector' "$policy_path")" != "writeRangesOfMedia:options:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:RangeFactoryClass' "$policy_path")" != "FigTimeRangeAndObject" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:RangeFactorySelector' "$policy_path")" != "rangeAndObjectWithRange:andObject:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EditActionClass' "$policy_path")" != "FFEditAction" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EditActionSelector' "$policy_path")" != "editActionOfKind:backTimed:trackType:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EditActionKind' "$policy_path")" != "2" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:BackTimed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:TrackType' "$policy_path")" != "all" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:TimelineClass' "$policy_path")" != "FFAnchoredTimelineModule" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:TimelinePerformEditSelector' "$policy_path")" != "performEditAction:fromPasteboardWithName:fromAnimation:" ]]; then
@@ -490,13 +499,21 @@ verify_disposable_project_bootstrap_policy() {
     fi
 }
 
+verify_disposable_project_resume_policy() {
+    local policy_path="$1"
+    local label="$2"
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:ExecutionEnabled' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:EnvironmentVariable' "$policy_path")" != "FCPCC_RESUME_DISPOSABLE_PROJECT" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:CreateArmMustBeAbsent' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:LibraryCreateArmMustBeAbsent' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:Operation' "$policy_path")" != "disposable_project_resume" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:ProjectCreationSelectorMustNeverBeInvoked' "$policy_path")" != "actionNewProject:name:sequence:actionName:error:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:NoAutoRetry' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:PublicLibraryOpenAdmitted' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:PublicLibraryOpenAPI' "$policy_path")" != "NSDocumentController.openDocumentWithContentsOfURL:display:completionHandler:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:PublicLibraryOpenMaximumInvocations' "$policy_path")" != "1" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:PublicLibraryOpenAllowedInitialOpenLibraryCount' "$policy_path")" != "0" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:PublicLibraryOpenRequiredPostopenState' "$policy_path")" != "exactly_one_enrolled_open_library" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:PublicLibraryOpenNeverCreatesRemovesOrOverwritesLibrary' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:PublicLibraryOpenNoRetry' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:RequiredOwnedClipCount' "$policy_path")" != "1" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:RequiredOwnedProjectClass' "$policy_path")" != "FFAnchoredSequence" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:OwnedClipsIncludeExistingProject' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:ProjectSetObservationRecordedOnly' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:SequenceDisplayNameClass' "$policy_path")" != "FFAnchoredSequence" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:SequenceIdentifierClass' "$policy_path")" != "FFBinObject" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:SequenceClassChain' "$policy_path")" != "FFAnchoredSequence_FFMediaState_FFMedia_FFBinObject" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectResume:SequenceIsNotAnFFAnchoredObject' "$policy_path")" != "true" ]]; then
+        fail "$label Schema 16 resume policy is not exact"
+    fi
+}
+
 verify_compatibility_policy() {
     local policy_path="$1"
     local label="$2"
     if ! /usr/bin/plutil -lint "$policy_path" >/dev/null; then
         fail "$label compatibility policy is invalid"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "15" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "16" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "$expected_host_bundle_identifier" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "$expected_copied_host_bundle_path" ]]; then
         fail "$label compatibility policy host bundle identifier is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "$expected_host_version" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "$expected_host_build" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "$expected_stock_pre_injection_host_executable_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
@@ -523,6 +540,7 @@ verify_compatibility_policy() {
         fail "$label disposable library bootstrap public document API contract is not exact"
     fi
     verify_disposable_project_bootstrap_policy "$policy_path" "$label"
+    verify_disposable_project_resume_policy "$policy_path" "$label"
     verify_audio_unit_validation_containment_policy "$policy_path" "$label"
     if /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:2' "$policy_path" >/dev/null 2>&1; then
         fail "$label compatibility policy permits an unreviewed install phase"
@@ -760,6 +778,56 @@ verify_exact_schema14_complete_update_provenance() {
     print -r -- "runtime_sha256=$source_runtime_hash" >> "$update_dir/schema14-preupdate-provenance.txt"
     print -r -- "policy_sha256=$source_policy_hash" >> "$update_dir/schema14-preupdate-provenance.txt"
     print -r -- "copied_cdhash_full=$source_cdhash" >> "$update_dir/schema14-preupdate-provenance.txt"
+}
+
+# The Schema-16 updater does not accept a family of legacy artifacts. It
+# requires this exact installed Schema-15 copy and its independently recorded
+# verifier transaction before it creates any staging directory or signs data.
+verify_exact_schema15_preupdate_policy() {
+    local policy_path="$1"
+    local policy_sha256 runtime_sha256 helper_sha256 schema_version
+    if [[ ! -f "$policy_path" || -L "$policy_path" || ! -f "$embedded_runtime" || -L "$embedded_runtime" || ! -x "$planner_payload_root/$planner_helper_name" || -L "$planner_payload_root/$planner_helper_name" ]]; then
+        fail "exact Schema-15 runtime, policy, or helper is missing or symlinked"
+    fi
+    /usr/bin/plutil -lint "$policy_path" >/dev/null || fail "exact Schema-15 policy is invalid"
+    policy_sha256="$(/usr/bin/shasum -a 256 "$policy_path" | /usr/bin/awk '{print $1}')"
+    runtime_sha256="$(/usr/bin/shasum -a 256 "$embedded_runtime" | /usr/bin/awk '{print $1}')"
+    helper_sha256="$(/usr/bin/shasum -a 256 "$planner_payload_root/$planner_helper_name" | /usr/bin/awk '{print $1}')"
+    schema_version="$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")"
+    if [[ "$schema_version" != "15" || "$policy_sha256" != "$expected_schema15_policy_sha256" || "$runtime_sha256" != "$expected_schema15_runtime_sha256" || "$helper_sha256" != "$expected_schema15_helper_sha256" ]]; then
+        fail "exact Schema-15 runtime, policy, or helper is not the reviewed installed baseline"
+    fi
+    /usr/libexec/PlistBuddy -c 'Print :AudioUnitValidationContainment' "$policy_path" >/dev/null || fail "exact Schema-15 baseline is missing Audio Unit containment policy"
+}
+
+verify_exact_schema15_complete_update_provenance() {
+    local current_cdhash current_team provenance_cdhash provenance_team
+    if [[ ! -d "$expected_schema15_source_provenance" || -L "$expected_schema15_source_provenance" || "$(/bin/realpath "$expected_schema15_source_provenance")" != "$expected_schema15_source_provenance" ]]; then
+        fail "exact Schema-15 verifier provenance is missing or noncanonical"
+    fi
+    for source_file in "$expected_schema15_source_provenance/copied-current/codesign-metadata.txt" "$expected_schema15_source_provenance/runtime-compatibility-audit.txt" "$expected_schema15_source_provenance/process-after-verify.txt"; do
+        if [[ ! -f "$source_file" || -L "$source_file" ]]; then
+            fail "exact Schema-15 verifier provenance is incomplete"
+        fi
+    done
+    provenance_cdhash="$(/usr/bin/awk -F= '/^CandidateCDHashFull sha256=/{print $2; exit}' "$expected_schema15_source_provenance/copied-current/codesign-metadata.txt")"
+    provenance_team="$(/usr/bin/awk -F= '/^TeamIdentifier=/{print $2; exit}' "$expected_schema15_source_provenance/copied-current/codesign-metadata.txt")"
+    if [[ "$provenance_cdhash" != "$expected_schema15_copied_cdhash_full" || "$provenance_team" != "$expected_schema15_team_identifier" ]]; then
+        fail "exact Schema-15 verifier provenance CDHash or team is not reviewed"
+    fi
+    verify_exact_schema15_preupdate_policy "$embedded_compatibility_policy"
+    /usr/bin/codesign -dvvv "$copied_app" > "$update_dir/copied-before/schema15-codesign-metadata.txt" 2>&1
+    current_cdhash="$(/usr/bin/awk -F= '/^CandidateCDHashFull sha256=/{print $2; exit}' "$update_dir/copied-before/schema15-codesign-metadata.txt")"
+    current_team="$(/usr/bin/awk -F= '/^TeamIdentifier=/{print $2; exit}' "$update_dir/copied-before/schema15-codesign-metadata.txt")"
+    if [[ "$current_cdhash" != "$expected_schema15_copied_cdhash_full" || "$current_team" != "$expected_schema15_team_identifier" ]]; then
+        fail "exact Schema-15 update source requires the reviewed installed CandidateCDHashFull and team"
+    fi
+    print -r -- "source=exact_installed_schema15_verify" > "$update_dir/schema15-preupdate-provenance.txt"
+    print -r -- "source_verify_provenance=$expected_schema15_source_provenance" >> "$update_dir/schema15-preupdate-provenance.txt"
+    print -r -- "runtime_sha256=$expected_schema15_runtime_sha256" >> "$update_dir/schema15-preupdate-provenance.txt"
+    print -r -- "policy_sha256=$expected_schema15_policy_sha256" >> "$update_dir/schema15-preupdate-provenance.txt"
+    print -r -- "helper_sha256=$expected_schema15_helper_sha256" >> "$update_dir/schema15-preupdate-provenance.txt"
+    print -r -- "copied_cdhash_full=$expected_schema15_copied_cdhash_full" >> "$update_dir/schema15-preupdate-provenance.txt"
 }
 
 # The exact completed Schema-11 installation is the only direct source for the
@@ -1445,14 +1513,14 @@ if ! /usr/bin/cmp -s "$initial_patch_dir/stock-before/main-executable.sha256" "$
     fail "stock app or production preference baseline differs from initial patch evidence"
 fi
 current_policy_schema="$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$embedded_compatibility_policy")"
-if [[ "$current_policy_schema" != "14" ]]; then
-    fail "Schema 15 update requires the one exact installed Schema-14 source; no legacy or generic source is admitted"
+if [[ "$current_policy_schema" != "15" ]]; then
+    fail "Schema 16 update requires the one exact installed Schema-15 source; no legacy or generic source is admitted"
 fi
 if [[ "$migration_required" != "false" ]]; then
-    fail "the exact installed Schema-14 source must retain the canonical copied-app entitlement endpoint"
+    fail "the exact installed Schema-15 source must retain the canonical copied-app entitlement endpoint"
 fi
-verify_exact_schema14_complete_update_provenance
-receipt_provenance_classification="exact_schema14_complete_update_provenance"
+verify_exact_schema15_complete_update_provenance
+receipt_provenance_classification="exact_schema15_complete_update_provenance"
 print -r -- "receipt_provenance_classification=$receipt_provenance_classification" >> "$update_dir/initial-provenance.txt"
 print -r -- "receipt_provenance_classification=$receipt_provenance_classification" >> "$update_dir/copied-identity.txt"
 
@@ -1471,8 +1539,8 @@ done
 if [[ ! -f "$embedded_compatibility_policy" || -L "$embedded_compatibility_policy" ]]; then
     fail "copied runtime compatibility policy is missing"
 fi
-if [[ "$receipt_provenance_classification" != "exact_schema14_complete_update_provenance" ]]; then
-    fail "Schema 15 update did not retain the exact Schema-14 admission classification"
+if [[ "$receipt_provenance_classification" != "exact_schema15_complete_update_provenance" ]]; then
+    fail "Schema 16 update did not retain the exact Schema-15 admission classification"
 fi
 verify_compatibility_policy "$built_compatibility_policy" "built"
 /usr/bin/shasum -a 256 "$built_runtime" | /usr/bin/awk '{print $1}' > "$update_dir/built-runtime.sha256"
