@@ -160,6 +160,16 @@ typedef NS_ENUM(NSInteger, FCPCCMutationDisposition) {
 FOUNDATION_EXPORT NSString * const FCPCCMutationErrorUnsupportedUnverifiedFCP123;
 FOUNDATION_EXPORT NSString * const FCPCCMutationErrorUnsupportedPendingLiveContract;
 
+// Product input is normalized with a top-left origin (x right, y down).  The
+// candidate native convention is centered pixels (x right, y up).  This
+// conversion is deterministic and tested offline, but is deliberately not an
+// authorization to pass the result to a private Final Cut setter until the
+// exact coordinate convention has been live-proven in the enrolled disposable
+// library.
+FOUNDATION_EXPORT CGPoint FCPCCProductNormalizedPointToCandidateFCPPixels(
+    CGPoint normalizedPoint,
+    CGSize frameSize);
+
 // This is a product-owned desired curve for preview/planning only. The sole
 // value deliberately does not encode, infer, or select a private Final Cut
 // Pro interpolation option.
@@ -195,22 +205,32 @@ typedef NS_ENUM(NSInteger, FCPCCNativeKeyframeEasing) {
 @end
 
 // A keyframe is a typed desired transform preview value. No private Final Cut
-// Pro setter is called while creating one.
+// Pro setter is called while creating one. `candidateNativePixelPosition`
+// uses the explicit candidate coordinate convention above and remains
+// unusable unless its verification bit is true.
 @interface FCPCCNativeTransformKeyframe : NSObject
 @property (nonatomic, readonly) CMTime clipLocalTime;
-// This product coordinate remains normalized until an exact Final Cut Pro
-// pixel-position conversion and axis convention have been admitted.
 @property (nonatomic, readonly) CGPoint normalizedPosition;
+@property (nonatomic, readonly) CGPoint candidateNativePixelPosition;
 @property (nonatomic, readonly, getter=isNativePixelPositionConversionVerified) BOOL nativePixelPositionConversionVerified;
 @property (nonatomic, readonly) CGFloat uniformScale;
 @property (nonatomic, readonly) CGFloat rotationDegrees;
 @property (nonatomic, readonly) CGFloat easedProgress;
 - (instancetype)initWithClipLocalTime:(CMTime)clipLocalTime
                    normalizedPosition:(CGPoint)normalizedPosition
+         candidateNativePixelPosition:(CGPoint)candidateNativePixelPosition
  nativePixelPositionConversionVerified:(BOOL)nativePixelPositionConversionVerified
                          uniformScale:(CGFloat)uniformScale
                       rotationDegrees:(CGFloat)rotationDegrees
                         easedProgress:(CGFloat)easedProgress NS_DESIGNATED_INITIALIZER;
+// Compatibility initializer retained for callers that only consume the
+// product-space preview. It cannot mark pixel conversion verified.
+- (instancetype)initWithClipLocalTime:(CMTime)clipLocalTime
+                   normalizedPosition:(CGPoint)normalizedPosition
+ nativePixelPositionConversionVerified:(BOOL)nativePixelPositionConversionVerified
+                         uniformScale:(CGFloat)uniformScale
+                      rotationDegrees:(CGFloat)rotationDegrees
+                        easedProgress:(CGFloat)easedProgress;
 - (instancetype)init NS_UNAVAILABLE;
 @end
 

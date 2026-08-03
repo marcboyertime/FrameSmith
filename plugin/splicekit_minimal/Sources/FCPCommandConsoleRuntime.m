@@ -45,6 +45,16 @@ static const char * const FCPCCExpectedFlexoFrameworkSHA256 = "704557a28dcd2668f
 
 static BOOL FCPCCFileSHA256MatchesExpectedHex(NSString *path, const char *expectedHex);
 
+CGPoint FCPCCProductNormalizedPointToCandidateFCPPixels(CGPoint normalizedPoint,
+                                                         CGSize frameSize) {
+    // Product coordinates: [0, 1] with top-left origin, x right and y down.
+    // Candidate Final Cut coordinates: centered pixels, x right and y up.
+    // The caller must still reject this output until the convention is
+    // demonstrated against the exact enrolled disposable library.
+    return CGPointMake((normalizedPoint.x - 0.5) * frameSize.width,
+                       (0.5 - normalizedPoint.y) * frameSize.height);
+}
+
 // The copied executable intentionally has one additional LC_LOAD_DYLIB and a
 // new signature, so its whole-file hash cannot equal the stock pre-injection
 // executable hash. The patcher binds that stock hash before each deployment;
@@ -1970,6 +1980,7 @@ static NSString *FCPCCDerivedTimelineRevision(NSArray *primaryItems,
 
 - (instancetype)initWithClipLocalTime:(CMTime)clipLocalTime
                    normalizedPosition:(CGPoint)normalizedPosition
+         candidateNativePixelPosition:(CGPoint)candidateNativePixelPosition
  nativePixelPositionConversionVerified:(BOOL)nativePixelPositionConversionVerified
                          uniformScale:(CGFloat)uniformScale
                       rotationDegrees:(CGFloat)rotationDegrees
@@ -1978,12 +1989,28 @@ static NSString *FCPCCDerivedTimelineRevision(NSArray *primaryItems,
     if (self != nil) {
         _clipLocalTime = clipLocalTime;
         _normalizedPosition = normalizedPosition;
+        _candidateNativePixelPosition = candidateNativePixelPosition;
         _nativePixelPositionConversionVerified = nativePixelPositionConversionVerified;
         _uniformScale = uniformScale;
         _rotationDegrees = rotationDegrees;
         _easedProgress = easedProgress;
     }
     return self;
+}
+
+- (instancetype)initWithClipLocalTime:(CMTime)clipLocalTime
+                   normalizedPosition:(CGPoint)normalizedPosition
+ nativePixelPositionConversionVerified:(BOOL)nativePixelPositionConversionVerified
+                         uniformScale:(CGFloat)uniformScale
+                      rotationDegrees:(CGFloat)rotationDegrees
+                        easedProgress:(CGFloat)easedProgress {
+    return [self initWithClipLocalTime:clipLocalTime
+                     normalizedPosition:normalizedPosition
+          candidateNativePixelPosition:CGPointZero
+   nativePixelPositionConversionVerified:NO
+                          uniformScale:uniformScale
+                       rotationDegrees:rotationDegrees
+                         easedProgress:easedProgress];
 }
 
 @end
@@ -2074,22 +2101,49 @@ static NSString *FCPCCDerivedTimelineRevision(NSArray *primaryItems,
 @end
 
 // Direct-transform and transaction methods below are immutable records from
-// the locally inspected Final Cut Pro 12.3 arm64 image. The records preserve
-// the installed metadata spelling, ABI, and offset; x86_64 fields remain zero
-// because they were not inspected. These entries are not executable:
-// FCPCCNativeMutationLiveContractProven refuses the live route before any
-// private receiver, getter, setter, undo, or action method is resolved.
+// the locally inspected Final Cut Pro 12.3 Flexo image. Every entry records
+// exact class/instance placement, full ABI, image identity, and an IMP offset
+// for both slices that were inspected. The route has no generic discovery:
+// these literal contracts are the complete native surface admitted to
+// Workflow 1.
+#if defined(__arm64__)
+static const char * const FCPCCNativeOnSpineTypeEncoding = "B16@0:8";
+static const char * const FCPCCNativeBooleanReturnType = "B";
+static const char * const FCPCCNativeActionBeginTypeEncoding = "v36@0:8@16@24B32";
+static const char * const FCPCCNativeActionEndTypeEncoding = "B36@0:8@16B24^@28";
+#elif defined(__x86_64__)
+static const char * const FCPCCNativeOnSpineTypeEncoding = "c16@0:8";
+static const char * const FCPCCNativeBooleanReturnType = "c";
+static const char * const FCPCCNativeActionBeginTypeEncoding = "v36@0:8@16@24c32";
+static const char * const FCPCCNativeActionEndTypeEncoding = "c36@0:8@16c24^@28";
+#else
+static const char * const FCPCCNativeOnSpineTypeEncoding = "";
+static const char * const FCPCCNativeBooleanReturnType = "";
+static const char * const FCPCCNativeActionBeginTypeEncoding = "";
+static const char * const FCPCCNativeActionEndTypeEncoding = "";
+#endif
+
 static const FCPCCFixedObjCMethodContract FCPCCNativeTargetedRotateZoomStaticContracts[] = {
-    { "FFHeXForm3DEffect", "getPixelPositionAtTime:x:y:z:", "v64@0:8{?=qiIq}16^d40^d48^d56", "v", 6, NO, FCPCCFixedMethodImageFlexo, 0x3e6a10, 0 },
-    { "FFHeXForm3DEffect", "getRotationAtTime:x:y:z:", "v64@0:8{?=qiIq}16^d40^d48^d56", "v", 6, NO, FCPCCFixedMethodImageFlexo, 0x3e6a84, 0 },
-    { "FFHeXForm3DEffect", "getScaleAtTime:x:y:z:", "v64@0:8{?=qiIq}16^d40^d48^d56", "v", 6, NO, FCPCCFixedMethodImageFlexo, 0x3e6ac0, 0 },
-    { "FFHeXForm3DEffect", "setPixelPositionAtTime:curveX:curveY:curveZ:options:", "v68@0:8{?=qiIq}16d40d48d56I64", "v", 7, NO, FCPCCFixedMethodImageFlexo, 0x3e6c2c, 0 },
-    { "FFHeXForm3DEffect", "setRotationAtTime:curveX:curveY:curveZ:options:", "v68@0:8{?=qiIq}16d40d48d56I64", "v", 7, NO, FCPCCFixedMethodImageFlexo, 0x3e6ce8, 0 },
-    { "FFHeXForm3DEffect", "setScaleAtTime:curveX:curveY:curveZ:options:", "v68@0:8{?=qiIq}16d40d48d56I64", "v", 7, NO, FCPCCFixedMethodImageFlexo, 0x3e6d24, 0 },
-    { "FFEffectStack", "actionBegin:animationHint:deferUpdates:", "v36@0:8@16@24B32", "v", 5, NO, FCPCCFixedMethodImageFlexo, 0x156684, 0 },
-    { "FFEffectStack", "actionEnd:save:error:", "B36@0:8@16B24^@28", "B", 5, NO, FCPCCFixedMethodImageFlexo, 0x1566c0, 0 },
-    { "FFUndoHandler", "undoableBegin:", "v24@0:8@16", "v", 3, NO, FCPCCFixedMethodImageFlexo, 0x32cdc4, 0 },
-    { "FFUndoHandler", "undoableEnd:save:error:", "B36@0:8@16B24^@28", "B", 5, NO, FCPCCFixedMethodImageFlexo, 0x32cf84, 0 },
+    // Reacquire exactly one spine clip by its immutable anchored-object ID.
+    { "FFAnchoredObject", "identifier", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0xa7a50, 0xe75d0 },
+    { "FFAnchoredObject", "onSpine", FCPCCNativeOnSpineTypeEncoding, FCPCCNativeBooleanReturnType, 2, NO, FCPCCFixedMethodImageFlexo, 0xb0b90, 0xf4f20 },
+    // The inspected FFInspectableObject category remains an instance method
+    // on FFAnchoredObject. It may not be replaced with selector probing.
+    { "FFAnchoredObject", "representedToolObject", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0x61265c, 0x859350 },
+    { "FFAnchoredClip", "videoEffects", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0x7be58, 0xa7750 },
+    { "FFEffectStack", "xform3DEffect", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0x158eec, 0x1f7750 },
+    { "FFEffectStack", "undoHandler", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0x15a130, 0x1f8ce0 },
+    { "FFHeXForm3DEffect", "getPixelPositionAtTime:x:y:z:", "v64@0:8{?=qiIq}16^d40^d48^d56", "v", 6, NO, FCPCCFixedMethodImageFlexo, 0x3e6a10, 0x57b020 },
+    { "FFHeXForm3DEffect", "getRotationAtTime:x:y:z:", "v64@0:8{?=qiIq}16^d40^d48^d56", "v", 6, NO, FCPCCFixedMethodImageFlexo, 0x3e6a84, 0x57b0a0 },
+    { "FFHeXForm3DEffect", "getScaleAtTime:x:y:z:", "v64@0:8{?=qiIq}16^d40^d48^d56", "v", 6, NO, FCPCCFixedMethodImageFlexo, 0x3e6ac0, 0x57b0c0 },
+    { "FFHeXForm3DEffect", "setPixelPositionAtTime:curveX:curveY:curveZ:options:", "v68@0:8{?=qiIq}16d40d48d56I64", "v", 7, NO, FCPCCFixedMethodImageFlexo, 0x3e6c2c, 0x57b210 },
+    { "FFHeXForm3DEffect", "setRotationAtTime:curveX:curveY:curveZ:options:", "v68@0:8{?=qiIq}16d40d48d56I64", "v", 7, NO, FCPCCFixedMethodImageFlexo, 0x3e6ce8, 0x57b2c0 },
+    { "FFHeXForm3DEffect", "setScaleAtTime:curveX:curveY:curveZ:options:", "v68@0:8{?=qiIq}16d40d48d56I64", "v", 7, NO, FCPCCFixedMethodImageFlexo, 0x3e6d24, 0x57b2e0 },
+    { "FFEffectStack", "actionBegin:animationHint:deferUpdates:", FCPCCNativeActionBeginTypeEncoding, "v", 5, NO, FCPCCFixedMethodImageFlexo, 0x156684, 0x1f4150 },
+    { "FFEffectStack", "actionEnd:save:error:", FCPCCNativeActionEndTypeEncoding, FCPCCNativeBooleanReturnType, 5, NO, FCPCCFixedMethodImageFlexo, 0x1566c0, 0x1f41a0 },
+    { "FFUndoHandler", "undoManager", "@16@0:8", "@", 2, NO, FCPCCFixedMethodImageFlexo, 0x32c508, 0x483ad0 },
+    { "FFUndoHandler", "undoableBegin:", "v24@0:8@16", "v", 3, NO, FCPCCFixedMethodImageFlexo, 0x32cdc4, 0x4845e0 },
+    { "FFUndoHandler", "undoableEnd:save:error:", FCPCCNativeActionEndTypeEncoding, FCPCCNativeBooleanReturnType, 5, NO, FCPCCFixedMethodImageFlexo, 0x32cf84, 0x484840 },
 };
 
 static BOOL FCPCCFiniteCGFloat(CGFloat value) {
@@ -2118,22 +2172,149 @@ static CGFloat FCPCCNaturalPreviewProgress(CGFloat progress) {
 }
 
 static BOOL FCPCCNativeMutationLiveContractProven(NSString **reason) {
-    // A personal copied host only needs a proof for its current architecture.
-    // The static inspection still did not bind a private natural interpolation
-    // option or the project-document-owned undo handler needed to roll back a
-    // partial three-property write.
+    // Resolve only the literal array above. The resolver enforces class and
+    // instance placement, full ABI, exact Flexo path/SHA-256/UUID, and current
+    // architecture IMP offset before any native receiver could be touched.
     for (NSUInteger index = 0; index < sizeof(FCPCCNativeTargetedRotateZoomStaticContracts) / sizeof(FCPCCNativeTargetedRotateZoomStaticContracts[0]); index += 1) {
         const FCPCCFixedObjCMethodContract *contract = &FCPCCNativeTargetedRotateZoomStaticContracts[index];
-        if (FCPCCExpectedCurrentArchitectureMethodOffset(contract) == 0) {
-            *reason = FCPCCMutationErrorUnsupportedPendingLiveContract;
+        FCPCCValidatedFixedMethod resolved = {0};
+        if (!FCPCCResolveFixedMethod(contract, &resolved, reason)) {
             return NO;
         }
     }
+
+    // Static inspection proves that Final Cut itself calls the three setters
+    // with options == 0. That is only a no-invented-easing proof: it does not
+    // establish interpolation semantics, full keyframe enumeration/deletion,
+    // or that FFUndoHandler's scope owns this exact project edit. Without
+    // those contracts, writing even one property could not be rolled back to
+    // its exact previous keyframe topology, so the adapter remains closed.
     *reason = FCPCCMutationErrorUnsupportedPendingLiveContract;
     return NO;
 }
 
+static BOOL FCPCCNativeTargetedRotateZoomRecaptureMatchesTransaction(
+    FCPCCReadOnlyContextSnapshot *liveSnapshot,
+    FCPCCNativeTargetedRotateZoomTransaction *transaction,
+    NSString **reason) {
+    FCPCCReadOnlyContextSnapshot *expectedSnapshot = transaction.contextSnapshot;
+    if (liveSnapshot.disposition != FCPCCReadOnlyContextDispositionReady
+        || !liveSnapshot.isReadOnlyCapable
+        || liveSnapshot.selectedTimelineItems.count != 1
+        || expectedSnapshot.selectedTimelineItems.count != 1
+        || ![liveSnapshot.selectionRevision isEqualToString:expectedSnapshot.selectionRevision]
+        || ![liveSnapshot.timelineRevision isEqualToString:expectedSnapshot.timelineRevision]
+        || !liveSnapshot.hasFrameSize
+        || !expectedSnapshot.hasFrameSize
+        || !CGSizeEqualToSize(liveSnapshot.frameSize, expectedSnapshot.frameSize)
+        || !liveSnapshot.hasFrameDuration
+        || !expectedSnapshot.hasFrameDuration
+        || CMTimeCompare(liveSnapshot.frameDuration, expectedSnapshot.frameDuration) != 0) {
+        *reason = @"native_targeted_rotate_zoom_preapply_selection_or_revision_recapture_mismatch";
+        return NO;
+    }
+
+    FCPCCTimelineItemSnapshot *liveItem = liveSnapshot.selectedTimelineItems.firstObject;
+    FCPCCTimelineItemSnapshot *expectedItem = expectedSnapshot.selectedTimelineItems.firstObject;
+    if (![liveItem isKindOfClass:[FCPCCTimelineItemSnapshot class]]
+        || ![expectedItem isKindOfClass:[FCPCCTimelineItemSnapshot class]]
+        || ![liveItem.stableItemIdentifier isEqualToString:expectedItem.stableItemIdentifier]
+        || ![liveItem.canonicalSourcePath isEqualToString:expectedItem.canonicalSourcePath]
+        || ![liveItem.sourceSHA256 isEqualToString:expectedItem.sourceSHA256]
+        || ![liveItem.sourceIdentityReason isEqualToString:@"source_identity_available"]
+        || liveItem.primaryStorylineIndex != expectedItem.primaryStorylineIndex
+        || !liveItem.hasTimelineRange
+        || !expectedItem.hasTimelineRange
+        || CMTimeCompare(liveItem.timelineRange.start, expectedItem.timelineRange.start) != 0
+        || CMTimeCompare(liveItem.timelineRange.duration, expectedItem.timelineRange.duration) != 0) {
+        *reason = @"native_targeted_rotate_zoom_preapply_stable_id_source_identity_or_spine_recapture_mismatch";
+        return NO;
+    }
+    return YES;
+}
+
+@interface FCPCCNativeTargetedRotateZoomAdapter : NSObject
+- (FCPCCMutationResult *)applyTransaction:(FCPCCNativeTargetedRotateZoomTransaction *)transaction
+                         plannedAfterState:(FCPCCNativeTransformState *)plannedAfterState;
+- (FCPCCMutationResult *)undoLastTransaction;
+@end
+
+@implementation FCPCCNativeTargetedRotateZoomAdapter
+
+- (FCPCCMutationResult *)applyTransaction:(FCPCCNativeTargetedRotateZoomTransaction *)transaction
+                         plannedAfterState:(FCPCCNativeTransformState *)plannedAfterState {
+    // This is intentionally immediate and single-pass: no timer, polling, or
+    // cached selection can bridge the validation/write boundary.
+    FCPCCFixedModelTraversalAdapter *modelAdapter = [[FCPCCFixedModelTraversalAdapter alloc] init];
+    FCPCCReadOnlyLibrarySet *liveLibrarySet = [modelAdapter enumerateCompleteOpenLibrarySet];
+    FCPCCLibraryInvariantResult *liveLibraryInvariant = FCPCCEvaluateLibraryInvariant(liveLibrarySet,
+                                                                                       [FCPCCLibraryManifestRecord bundledManifest]);
+    if (!liveLibraryInvariant.isVerified
+        || !transaction.libraryInvariant.isVerified
+        || ![liveLibraryInvariant.reason isEqualToString:transaction.libraryInvariant.reason]) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedLibraryInvariant
+                                                    reason:@"native_targeted_rotate_zoom_preapply_enrolled_disposable_library_recapture_mismatch"
+                                         plannedAfterState:plannedAfterState
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+
+    FCPCCReadOnlyContextSnapshot *liveSnapshot = [modelAdapter captureContextForVerifiedLibraryInvariant:liveLibraryInvariant];
+    NSString *recaptureReason = nil;
+    if (!FCPCCNativeTargetedRotateZoomRecaptureMatchesTransaction(liveSnapshot, transaction, &recaptureReason)) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedContextInvariant
+                                                    reason:recaptureReason
+                                         plannedAfterState:plannedAfterState
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+
+    NSString *liveContractReason = nil;
+    if (!FCPCCNativeMutationLiveContractProven(&liveContractReason)) {
+        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionUnsupportedPendingLiveContract
+                                                    reason:liveContractReason
+                                         plannedAfterState:plannedAfterState
+                                               beforeState:nil
+                                                afterState:nil
+                                   nativeMutationPerformed:NO];
+    }
+    // Kept structurally unreachable until the missing full-keyframe rollback
+    // and project-owned undo contracts are independently proven. There is no
+    // fallback write, mock success, or partial native mutation route.
+    return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionUnsupportedPendingLiveContract
+                                                reason:FCPCCMutationErrorUnsupportedPendingLiveContract
+                                     plannedAfterState:plannedAfterState
+                                           beforeState:nil
+                                            afterState:nil
+                               nativeMutationPerformed:NO];
+}
+
+- (FCPCCMutationResult *)undoLastTransaction {
+    return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionUnsupportedPendingLiveContract
+                                                reason:FCPCCMutationErrorUnsupportedPendingLiveContract
+                                     plannedAfterState:nil
+                                           beforeState:nil
+                                            afterState:nil
+                               nativeMutationPerformed:NO];
+}
+
+@end
+
+@interface FCPCCMutationController ()
+@property (nonatomic, strong) FCPCCNativeTargetedRotateZoomAdapter *nativeTargetedRotateZoomAdapter;
+@end
+
 @implementation FCPCCMutationController
+
+- (instancetype)init {
+    self = [super init];
+    if (self != nil) {
+        _nativeTargetedRotateZoomAdapter = [[FCPCCNativeTargetedRotateZoomAdapter alloc] init];
+    }
+    return self;
+}
 
 - (FCPCCMutationResult *)planTransaction:(FCPCCBeforeAfterTransaction *)transaction {
     if (![transaction isKindOfClass:[FCPCCBeforeAfterTransaction class]]) {
@@ -2258,13 +2439,16 @@ static BOOL FCPCCNativeMutationLiveContractProven(NSString **reason) {
                                    nativeMutationPerformed:NO];
     }
 
-    // These calculations use a centered, product-owned normalized preview
-    // plane. No Final Cut pixel conversion or y-axis convention is claimed.
-    // For each preview progress p, the desired source point moves toward the
-    // center, then position compensates the scaled/rotated source point. Thus
-    // p=0 has zero position and p=1 lands on the center in this preview plane.
+    // These calculations retain the product-space preview and additionally
+    // materialize the explicit *candidate* native pixel convention. For each
+    // progress p, the desired source point moves toward the center, then
+    // position compensates the scaled/rotated source point. The candidate is
+    // never executable until a disposable-library live proof admits its axis
+    // convention and native keyframe semantics.
     CGFloat sourceX = request.normalizedTargetPoint.x - 0.5;
     CGFloat sourceY = request.normalizedTargetPoint.y - 0.5;
+    CGPoint candidateSourcePixels = FCPCCProductNormalizedPointToCandidateFCPPixels(request.normalizedTargetPoint,
+                                                                                      contextSnapshot.frameSize);
     NSMutableArray<FCPCCNativeTransformKeyframe *> *keyframes = [[NSMutableArray alloc] initWithCapacity:5];
     CMTime previousTime = kCMTimeInvalid;
     for (int index = 0; index < 5; index += 1) {
@@ -2280,13 +2464,21 @@ static BOOL FCPCCNativeMutationLiveContractProven(NSString **reason) {
         CGFloat desiredX = sourceX + (easedProgress * (0.0 - sourceX));
         CGFloat desiredY = sourceY + (easedProgress * (0.0 - sourceY));
         CGPoint normalizedPosition = CGPointMake(desiredX - transformedX, desiredY - transformedY);
+        CGFloat candidateTransformedX = uniformScale * ((candidateSourcePixels.x * cosine) - (candidateSourcePixels.y * sine));
+        CGFloat candidateTransformedY = uniformScale * ((candidateSourcePixels.x * sine) + (candidateSourcePixels.y * cosine));
+        CGFloat candidateDesiredX = candidateSourcePixels.x * (1.0 - easedProgress);
+        CGFloat candidateDesiredY = candidateSourcePixels.y * (1.0 - easedProgress);
+        CGPoint candidateNativePixelPosition = CGPointMake(candidateDesiredX - candidateTransformedX,
+                                                            candidateDesiredY - candidateTransformedY);
         CMTime clipLocalTime = CMTimeMultiplyByRatio(request.duration, index, 4);
         if (!FCPCCNumericCMTime(clipLocalTime)
             || (index > 0 && CMTimeCompare(clipLocalTime, previousTime) <= 0)
             || !FCPCCFiniteCGFloat(uniformScale)
             || !FCPCCFiniteCGFloat(rotationDegrees)
             || !FCPCCFiniteCGFloat(normalizedPosition.x)
-            || !FCPCCFiniteCGFloat(normalizedPosition.y)) {
+            || !FCPCCFiniteCGFloat(normalizedPosition.y)
+            || !FCPCCFiniteCGFloat(candidateNativePixelPosition.x)
+            || !FCPCCFiniteCGFloat(candidateNativePixelPosition.y)) {
             return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionRejectedContextInvariant
                                                         reason:@"native_targeted_rotate_zoom_keyframe_plan_unrepresentable"
                                              plannedAfterState:nil
@@ -2297,6 +2489,7 @@ static BOOL FCPCCNativeMutationLiveContractProven(NSString **reason) {
         [keyframes addObject:[[FCPCCNativeTransformKeyframe alloc]
             initWithClipLocalTime:clipLocalTime
                normalizedPosition:normalizedPosition
+    candidateNativePixelPosition:candidateNativePixelPosition
 nativePixelPositionConversionVerified:NO
                      uniformScale:uniformScale
                   rotationDegrees:rotationDegrees
@@ -2340,37 +2533,13 @@ nativePixelPositionConversionVerified:NO
                                    nativeMutationPerformed:NO];
     }
 
-    // No model method is resolved or invoked until all of the following can
-    // be proven exactly: a named native undo transaction, typed capture of
-    // position/scale/rotation before the write, per-keyframe native natural
-    // interpolation, typed re-read and equality comparison of all three
-    // values, and rollback through that same native undo transaction on any
-    // partial write. The static evidence does not yet establish the required
-    // natural-easing option or project-document undo/rollback provenance.
-    NSString *liveContractReason = nil;
-    if (!FCPCCNativeMutationLiveContractProven(&liveContractReason)) {
-        return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionUnsupportedPendingLiveContract
-                                                    reason:liveContractReason
-                                         plannedAfterState:planResult.plannedAfterState
-                                               beforeState:nil
-                                                afterState:nil
-                                   nativeMutationPerformed:NO];
-    }
-    return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionUnsupportedPendingLiveContract
-                                                reason:FCPCCMutationErrorUnsupportedPendingLiveContract
-                                     plannedAfterState:planResult.plannedAfterState
-                                           beforeState:nil
-                                            afterState:nil
-                               nativeMutationPerformed:NO];
+    return [self.nativeTargetedRotateZoomAdapter
+        applyTransaction:(FCPCCNativeTargetedRotateZoomTransaction *)transaction
+        plannedAfterState:planResult.plannedAfterState];
 }
 
 - (FCPCCMutationResult *)undoLastTransaction {
-    return [FCPCCMutationResult resultWithDisposition:FCPCCMutationDispositionUnsupportedPendingLiveContract
-                                                reason:FCPCCMutationErrorUnsupportedPendingLiveContract
-                                     plannedAfterState:nil
-                                           beforeState:nil
-                                            afterState:nil
-                               nativeMutationPerformed:NO];
+    return [self.nativeTargetedRotateZoomAdapter undoLastTransaction];
 }
 
 @end

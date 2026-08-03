@@ -293,11 +293,22 @@ done
 for required_mutation_controller_fragment in \
     '[self planTransaction:transaction]' \
     'FCPCCReadOnlyHostGatePasses(&hostReason)' \
-    'FCPCCNativeMutationLiveContractProven(&liveContractReason)' \
-    'FCPCCMutationDispositionUnsupportedPendingLiveContract' \
+    'applyTransaction:(FCPCCNativeTargetedRotateZoomTransaction *)transaction' \
     'nativeMutationPerformed:NO'; do
     if ! print -r -- "$mutation_controller_source" | "$rg_bin" -F -q "$required_mutation_controller_fragment"; then
         fail "typed mutation controller is missing its fail-closed barrier: $required_mutation_controller_fragment"
+    fi
+done
+native_targeted_adapter_source="$(/usr/bin/sed -n '/@implementation FCPCCNativeTargetedRotateZoomAdapter/,/^@end$/p' "$runtime_implementation")"
+for required_native_targeted_adapter_fragment in \
+    'enumerateCompleteOpenLibrarySet' \
+    'captureContextForVerifiedLibraryInvariant:' \
+    'FCPCCNativeTargetedRotateZoomRecaptureMatchesTransaction' \
+    'FCPCCNativeMutationLiveContractProven(&liveContractReason)' \
+    'FCPCCMutationDispositionUnsupportedPendingLiveContract' \
+    'nativeMutationPerformed:NO'; do
+    if ! print -r -- "$native_targeted_adapter_source" | "$rg_bin" -F -q "$required_native_targeted_adapter_fragment"; then
+        fail "native targeted adapter is missing its immediate recapture or fail-closed barrier: $required_native_targeted_adapter_fragment"
     fi
 done
 panel_apply_source="$(/usr/bin/sed -n '/- (void)apply:(id)sender {/,/- (void)undo:/p' "$runtime_implementation")"

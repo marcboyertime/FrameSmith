@@ -41,6 +41,38 @@
     <true/>
     <key>RuntimeDiscoveryAllowed</key>
     <false/>
+    <key>NativeTargetedRotateZoomAdapter</key>
+    <dict>
+        <key>ExecutionEnabled</key>
+        <false/>
+        <key>RuntimeDiscoveryAllowed</key>
+        <false/>
+        <key>MethodContractsPinnedIn</key>
+        <string>FCPCommandConsoleRuntime.m:FCPCCNativeTargetedRotateZoomStaticContracts</string>
+        <key>FlexoRelativeExecutablePath</key>
+        <string>Contents/Frameworks/Flexo.framework/Versions/A/Flexo</string>
+        <key>ExpectedFlexoSHA256</key>
+        <string>704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e</string>
+        <key>ExpectedFlexoArm64UUID</key>
+        <string>AEAE4C0B-7695-3784-A794-AFB4985525A8</string>
+        <key>ExpectedFlexoX86_64UUID</key>
+        <string>525166A8-E6F4-3DCA-B4F9-BD98F16B6552</string>
+        <key>CandidatePixelConvention</key>
+        <string>product_normalized_top_left_to_centered_pixels_x_right_y_up</string>
+        <key>SetterOptions</key>
+        <integer>0</integer>
+        <key>SetterOptionsEvidence</key>
+        <string>FCP_12_3_arm64_native_callsites_use_options_0_without_claiming_interpolation_semantics</string>
+        <key>RequiredPreapplyRecapture</key>
+        <string>enrolled_exactly_one_library_stable_id_source_identity_selection_revision_timeline_revision</string>
+        <key>RequiredLiveProofs</key>
+        <array>
+            <string>candidate_pixel_coordinate_convention</string>
+            <string>full_transform_keyframe_enumeration_and_exact_removal</string>
+            <string>project_owned_undo_scope_and_exact_last_assistant_undo</string>
+            <string>three_property_readback_and_lossless_rollback</string>
+        </array>
+    </dict>
     <key>ApprovedMethodReplacements</key>
     <array>
         <dict>

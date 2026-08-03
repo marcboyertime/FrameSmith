@@ -6,9 +6,34 @@ fixed AppKit panel shell included in this directory.
 
 The framework is intentionally not a proof of Final Cut behavior. It installs a
 native menu item and disabled panel shell only after its host containment check.
-Every mutation entry point returns `unsupported_unverified_fcp_12_3` until a
-separately reviewed live spike verifies the exact host and exactly-one-library
-invariant.
+Workflow 1 has one typed native adapter for `native.targeted_rotate_zoom`.
+Its fixed Final Cut 12.3 contract records only the inspected selection
+reacquisition, represented-tool/video-effect-stack/xform path, transform
+getters/setters, action bracket, and `FFUndoHandler` scope/undo-manager
+accessors. Every contract is tied to the exact Flexo path, SHA-256, slice UUID,
+method placement, full Objective-C ABI, and slice-specific IMP offset; it does
+not accept caller selectors, methods, or backend choices.
+
+The adapter immediately re-enumerates the active libraries and recaptures the
+single selected spine item, stable identifier, source identity, frame geometry,
+selection revision, and timeline revision before it could write. It compares
+that capture with the transaction and accepts only the enrolled exactly-one
+disposable library. The product point is deterministically converted from a
+top-left normalized coordinate into a candidate centered-pixel, y-up Final Cut
+plane; the conversion has offline math coverage but remains unverified for a
+native write.
+
+The runtime is deliberately still disabled for native mutation. Static
+inspection proves Final Cut calls the transform setters with `options == 0`,
+but it does not prove that option's interpolation semantics, an API to enumerate
+and remove every pre-existing keyframe, or that the discovered undo scope owns
+this exact project edit. Without those contracts, a partial position/rotation/
+scale write could not be restored to its exact original keyframe topology.
+The adapter therefore returns
+`unsupported_pending_live_contract_missing_exact_native_easing_and_native_undo_rollback_contracts`
+after the recapture gate and performs no write, rollback, or undo. A future
+live disposable-library spike must prove those contracts before the already
+typed write/readback/rollback path may be admitted.
 
 The copied-app signing policy is an exact five-key allowlist:
 `com.apple.security.app-sandbox=false`,

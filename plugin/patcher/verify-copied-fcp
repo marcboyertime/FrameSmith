@@ -200,6 +200,17 @@ verify_compatibility_policy() {
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor_main_thread_immediate_attempt" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "application_will_finish_launching_availability_retry" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "2" ]]; then
         fail "$label compatibility policy method guard mode or phases are not exact"
     fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:ExecutionEnabled' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:MethodContractsPinnedIn' "$policy_path")" != "FCPCommandConsoleRuntime.m:FCPCCNativeTargetedRotateZoomStaticContracts" || "$(/usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:ExpectedFlexoSHA256' "$policy_path")" != "704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e" || "$(/usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:CandidatePixelConvention' "$policy_path")" != "product_normalized_top_left_to_centered_pixels_x_right_y_up" || "$(/usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:SetterOptions' "$policy_path")" != "0" ]]; then
+        fail "$label native targeted rotate zoom policy is not the reviewed disabled exact-contract gate"
+    fi
+    for required_live_proof in candidate_pixel_coordinate_convention full_transform_keyframe_enumeration_and_exact_removal project_owned_undo_scope_and_exact_last_assistant_undo three_property_readback_and_lossless_rollback; do
+        if ! /usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:RequiredLiveProofs' "$policy_path" | /usr/bin/grep -F -q "$required_live_proof"; then
+            fail "$label native targeted rotate zoom policy is missing a required live proof: $required_live_proof"
+        fi
+    done
+    if /usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:RequiredLiveProofs:4' "$policy_path" >/dev/null 2>&1; then
+        fail "$label native targeted rotate zoom policy permits an unreviewed live-proof bypass"
+    fi
     if /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:2' "$policy_path" >/dev/null 2>&1; then
         fail "$label compatibility policy permits an unreviewed install phase"
     fi

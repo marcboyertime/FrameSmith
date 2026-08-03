@@ -213,6 +213,19 @@ int main(void) {
         }
         CGFloat sourceX = request.normalizedTargetPoint.x - 0.5;
         CGFloat sourceY = request.normalizedTargetPoint.y - 0.5;
+        CGPoint candidateCenter = FCPCCProductNormalizedPointToCandidateFCPPixels(CGPointMake(0.5, 0.5), ready.frameSize);
+        CGPoint candidateTopLeft = FCPCCProductNormalizedPointToCandidateFCPPixels(CGPointMake(0.0, 0.0), ready.frameSize);
+        CGPoint candidateBottomRight = FCPCCProductNormalizedPointToCandidateFCPPixels(CGPointMake(1.0, 1.0), ready.frameSize);
+        CGPoint candidateSource = FCPCCProductNormalizedPointToCandidateFCPPixels(request.normalizedTargetPoint, ready.frameSize);
+        if (require(fabs(candidateCenter.x) < 0.000001
+                    && fabs(candidateCenter.y) < 0.000001
+                    && fabs(candidateTopLeft.x + 960.0) < 0.000001
+                    && fabs(candidateTopLeft.y - 540.0) < 0.000001
+                    && fabs(candidateBottomRight.x - 960.0) < 0.000001
+                    && fabs(candidateBottomRight.y + 540.0) < 0.000001,
+                    @"candidate native pixel convention was not top-left normalized to centered y-up pixels")) {
+            return 1;
+        }
         if (require(fabs(early.easedProgress - 0.15625) < 0.000001
                     && fabs(middle.easedProgress - 0.5) < 0.000001
                     && fabs(late.easedProgress - 0.84375) < 0.000001,
@@ -226,11 +239,17 @@ int main(void) {
             CGFloat transformedY = keyframe.uniformScale * ((sourceX * sin(radians)) + (sourceY * cos(radians)));
             CGFloat outputX = transformedX + keyframe.normalizedPosition.x;
             CGFloat outputY = transformedY + keyframe.normalizedPosition.y;
+            CGFloat candidateTransformedX = keyframe.uniformScale * ((candidateSource.x * cos(radians)) - (candidateSource.y * sin(radians)));
+            CGFloat candidateTransformedY = keyframe.uniformScale * ((candidateSource.x * sin(radians)) + (candidateSource.y * cos(radians)));
+            CGFloat candidateOutputX = candidateTransformedX + keyframe.candidateNativePixelPosition.x;
+            CGFloat candidateOutputY = candidateTransformedY + keyframe.candidateNativePixelPosition.y;
             if (require(!keyframe.isNativePixelPositionConversionVerified
                         && (CMTIME_IS_VALID(previousClipLocalTime) == 0 || CMTimeCompare(keyframe.clipLocalTime, previousClipLocalTime) > 0)
                         && fabs(outputX - (sourceX * (1.0 - keyframe.easedProgress))) < 0.000001
-                        && fabs(outputY - (sourceY * (1.0 - keyframe.easedProgress))) < 0.000001,
-                        @"preview compensation did not keep every target sample on the centerward segment")) {
+                        && fabs(outputY - (sourceY * (1.0 - keyframe.easedProgress))) < 0.000001
+                        && fabs(candidateOutputX - (candidateSource.x * (1.0 - keyframe.easedProgress))) < 0.000001
+                        && fabs(candidateOutputY - (candidateSource.y * (1.0 - keyframe.easedProgress))) < 0.000001,
+                        @"preview/candidate-pixel compensation did not keep every target sample on the centerward segment")) {
                 return 1;
             }
             previousClipLocalTime = keyframe.clipLocalTime;
