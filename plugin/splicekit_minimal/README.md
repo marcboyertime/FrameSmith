@@ -20,8 +20,8 @@ debugger, and DYLD-environment entitlements remain forbidden. This signing
 policy does not establish runtime behavior or authorize a Final Cut library
 mutation.
 
-The copied-app startup compatibility has exactly two constructor-time,
-compile-time Objective-C replacements. The existing
+The copied-app startup compatibility has exactly two compile-time Objective-C
+replacements. The existing
 `POFDesktopOnboardingCoordinator` `setQueryDemoProjectInfo:` bridge retains and
 validates its original setter IMP before calling it with one provider that
 asynchronously completes on the main queue with nil demo metadata. The only
@@ -31,6 +31,14 @@ additional replacement is the `CCFirstLaunchHelper` instance method
 (arm64) and `0xc74c0` (x86_64). Its replacement immediately returns without
 invoking, copying, retaining, inspecting, or otherwise accessing the
 completion block.
+
+The Cloud replacement is governed by a small main-thread state machine. The
+constructor registers one `NSApplicationWillFinishLaunchingNotification`
+observer before its immediate guarded attempt. If and only if the exact helper
+class or exact instance method is unavailable, the observer makes one
+synchronous second attempt at that notification; installation, every other
+guard failure, and the second attempt all remove the observer. There are no
+timers, polling, delayed work, third attempts, or completion-block access.
 
 Each replacement is installed only after copied-host containment, exact path,
 bundle identifier, version, build, receipt, and active-slice UUID checks. The

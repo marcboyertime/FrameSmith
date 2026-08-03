@@ -17,6 +17,7 @@
 #import <objc/runtime.h>
 #import <sys/stat.h>
 #import <stdint.h>
+#import <stdio.h>
 #import <stdlib.h>
 #import <string.h>
 #import <unistd.h>
@@ -955,99 +956,245 @@ static void FCPCCSuppressCloudFirstLaunchRegistration(id self __attribute__((unu
                                                        id ignoredCompletion __attribute__((unused))) {
 }
 
-static NSString *FCPCCInstallCloudFirstLaunchRegistrationSuppression(void) {
-    static NSString *summary;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
-        if (!containment.isVerified) {
-            summary = @"cloud_first_launch_registration_suppression=host_containment_unverified";
-            return;
-        }
-        if (!FCPCCCopiedHostImageUUIDMatches()) {
-            summary = @"cloud_first_launch_registration_suppression=host_uuid_unverified";
-            return;
-        }
+// The Cloud helper is known to appear while the copied host is finishing its
+// AppKit setup.  This is a deliberately bounded availability state machine:
+// registration before attempt one, then at most one synchronous WillFinish
+// retry only when the class or its instance method was not available yet.
+typedef NS_ENUM(NSUInteger, FCPCCCloudFirstLaunchInstallStatus) {
+    FCPCCCloudFirstLaunchInstallStatusInstalled = 0,
+    FCPCCCloudFirstLaunchInstallStatusClassUnavailable,
+    FCPCCCloudFirstLaunchInstallStatusMethodUnavailable,
+    FCPCCCloudFirstLaunchInstallStatusMainThreadRequired,
+    FCPCCCloudFirstLaunchInstallStatusHostContainmentUnverified,
+    FCPCCCloudFirstLaunchInstallStatusHostUUIDUnverified,
+    FCPCCCloudFirstLaunchInstallStatusSelectorUnavailable,
+    FCPCCCloudFirstLaunchInstallStatusMethodPlacementMismatch,
+    FCPCCCloudFirstLaunchInstallStatusArgumentCountMismatch,
+    FCPCCCloudFirstLaunchInstallStatusReturnTypeMismatch,
+    FCPCCCloudFirstLaunchInstallStatusTypeEncodingMismatch,
+    FCPCCCloudFirstLaunchInstallStatusHostImageUnavailable,
+    FCPCCCloudFirstLaunchInstallStatusHostPathMismatch,
+    FCPCCCloudFirstLaunchInstallStatusHostImageUUIDMismatch,
+    FCPCCCloudFirstLaunchInstallStatusOriginalImplementationMismatch,
+    FCPCCCloudFirstLaunchInstallStatusPostReplacementVerificationFailed,
+};
 
-        Class targetClass = objc_getClass(FCPCCExpectedCloudFirstLaunchHelperClassName.UTF8String);
-        if (targetClass == Nil) {
-            summary = @"cloud_first_launch_registration_suppression=class_unavailable";
-            return;
-        }
-        SEL selector = sel_registerName(FCPCCExpectedCloudFirstLaunchSetupSelectorName.UTF8String);
-        if (selector == NULL) {
-            summary = @"cloud_first_launch_registration_suppression=selector_unavailable";
-            return;
-        }
+typedef NS_ENUM(NSUInteger, FCPCCCloudFirstLaunchInstallState) {
+    FCPCCCloudFirstLaunchInstallStateNew = 0,
+    FCPCCCloudFirstLaunchInstallStatePendingWillFinish,
+    FCPCCCloudFirstLaunchInstallStateFinished,
+};
 
-        Method method = class_getInstanceMethod(targetClass, selector);
-        if (method == NULL) {
-            summary = class_getClassMethod(targetClass, selector) == NULL
-                ? @"cloud_first_launch_registration_suppression=method_unavailable"
-                : @"cloud_first_launch_registration_suppression=method_placement_mismatch";
-            return;
-        }
-        if (method_getNumberOfArguments(method) != 3) {
-            summary = @"cloud_first_launch_registration_suppression=argument_count_mismatch";
-            return;
-        }
-        char *returnType = method_copyReturnType(method);
-        BOOL returnTypeMatches = returnType != NULL && strcmp(returnType, "v") == 0;
-        if (returnType != NULL) {
-            free(returnType);
-        }
-        if (!returnTypeMatches) {
-            summary = @"cloud_first_launch_registration_suppression=return_type_mismatch";
-            return;
-        }
-        const char *typeEncoding = method_getTypeEncoding(method);
-        if (typeEncoding == NULL || strcmp(typeEncoding, FCPCCExpectedCloudFirstLaunchSetupTypeEncoding) != 0) {
-            summary = @"cloud_first_launch_registration_suppression=type_encoding_mismatch";
-            return;
-        }
+static const char * const FCPCCCloudFirstLaunchConstructorPhase = "constructor_main_thread_immediate_attempt";
+static const char * const FCPCCCloudFirstLaunchWillFinishPhase = "application_will_finish_launching_availability_retry";
+static const NSUInteger FCPCCCloudFirstLaunchMaximumAttempts = 2;
+static id FCPCCCloudFirstLaunchWillFinishObserver;
+static NSUInteger FCPCCCloudFirstLaunchAttemptCount;
+static FCPCCCloudFirstLaunchInstallState FCPCCCloudFirstLaunchState = FCPCCCloudFirstLaunchInstallStateNew;
 
-        IMP originalImplementation = method_getImplementation(method);
-        switch (FCPCCCopiedHostIdentityForImplementation(originalImplementation,
-                                                          FCPCCExpectedCurrentArchitectureCloudFirstLaunchSetupOffset())) {
-            case FCPCCCopiedHostIdentityDispositionMatches:
-                break;
-            case FCPCCCopiedHostIdentityDispositionImageUnavailable:
-                summary = @"cloud_first_launch_registration_suppression=host_image_unavailable";
-                return;
-            case FCPCCCopiedHostIdentityDispositionPathMismatch:
-                summary = @"cloud_first_launch_registration_suppression=host_path_mismatch";
-                return;
-            case FCPCCCopiedHostIdentityDispositionUUIDMismatch:
-                summary = @"cloud_first_launch_registration_suppression=host_uuid_mismatch";
-                return;
-            case FCPCCCopiedHostIdentityDispositionImplementationMismatch:
-                summary = @"cloud_first_launch_registration_suppression=original_imp_mismatch";
-                return;
-        }
+static const char *FCPCCCloudFirstLaunchInstallStatusName(FCPCCCloudFirstLaunchInstallStatus status) {
+    switch (status) {
+        case FCPCCCloudFirstLaunchInstallStatusInstalled:
+            return "installed";
+        case FCPCCCloudFirstLaunchInstallStatusClassUnavailable:
+            return "class_unavailable";
+        case FCPCCCloudFirstLaunchInstallStatusMethodUnavailable:
+            return "method_unavailable";
+        case FCPCCCloudFirstLaunchInstallStatusMainThreadRequired:
+            return "main_thread_required";
+        case FCPCCCloudFirstLaunchInstallStatusHostContainmentUnverified:
+            return "host_containment_unverified";
+        case FCPCCCloudFirstLaunchInstallStatusHostUUIDUnverified:
+            return "host_uuid_unverified";
+        case FCPCCCloudFirstLaunchInstallStatusSelectorUnavailable:
+            return "selector_unavailable";
+        case FCPCCCloudFirstLaunchInstallStatusMethodPlacementMismatch:
+            return "method_placement_mismatch";
+        case FCPCCCloudFirstLaunchInstallStatusArgumentCountMismatch:
+            return "argument_count_mismatch";
+        case FCPCCCloudFirstLaunchInstallStatusReturnTypeMismatch:
+            return "return_type_mismatch";
+        case FCPCCCloudFirstLaunchInstallStatusTypeEncodingMismatch:
+            return "type_encoding_mismatch";
+        case FCPCCCloudFirstLaunchInstallStatusHostImageUnavailable:
+            return "host_image_unavailable";
+        case FCPCCCloudFirstLaunchInstallStatusHostPathMismatch:
+            return "host_path_mismatch";
+        case FCPCCCloudFirstLaunchInstallStatusHostImageUUIDMismatch:
+            return "host_image_uuid_mismatch";
+        case FCPCCCloudFirstLaunchInstallStatusOriginalImplementationMismatch:
+            return "original_imp_mismatch";
+        case FCPCCCloudFirstLaunchInstallStatusPostReplacementVerificationFailed:
+            return "post_replacement_verification_failed";
+    }
+    return "unavailable";
+}
 
-        class_replaceMethod(targetClass,
-                            selector,
-                            (IMP)FCPCCSuppressCloudFirstLaunchRegistration,
-                            FCPCCExpectedCloudFirstLaunchSetupTypeEncoding);
-        Method installedMethod = class_getInstanceMethod(targetClass, selector);
-        const char *installedTypeEncoding = installedMethod == NULL ? NULL : method_getTypeEncoding(installedMethod);
-        char *installedReturnType = installedMethod == NULL ? NULL : method_copyReturnType(installedMethod);
-        BOOL installedReturnTypeMatches = installedReturnType != NULL && strcmp(installedReturnType, "v") == 0;
-        if (installedReturnType != NULL) {
-            free(installedReturnType);
-        }
-        if (installedMethod == NULL
-            || method_getImplementation(installedMethod) != (IMP)FCPCCSuppressCloudFirstLaunchRegistration
-            || method_getNumberOfArguments(installedMethod) != 3
-            || !installedReturnTypeMatches
-            || installedTypeEncoding == NULL
-            || strcmp(installedTypeEncoding, FCPCCExpectedCloudFirstLaunchSetupTypeEncoding) != 0) {
-            summary = @"cloud_first_launch_registration_suppression=post_replacement_verification_failed";
-            return;
-        }
-        summary = @"cloud_first_launch_registration_suppression=installed";
-    });
-    return summary ?: @"cloud_first_launch_registration_suppression=unavailable";
+static BOOL FCPCCCloudFirstLaunchInstallStatusAllowsAvailabilityRetry(FCPCCCloudFirstLaunchInstallStatus status) {
+    return status == FCPCCCloudFirstLaunchInstallStatusClassUnavailable
+        || status == FCPCCCloudFirstLaunchInstallStatusMethodUnavailable;
+}
+
+static void FCPCCWriteCloudFirstLaunchAttemptDiagnostic(const char *phase,
+                                                        NSUInteger attempt,
+                                                        FCPCCCloudFirstLaunchInstallStatus status) {
+    // This is intentionally one bounded line per actual installation attempt.
+    // Its values are fixed phase/status labels and contain no paths or payloads.
+    fprintf(stderr,
+            "fcpcc_cloud_first_launch phase=%s attempt=%lu status=%s\n",
+            phase,
+            (unsigned long)attempt,
+            FCPCCCloudFirstLaunchInstallStatusName(status));
+    fflush(stderr);
+}
+
+static FCPCCCloudFirstLaunchInstallStatus FCPCCAttemptCloudFirstLaunchRegistrationSuppression(void) {
+    if (![NSThread isMainThread]) {
+        return FCPCCCloudFirstLaunchInstallStatusMainThreadRequired;
+    }
+
+    FCPCCGateStatus *containment = [[[FCPCCRuntimeContainmentGate alloc] init] evaluate];
+    if (!containment.isVerified) {
+        return FCPCCCloudFirstLaunchInstallStatusHostContainmentUnverified;
+    }
+    if (!FCPCCCopiedHostImageUUIDMatches()) {
+        return FCPCCCloudFirstLaunchInstallStatusHostUUIDUnverified;
+    }
+
+    Class targetClass = objc_getClass(FCPCCExpectedCloudFirstLaunchHelperClassName.UTF8String);
+    if (targetClass == Nil) {
+        return FCPCCCloudFirstLaunchInstallStatusClassUnavailable;
+    }
+    SEL selector = sel_registerName(FCPCCExpectedCloudFirstLaunchSetupSelectorName.UTF8String);
+    if (selector == NULL) {
+        return FCPCCCloudFirstLaunchInstallStatusSelectorUnavailable;
+    }
+
+    Method method = class_getInstanceMethod(targetClass, selector);
+    if (method == NULL) {
+        return class_getClassMethod(targetClass, selector) == NULL
+            ? FCPCCCloudFirstLaunchInstallStatusMethodUnavailable
+            : FCPCCCloudFirstLaunchInstallStatusMethodPlacementMismatch;
+    }
+    if (method_getNumberOfArguments(method) != 3) {
+        return FCPCCCloudFirstLaunchInstallStatusArgumentCountMismatch;
+    }
+    char *returnType = method_copyReturnType(method);
+    BOOL returnTypeMatches = returnType != NULL && strcmp(returnType, "v") == 0;
+    if (returnType != NULL) {
+        free(returnType);
+    }
+    if (!returnTypeMatches) {
+        return FCPCCCloudFirstLaunchInstallStatusReturnTypeMismatch;
+    }
+    const char *typeEncoding = method_getTypeEncoding(method);
+    if (typeEncoding == NULL || strcmp(typeEncoding, FCPCCExpectedCloudFirstLaunchSetupTypeEncoding) != 0) {
+        return FCPCCCloudFirstLaunchInstallStatusTypeEncodingMismatch;
+    }
+
+    IMP originalImplementation = method_getImplementation(method);
+    switch (FCPCCCopiedHostIdentityForImplementation(originalImplementation,
+                                                      FCPCCExpectedCurrentArchitectureCloudFirstLaunchSetupOffset())) {
+        case FCPCCCopiedHostIdentityDispositionMatches:
+            break;
+        case FCPCCCopiedHostIdentityDispositionImageUnavailable:
+            return FCPCCCloudFirstLaunchInstallStatusHostImageUnavailable;
+        case FCPCCCopiedHostIdentityDispositionPathMismatch:
+            return FCPCCCloudFirstLaunchInstallStatusHostPathMismatch;
+        case FCPCCCopiedHostIdentityDispositionUUIDMismatch:
+            return FCPCCCloudFirstLaunchInstallStatusHostImageUUIDMismatch;
+        case FCPCCCopiedHostIdentityDispositionImplementationMismatch:
+            return FCPCCCloudFirstLaunchInstallStatusOriginalImplementationMismatch;
+    }
+
+    class_replaceMethod(targetClass,
+                        selector,
+                        (IMP)FCPCCSuppressCloudFirstLaunchRegistration,
+                        FCPCCExpectedCloudFirstLaunchSetupTypeEncoding);
+    Method installedMethod = class_getInstanceMethod(targetClass, selector);
+    const char *installedTypeEncoding = installedMethod == NULL ? NULL : method_getTypeEncoding(installedMethod);
+    char *installedReturnType = installedMethod == NULL ? NULL : method_copyReturnType(installedMethod);
+    BOOL installedReturnTypeMatches = installedReturnType != NULL && strcmp(installedReturnType, "v") == 0;
+    if (installedReturnType != NULL) {
+        free(installedReturnType);
+    }
+    if (installedMethod == NULL
+        || method_getImplementation(installedMethod) != (IMP)FCPCCSuppressCloudFirstLaunchRegistration
+        || method_getNumberOfArguments(installedMethod) != 3
+        || !installedReturnTypeMatches
+        || installedTypeEncoding == NULL
+        || strcmp(installedTypeEncoding, FCPCCExpectedCloudFirstLaunchSetupTypeEncoding) != 0) {
+        return FCPCCCloudFirstLaunchInstallStatusPostReplacementVerificationFailed;
+    }
+    return FCPCCCloudFirstLaunchInstallStatusInstalled;
+}
+
+static void FCPCCFinishCloudFirstLaunchRegistrationSuppression(void) {
+    if (FCPCCCloudFirstLaunchWillFinishObserver != nil) {
+        [[NSNotificationCenter defaultCenter] removeObserver:FCPCCCloudFirstLaunchWillFinishObserver];
+        FCPCCCloudFirstLaunchWillFinishObserver = nil;
+    }
+    FCPCCCloudFirstLaunchState = FCPCCCloudFirstLaunchInstallStateFinished;
+}
+
+static void FCPCCPerformCloudFirstLaunchRegistrationAttempt(const char *phase) {
+    if (![NSThread isMainThread]
+        || FCPCCCloudFirstLaunchState == FCPCCCloudFirstLaunchInstallStateFinished
+        || FCPCCCloudFirstLaunchAttemptCount >= FCPCCCloudFirstLaunchMaximumAttempts) {
+        return;
+    }
+
+    FCPCCCloudFirstLaunchAttemptCount += 1;
+    FCPCCCloudFirstLaunchInstallStatus status = FCPCCAttemptCloudFirstLaunchRegistrationSuppression();
+    FCPCCWriteCloudFirstLaunchAttemptDiagnostic(phase, FCPCCCloudFirstLaunchAttemptCount, status);
+
+    if (status == FCPCCCloudFirstLaunchInstallStatusInstalled) {
+        FCPCCFinishCloudFirstLaunchRegistrationSuppression();
+        return;
+    }
+    if (FCPCCCloudFirstLaunchAttemptCount == 1
+        && FCPCCCloudFirstLaunchInstallStatusAllowsAvailabilityRetry(status)) {
+        FCPCCCloudFirstLaunchState = FCPCCCloudFirstLaunchInstallStatePendingWillFinish;
+        return;
+    }
+    FCPCCFinishCloudFirstLaunchRegistrationSuppression();
+}
+
+static void FCPCCHandleCloudFirstLaunchWillFinishLaunching(void) {
+    // The observer uses a nil queue, so the application notification is handled
+    // synchronously on its posting thread. AppKit posts this lifecycle event on
+    // the main thread; reject any unexpected delivery rather than patching off-main.
+    if (![NSThread isMainThread]) {
+        return;
+    }
+    if (FCPCCCloudFirstLaunchState != FCPCCCloudFirstLaunchInstallStatePendingWillFinish) {
+        FCPCCFinishCloudFirstLaunchRegistrationSuppression();
+        return;
+    }
+    FCPCCPerformCloudFirstLaunchRegistrationAttempt(FCPCCCloudFirstLaunchWillFinishPhase);
+}
+
+static void FCPCCBeginCloudFirstLaunchRegistrationSuppression(void) {
+    // The constructor is expected to run on AppKit's main thread. Do not queue
+    // work from a loader initializer: that could move a method mutation past
+    // PEAppController dispatch or create a loader/main-queue dependency.
+    if (![NSThread isMainThread]
+        || FCPCCCloudFirstLaunchState != FCPCCCloudFirstLaunchInstallStateNew) {
+        return;
+    }
+
+    FCPCCCloudFirstLaunchWillFinishObserver = [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSApplicationWillFinishLaunchingNotification
+                    object:nil
+                     queue:nil
+                usingBlock:^(__unused NSNotification *note) {
+                    FCPCCHandleCloudFirstLaunchWillFinishLaunching();
+                }];
+    if (FCPCCCloudFirstLaunchWillFinishObserver == nil) {
+        FCPCCCloudFirstLaunchState = FCPCCCloudFirstLaunchInstallStateFinished;
+        return;
+    }
+    FCPCCPerformCloudFirstLaunchRegistrationAttempt(FCPCCCloudFirstLaunchConstructorPhase);
 }
 
 // Read-only model access is deliberately a closed list of contracts captured
@@ -2423,7 +2570,7 @@ static void FCPCCInstallRuntime(void) {
         return;
     }
     (void)FCPCCInstallOnboardingQueryCompatibility();
-    (void)FCPCCInstallCloudFirstLaunchRegistrationSuppression();
+    FCPCCBeginCloudFirstLaunchRegistrationSuppression();
     dispatch_async(dispatch_get_main_queue(), ^{
         [[FCPCCRuntime sharedRuntime] installMenuWhenReady];
     });

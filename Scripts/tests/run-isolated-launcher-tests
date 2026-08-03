@@ -45,11 +45,16 @@ for required_launcher_fragment in \
     'pgrep_status=1' \
     'pgrep_status=$pgrep_status' \
     'codesign --verify --deep --strict --verbose=4' \
-    'expected_copied_cdhash_full="10991c560ad77617c7877b9b5059018da11f69c5c562927f1ebfe672119f33ff"' \
+    'expected_copied_cdhash_full="cdff2d6f33511ad4b2deb1a7a16cb1b8fe7ce403137ee95b7d180f938225ad48"' \
     'verify_reviewed_copied_cdhash' \
     'CandidateCDHashFull' \
     'create_five_entitlements' \
-    'SchemaVersion)" == "7"' \
+    'SchemaVersion)" == "8"' \
+    "CompatibilityInstallPhases:0')\" == \"constructor_main_thread_immediate_attempt" \
+    "CompatibilityInstallPhases:1')\" == \"application_will_finish_launching_availability_retry" \
+    'MaximumMethodGuardAttempts)" == "2"' \
+    'Print :CompatibilityInstallPhase' \
+    'Print :CompatibilityInstallPhases:2' \
     'ApprovedMethodReplacements:0:RuntimeClass' \
     'POFDesktopOnboardingCoordinator' \
     'ApprovedMethodReplacements:1:RuntimeClass' \
