@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// The wire contract for the isolated planner helper.  The helper is a
@@ -566,17 +567,22 @@ private struct AnyEncodable: Encodable {
         } else if let value = value as? String {
             var container = encoder.singleValueContainer()
             try container.encode(value)
-        } else if let value = value as? Bool {
-            var container = encoder.singleValueContainer()
-            try container.encode(value)
         } else if let value = value as? NSNumber {
             var container = encoder.singleValueContainer()
-            if String(cString: value.objCType) == "c" { try container.encode(value.boolValue) }
+            // JSONSerialization represents both JSON booleans and numbers as
+            // NSNumber.  `objCType == "c"` is not a safe discriminator: it
+            // also classifies legitimate 0/1 numeric values as booleans on
+            // Darwin.  CoreFoundation gives JSON booleans their own singleton
+            // type, preserving the helper's typed wire contract exactly.
+            if CFGetTypeID(value) == CFBooleanGetTypeID() { try container.encode(value.boolValue) }
             else if value.doubleValue.rounded() == value.doubleValue, value.doubleValue <= Double(Int.max), value.doubleValue >= Double(Int.min) {
                 try container.encode(value.intValue)
             } else {
                 try container.encode(value.doubleValue)
             }
+        } else if let value = value as? Bool {
+            var container = encoder.singleValueContainer()
+            try container.encode(value)
         } else if let value = value as? [String: Any] {
             var container = encoder.container(keyedBy: PlannerHelperDynamicKey.self)
             for key in value.keys.sorted() {

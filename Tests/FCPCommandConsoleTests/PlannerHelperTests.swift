@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 import XCTest
 @testable import FCPCommandConsoleCore
@@ -76,6 +77,42 @@ final class PlannerHelperTests: XCTestCase {
         XCTAssertNotNil(selection["clip_ids"])
         XCTAssertNil(selection["clip_i_ds"])
         XCTAssertEqual(plan["operation_id"] as? String, operation.uuidString)
+    }
+
+    func testWirePreservesNumericZeroAndOneWithoutCoercingBooleans() throws {
+        let token = selection(.singleClip, clips: ["clip-a"])
+        let response = PlannerHelperEngine(resources: try resources()).handle(
+            data: request("old tv", selection: token)
+        )
+        let wire = try PlannerHelperWireCodec.encode(response)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: wire) as? [String: Any])
+        let plan = try XCTUnwrap(object["plan"] as? [String: Any])
+        let cost = try XCTUnwrap(plan["cost"] as? [String: Any])
+        let parameters = try XCTUnwrap(plan["parameters"] as? [String: Any])
+        let selection = try XCTUnwrap(plan["selection_token"] as? [String: Any])
+        let editable = try XCTUnwrap(plan["editable_properties"] as? [[String: Any]])
+
+        let zeroCost = try XCTUnwrap(cost["usd"] as? NSNumber)
+        let seedOne = try XCTUnwrap(parameters["seed"] as? NSNumber)
+        let startFrameZero = try XCTUnwrap(selection["start_frame"] as? NSNumber)
+        let desaturation = try XCTUnwrap(editable.first { ($0["name"] as? String) == "desaturation" })
+        let minimumZero = try XCTUnwrap(desaturation["minimum"] as? NSNumber)
+        let maximumOne = try XCTUnwrap(desaturation["maximum"] as? NSNumber)
+        let keyframeable = try XCTUnwrap(desaturation["keyframeable"] as? NSNumber)
+        let paid = try XCTUnwrap(cost["paid"] as? NSNumber)
+
+        for number in [zeroCost, seedOne, startFrameZero, minimumZero, maximumOne] {
+            XCTAssertNotEqual(CFGetTypeID(number), CFBooleanGetTypeID())
+        }
+        XCTAssertEqual(zeroCost.doubleValue, 0)
+        XCTAssertEqual(seedOne.intValue, 1)
+        XCTAssertEqual(startFrameZero.intValue, 0)
+        XCTAssertEqual(minimumZero.doubleValue, 0)
+        XCTAssertEqual(maximumOne.doubleValue, 1)
+        XCTAssertEqual(CFGetTypeID(keyframeable), CFBooleanGetTypeID())
+        XCTAssertTrue(keyframeable.boolValue)
+        XCTAssertEqual(CFGetTypeID(paid), CFBooleanGetTypeID())
+        XCTAssertFalse(paid.boolValue)
     }
 
     func testMalformedOversizeMultipleAndUnknownFieldsFailClosed() throws {
