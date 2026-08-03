@@ -6,7 +6,8 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "FCPCommandConsoleCore", targets: ["FCPCommandConsoleCore"]),
-        .executable(name: "fcpcommandconsole", targets: ["FCPCommandConsole"])
+        .executable(name: "fcpcommandconsole", targets: ["FCPCommandConsole"]),
+        .executable(name: "fcpcommandconsole-planner-helper", targets: ["FCPCommandConsolePlannerHelper"])
     ],
     targets: [
         .target(
@@ -17,6 +18,12 @@ let package = Package(
             name: "FCPCommandConsole",
             dependencies: ["FCPCommandConsoleCore"],
             path: "Sources/FCPCommandConsole"
+        ),
+        .executableTarget(
+            name: "FCPCommandConsolePlannerHelper",
+            dependencies: ["FCPCommandConsoleCore"],
+            path: "Sources/FCPCommandConsolePlannerHelper",
+            resources: [.copy("Resources")]
         ),
         .testTarget(
             name: "FCPCommandConsoleTests",

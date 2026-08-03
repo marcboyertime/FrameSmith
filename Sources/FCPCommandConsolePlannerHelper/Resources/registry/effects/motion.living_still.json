@@ -1,0 +1,42 @@
+{
+  "identifier": "motion.living_still",
+  "name": "Living Still",
+  "aliases": ["living still", "still image feel alive", "bring still to life", "depthflow parallax", "depth flow", "parallax", "parallax still", "2.5d motion"],
+  "requiredSelection": "single-clip",
+  "inputCount": 1,
+  "representation": "fcp_native",
+  "parameters": [
+    {"name":"durationSeconds","type":"number","defaultValue":4.0,"minimum":0.1,"maximum":30.0},
+    {"name":"pushInScaleStart","type":"number","defaultValue":1.0,"minimum":0.1,"maximum":4.0},
+    {"name":"pushInScaleEnd","type":"number","defaultValue":1.08,"minimum":0.1,"maximum":4.0},
+    {"name":"panX","type":"number","defaultValue":0.02,"minimum":-0.5,"maximum":0.5},
+    {"name":"panY","type":"number","defaultValue":0.0,"minimum":-0.5,"maximum":0.5},
+    {"name":"colorEnrichment","type":"number","defaultValue":0.12,"minimum":0.0,"maximum":0.5},
+    {"name":"opacityStart","type":"number","defaultValue":1.0,"minimum":0.0,"maximum":1.0},
+    {"name":"opacityEnd","type":"number","defaultValue":0.0,"minimum":0.0,"maximum":1.0},
+    {"name":"fadeDurationSeconds","type":"number","defaultValue":0.35,"minimum":0.05,"maximum":2.0},
+    {"name":"preserveOriginal","type":"boolean","defaultValue":true},
+    {"name":"nativeFallbackEnabled","type":"boolean","defaultValue":true},
+    {"name":"depthFlowStatus","type":"string","defaultValue":"deferred-unavailable","allowedValues":["deferred-unavailable"]},
+    {"name":"motionMethod","type":"string","defaultValue":"native-push-in-pan","allowedValues":["native-push-in-pan"]},
+    {"name":"easing","type":"string","defaultValue":"ease_in_out","allowedValues":["linear","ease_in","ease_out","ease_in_out"]}
+  ],
+  "backend": "native",
+  "editableProperties": [
+    {"name":"durationSeconds","valueType":"number","minimum":0.1,"maximum":30.0,"defaultValue":4.0,"keyframeable":false},
+    {"name":"pushInScaleStart","valueType":"number","minimum":0.1,"maximum":4.0,"defaultValue":1.0,"keyframeable":true},
+    {"name":"pushInScaleEnd","valueType":"number","minimum":0.1,"maximum":4.0,"defaultValue":1.08,"keyframeable":true},
+    {"name":"panX","valueType":"number","minimum":-0.5,"maximum":0.5,"defaultValue":0.02,"keyframeable":true},
+    {"name":"panY","valueType":"number","minimum":-0.5,"maximum":0.5,"defaultValue":0.0,"keyframeable":true},
+    {"name":"colorEnrichment","valueType":"number","minimum":0.0,"maximum":0.5,"defaultValue":0.12,"keyframeable":true},
+    {"name":"opacityStart","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":1.0,"keyframeable":true},
+    {"name":"opacityEnd","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":0.0,"keyframeable":true},
+    {"name":"fadeDurationSeconds","valueType":"number","minimum":0.05,"maximum":2.0,"defaultValue":0.35,"keyframeable":false},
+    {"name":"preserveOriginal","valueType":"boolean","defaultValue":true,"keyframeable":false},
+    {"name":"nativeFallbackEnabled","valueType":"boolean","defaultValue":true,"keyframeable":false}
+  ],
+  "generatedAssets": [],
+  "preview": "native-editable-push-in-pan-preview",
+  "verification": ["exactly one source identity is preserved", "native push-in/pan, color enrichment, and opacity fade need no render", "DepthFlow is deferred and unavailable", "original still remains preserved"],
+  "fallback": "native-push-in-pan-color-enrichment-fade-to-black"
+}
