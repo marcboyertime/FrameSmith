@@ -33,8 +33,60 @@ final class CapabilityGateTests: XCTestCase {
         }
         XCTAssertNoThrow(try gate.require(plan, capability: .localOnlyPreview))
         XCTAssertThrowsError(try gate.require(plan, capability: .fcpxmlExport)) { error in
-            XCTAssertEqual(error as? CapabilityGateError, .manualFCPXMLSemanticsUnknown(.fcpxmlExport))
+            XCTAssertEqual(
+                error as? CapabilityGateError,
+                .missingManualFCPXMLSemanticsEvidence(
+                    capability: .fcpxmlExport,
+                    effectID: .targetedRotateZoom,
+                    missing: [.assetAdmission, .transformKeyframes]
+                )
+            )
         }
+    }
+
+    func testDissolveOnlyEvidenceDoesNotUnlockOtherWorkflows() throws {
+        let gate = CapabilityGate(manualSemanticsEvidence: .init(admittedContracts: [.assetAdmission, .bareDissolveTransition]))
+        for capability in [FCPCommandConsoleCapability.fcpxmlPreview, .fcpxmlExport] {
+            XCTAssertTrue(gate.decision(for: try plan(for: .naturalDissolve), capability: capability).allowed, capability.rawValue)
+            XCTAssertFalse(gate.decision(for: try plan(for: .targetedRotateZoom), capability: capability).allowed, capability.rawValue)
+            XCTAssertFalse(gate.decision(for: try plan(for: .livingStill), capability: capability).allowed, capability.rawValue)
+            XCTAssertFalse(gate.decision(for: try plan(for: .oldTelevision), capability: capability).allowed, capability.rawValue)
+        }
+    }
+
+    func testInsufficientPartialEvidenceFailsClosedForItsEffect() throws {
+        let gate = CapabilityGate(manualSemanticsEvidence: .init(admittedContracts: [.assetAdmission]))
+        let plan = try plan(for: .targetedRotateZoom)
+        XCTAssertFalse(gate.decision(for: plan, capability: .fcpxmlPreview).allowed)
+        XCTAssertThrowsError(try gate.require(plan, capability: .fcpxmlPreview)) { error in
+            XCTAssertEqual(
+                error as? CapabilityGateError,
+                .missingManualFCPXMLSemanticsEvidence(
+                    capability: .fcpxmlPreview,
+                    effectID: .targetedRotateZoom,
+                    missing: [.transformKeyframes]
+                )
+            )
+        }
+    }
+
+    func testEachEffectHasExactRequiredSemanticContracts() {
+        XCTAssertEqual(
+            ManualFCPXMLSemanticsEvidence.requiredContracts(for: .naturalDissolve),
+            [.assetAdmission, .bareDissolveTransition]
+        )
+        XCTAssertEqual(
+            ManualFCPXMLSemanticsEvidence.requiredContracts(for: .targetedRotateZoom),
+            [.assetAdmission, .transformKeyframes]
+        )
+        XCTAssertEqual(
+            ManualFCPXMLSemanticsEvidence.requiredContracts(for: .livingStill),
+            [.assetAdmission, .transformKeyframes, .opacityKeyframes, .nativeColorAdjustment]
+        )
+        XCTAssertEqual(
+            ManualFCPXMLSemanticsEvidence.requiredContracts(for: .oldTelevision),
+            [.assetAdmission, .opacityKeyframes, .nativeColorAdjustment, .connectedOverlayLayers]
+        )
     }
 
     func testLegacySchemaIsQuarantinedAndNeverBecomesCurrentOrCapabilityEligible() throws {
@@ -83,5 +135,11 @@ final class CapabilityGateTests: XCTestCase {
                 "Bundled resource drifted: \(relativePath)"
             )
         }
+    }
+
+    private func plan(for effectID: EffectID) throws -> EffectPlan {
+        var plan = try currentPlan()
+        plan.effectID = effectID
+        return plan
     }
 }
