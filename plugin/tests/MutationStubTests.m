@@ -7,6 +7,37 @@ FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestPrimaryStorylineCountI
     NSUInteger observedCount,
     NSUInteger expectedCount,
     NSUInteger importedCount);
+FOUNDATION_EXPORT NSUInteger FCPCCDisposableProjectBootstrapTestLibraryOpenInvocationCountForInitialState(
+    BOOL completeTraversal,
+    NSUInteger openLibraryCount,
+    BOOL exactEnrolledLibraryIsOpen,
+    BOOL manifestIsComplete);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestInitialLibraryStateRejects(
+    BOOL completeTraversal,
+    NSUInteger openLibraryCount,
+    BOOL exactEnrolledLibraryIsOpen,
+    BOOL manifestIsComplete);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestPostopenLibraryObservationIsPending(
+    BOOL completeTraversal,
+    NSUInteger openLibraryCount,
+    BOOL exactEnrolledLibraryIsOpen,
+    BOOL manifestIsComplete);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestPostopenLibraryObservationIsVerified(
+    BOOL completeTraversal,
+    NSUInteger openLibraryCount,
+    BOOL exactEnrolledLibraryIsOpen,
+    BOOL manifestIsComplete);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestPostopenLibraryObservationRejects(
+    BOOL completeTraversal,
+    NSUInteger openLibraryCount,
+    BOOL exactEnrolledLibraryIsOpen,
+    BOOL manifestIsComplete);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeavesProjectMutationsAtZero(
+    BOOL completionHasDocument,
+    BOOL completionErrorIsNil,
+    NSUInteger projectCreationInvocationCount,
+    NSUInteger importInvocationCount,
+    NSUInteger appendInvocationCount);
 #endif
 
 static int require(BOOL condition, NSString *message) {
@@ -50,6 +81,35 @@ int main(void) {
                     && !FCPCCDisposableProjectBootstrapTestPrimaryStorylineCountIsExact(3, 4, 3)
                     && !FCPCCDisposableProjectBootstrapTestPrimaryStorylineCountIsExact(0, 0, 3),
                     @"disposable-project bootstrap per-append primary-storyline count gate was not exact")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableProjectBootstrapTestLibraryOpenInvocationCountForInitialState(YES, 0, NO, YES) == 1
+                    && FCPCCDisposableProjectBootstrapTestLibraryOpenInvocationCountForInitialState(YES, 1, YES, YES) == 0
+                    && FCPCCDisposableProjectBootstrapTestLibraryOpenInvocationCountForInitialState(YES, 1, NO, YES) == 0
+                    && FCPCCDisposableProjectBootstrapTestLibraryOpenInvocationCountForInitialState(YES, 2, NO, YES) == 0,
+                    @"disposable-project bootstrap public library-open invocation count was not bounded")) {
+            return 1;
+        }
+        if (require(!FCPCCDisposableProjectBootstrapTestInitialLibraryStateRejects(YES, 0, NO, YES)
+                    && !FCPCCDisposableProjectBootstrapTestInitialLibraryStateRejects(YES, 1, YES, YES)
+                    && FCPCCDisposableProjectBootstrapTestInitialLibraryStateRejects(YES, 1, NO, YES)
+                    && FCPCCDisposableProjectBootstrapTestInitialLibraryStateRejects(YES, 2, NO, YES)
+                    && FCPCCDisposableProjectBootstrapTestInitialLibraryStateRejects(NO, 0, NO, YES),
+                    @"disposable-project bootstrap public library-open decision did not fail closed")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableProjectBootstrapTestPostopenLibraryObservationIsPending(YES, 0, NO, YES)
+                    && FCPCCDisposableProjectBootstrapTestPostopenLibraryObservationIsVerified(YES, 1, YES, YES)
+                    && FCPCCDisposableProjectBootstrapTestPostopenLibraryObservationRejects(NO, 0, NO, YES)
+                    && FCPCCDisposableProjectBootstrapTestPostopenLibraryObservationRejects(YES, 1, NO, YES)
+                    && FCPCCDisposableProjectBootstrapTestPostopenLibraryObservationRejects(YES, 2, NO, YES),
+                    @"post-open enrolled-library observation did not distinguish pending, verified, and rejected states")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeavesProjectMutationsAtZero(NO, YES, 0, 0, 0)
+                    && FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeavesProjectMutationsAtZero(YES, NO, 0, 0, 0)
+                    && !FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeavesProjectMutationsAtZero(NO, YES, 1, 0, 0),
+                    @"failed public library-open completion did not preserve zero project mutations")) {
             return 1;
         }
         NSString *bootstrapUnitRoot = [@"/Users/Shared"

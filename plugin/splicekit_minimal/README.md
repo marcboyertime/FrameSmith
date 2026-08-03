@@ -20,22 +20,31 @@ exclusive-create JSON result. It never removes, overwrites, retries, discovers
 another library, invokes FCPXML, or automates the UI; a failed or partial create
 is retained as evidence.
 
-Schema 11 adds a distinct, one-shot disposable-project spike through
-`--launch-bootstrap-disposable-project`, never through generic UI or browser
-automation. It first requires the already enrolled library, one default event,
-zero owned clips/projects/deep-loaded sequences, and the three exact regular
-non-symlink fixtures with pinned SHA-256 hashes. The runtime creates the fixed
-project through `FFProjectDocument`, resolves its exact sequence via
-`FFLibrary _deepLoadedSequences`, loads that sequence through the pinned editor
-contract, imports only the three fixed files through `FFMediaEventProject`, and
-appends each clipped range through `FFPasteboard`, `FigTimeRangeAndObject`,
-`FFEditAction` kind 2/`all`, and `FFAnchoredTimelineModule`. Its main-queue
-state machine permits at most 24 observation turns and never retries a mutation.
-It records the observed project resolution and frame duration rather than
-requiring a frame rate. After every append it requires an ordered primary
-storyline with the exact source identifiers and adjacent ranges. Any uncertainty
-after a mutation is retained as `partial_unverified` provenance; no rollback is
-attempted or claimed.
+Schema 11 added a distinct, one-shot disposable-project spike through
+`--launch-bootstrap-disposable-project`. Its recorded live attempt rejected
+`exactly_one_open_library_required` before any project, import, or append
+mutation; that provenance is retained strictly as failure evidence.
+
+Schema 12 keeps the fixed one-shot project/import/append route and admits one
+additional bounded setup step only when the complete initial traversal has zero
+open libraries. It revalidates the exact enrolled `.fcpbundle` against the
+manifest (canonical path, no symlink components, directory, device, inode, and
+persistent UID), then invokes exactly once on the main queue the typed public
+`NSDocumentController openDocumentWithContentsOfURL:display:completionHandler:`
+API for that fixed URL with `display:YES`. This programmatic document
+presentation has no open dialog, responder-chain action, UI automation,
+alternate path, retry, creation, removal, or overwrite route. A nonnil document
+and nil error are necessary but insufficient: the bounded state machine then
+waits for a complete traversal to prove exactly one enrolled library before it
+can create the fixed project through `FFProjectDocument`, resolve its exact
+sequence via `FFLibrary _deepLoadedSequences`, load that sequence through the
+pinned editor contract, import only the three fixed files through
+`FFMediaEventProject`, and append each clipped range through `FFPasteboard`,
+`FigTimeRangeAndObject`, `FFEditAction` kind 2/`all`, and
+`FFAnchoredTimelineModule`. Its 24-turn state machine records library-open
+invocation/status/reason as well as observed project resolution and frame
+duration. It never retries a mutation; all post-mutation uncertainty remains
+`partial_unverified` with no rollback claim.
 Workflow 1 has one typed native adapter for `native.targeted_rotate_zoom`.
 Its fixed Final Cut 12.3 contract records only the inspected selection
 reacquisition, represented-tool/video-effect-stack/xform path, transform
@@ -126,7 +135,7 @@ the copied executable must gain one reviewed load command and a new signature.
 The runtime never writes Final Cut preferences. No production library may be
 open; the existing exactly-one disposable library manifest gate remains
 fail-closed. Other mutation adapters remain disabled; the only separately armed
-write is the Schema 11 disposable-project spike described above.
+write is the Schema 12 disposable-project spike described above.
 
 The fixed CloudContent names and contracts were manually transcribed from the
 locked `reference/elliotttate/SpliceKit` snapshot at

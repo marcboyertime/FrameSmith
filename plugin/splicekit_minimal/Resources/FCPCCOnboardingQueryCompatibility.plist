@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>11</integer>
+    <integer>12</integer>
     <key>ExpectedHostBundleIdentifier</key>
     <string>com.apple.FinalCut</string>
     <key>ExpectedCopiedHostBundlePath</key>
@@ -161,6 +161,34 @@
         <string>1</string>
         <key>CanonicalLibraryPath</key>
         <string>/Users/marcboyer/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle</string>
+        <key>PublicLibraryOpenAPI</key>
+        <string>NSDocumentController.openDocumentWithContentsOfURL:display:completionHandler:</string>
+        <key>PublicLibraryOpenDisplay</key>
+        <true/>
+        <key>PublicLibraryOpenRequiresMainQueue</key>
+        <true/>
+        <key>PublicLibraryOpenAllowedInitialOpenLibraryCount</key>
+        <integer>0</integer>
+        <key>PublicLibraryOpenMaximumInvocations</key>
+        <integer>1</integer>
+        <key>PublicLibraryOpenRequiredPreopenIdentity</key>
+        <string>canonical_path_no_symlink_directory_device_inode_persistent_uid</string>
+        <key>PublicLibraryOpenCompletionRequirements</key>
+        <string>non_nil_document_nil_error</string>
+        <key>PublicLibraryOpenRequiredPostopenState</key>
+        <string>exactly_one_enrolled_open_library</string>
+        <key>PublicLibraryOpenNoDialogResponderAutomationOrAlternatePath</key>
+        <true/>
+        <key>PublicLibraryOpenNoRetry</key>
+        <true/>
+        <key>PublicLibraryOpenNeverCreatesRemovesOrOverwritesLibrary</key>
+        <true/>
+        <key>KnownFailedLiveProvenancePath</key>
+        <string>/Users/marcboyer/Movies/FCPCommandConsole/provenance/disposable-project-bootstrap-5244F4D3-8B35-4289-9B82-0CFC58CF0829.json</string>
+        <key>KnownFailedLiveReason</key>
+        <string>exactly_one_open_library_required</string>
+        <key>KnownFailedLiveMutationCounts</key>
+        <string>project_zero_import_zero_append_zero</string>
         <key>FixturesRootPath</key>
         <string>/Users/marcboyer/Movies/FCPCommandConsole/fixtures</string>
         <key>FixturePaths</key>
@@ -296,6 +324,6 @@
     <key>SourceSnapshotCommit</key>
     <string>f4f6618121309a69b66272b441f34cf8ad57f306</string>
     <key>SourceAttribution</key>
-    <string>Exact Final Cut Pro 12.3 static inspection. The copied host remains constrained by its exact bundle path, receipt-compatible identifier and receipt SHA-256, version/build, active-slice UUIDs, and the pinned ProOnboardingFlowModelOne identity and method contracts. Schema 10 admitted the launcher-flagged disposable-library bootstrap, which creates only the absent canonical library through the pinned Flexo ABI and never overwrites or removes a library. Schema 11 separately admits one launcher-flagged disposable-project bootstrap after NSApplicationDidFinishLaunchingNotification. It requires exactly the enrolled disposable library and its one default event, zero owned clips/projects/deep-loaded sequences, three fixed regular non-symlink fixture files with pinned SHA-256 hashes, and pinned Flexo and ProCore image identities plus all project, import, pasteboard, edit-action, and timeline contracts. It uses FFProjectDocument actionNewProject:name:sequence:actionName:error:, resolves the exact new sequence through FFLibrary _deepLoadedSequences and the exact editor load, imports only those fixtures with FFMediaEventProject, and appends them only through the fixed FFPasteboard, FigTimeRangeAndObject, FFEditAction kind 2/all, and FFAnchoredTimelineModule path. It observes and records the actual project format without a fixed frame-rate precondition, verifies exact primary-storyline order, adjacency, and imported media identifiers after every append, performs no automatic mutation retry, and records any post-mutation uncertainty as partial_unverified with no rollback claim.</string>
+    <string>Exact Final Cut Pro 12.3 static inspection. The copied host remains constrained by its exact bundle path, receipt-compatible identifier and receipt SHA-256, version/build, active-slice UUIDs, and the pinned ProOnboardingFlowModelOne identity and method contracts. Schema 10 admitted the launcher-flagged disposable-library bootstrap, which creates only the absent canonical library through the pinned Flexo ABI and never overwrites or removes a library. Schema 11 separately admitted one launcher-flagged disposable-project bootstrap after NSApplicationDidFinishLaunchingNotification. Its recorded failed zero-mutation run at disposable-project-bootstrap-5244F4D3-8B35-4289-9B82-0CFC58CF0829.json rejected exactly_one_open_library_required and is failure evidence, not success evidence. Schema 12 preserves the fixed one-shot project/import/append contracts and adds only a bounded public AppKit open when the complete initial library traversal has zero libraries. Before that one main-queue NSDocumentController openDocumentWithContentsOfURL:display:completionHandler: call, it revalidates only the canonical enrolled fcpbundle path with no symlink components, directory/device/inode, and manifest persistent UID. It permits no dialog, responder action, UI automation, alternate path, retry, library creation, removal, or overwrite. Completion requires a nonnil document and nil error, followed by another complete traversal proving exactly one enrolled library before FFProjectDocument actionNewProject:name:sequence:actionName:error: can run. It then resolves the exact new sequence through FFLibrary _deepLoadedSequences and the exact editor load, imports only the three fixed files with FFMediaEventProject, and appends them only through the fixed FFPasteboard, FigTimeRangeAndObject, FFEditAction kind 2/all, and FFAnchoredTimelineModule path. It observes and records the actual project format without a fixed frame-rate precondition, verifies exact primary-storyline order, adjacency, and imported media identifiers after every append, performs no automatic mutation retry, and records library-open invocation/status/reason plus any post-mutation uncertainty as partial_unverified with no rollback claim.</string>
 </dict>
 </plist>

@@ -64,6 +64,7 @@ static const char * const FCPCCDisposableProjectBootstrapClipBSHA256 = "a38a03bf
 static const char * const FCPCCDisposableProjectBootstrapLivingStillSHA256 = "170df5348f53221de630c7d7b385e6189f53a27baa2f2246ec7df4f379ed2567";
 static NSString * const FCPCCDisposableProjectBootstrapPasteboardPrefix = @"com.fcpcommandconsole.disposable-project.";
 static const NSUInteger FCPCCDisposableProjectBootstrapMaximumObservationTurns = 24;
+static const NSTimeInterval FCPCCDisposableProjectBootstrapLibraryOpenCompletionTimeoutSeconds = 30.0;
 
 static BOOL FCPCCFileSHA256MatchesExpectedHex(NSString *path, const char *expectedHex);
 
@@ -2044,12 +2045,27 @@ static FCPCCDisposableLibraryBootstrapResult *FCPCCRunDisposableLibraryBootstrap
 // actions, or retries a model mutation after a partial result.
 typedef NS_ENUM(NSUInteger, FCPCCDisposableProjectBootstrapState) {
     FCPCCDisposableProjectBootstrapStatePreflight = 0,
+    FCPCCDisposableProjectBootstrapStateWaitingForLibraryOpenInvocation,
+    FCPCCDisposableProjectBootstrapStateWaitingForLibraryOpenCompletion,
+    FCPCCDisposableProjectBootstrapStateWaitingForOpenedLibrary,
     FCPCCDisposableProjectBootstrapStateWaitingForSequence,
     FCPCCDisposableProjectBootstrapStateWaitingForEditor,
     FCPCCDisposableProjectBootstrapStateWaitingForImports,
     FCPCCDisposableProjectBootstrapStateAppending,
     FCPCCDisposableProjectBootstrapStateWaitingForAppendVerification,
     FCPCCDisposableProjectBootstrapStateFinished,
+};
+
+typedef NS_ENUM(NSUInteger, FCPCCDisposableProjectBootstrapLibraryOpenDecision) {
+    FCPCCDisposableProjectBootstrapLibraryOpenDecisionReject = 0,
+    FCPCCDisposableProjectBootstrapLibraryOpenDecisionContinueWithoutOpening,
+    FCPCCDisposableProjectBootstrapLibraryOpenDecisionOpenEnrolledLibrary,
+};
+
+typedef NS_ENUM(NSUInteger, FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecision) {
+    FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionReject = 0,
+    FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionPending,
+    FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionVerified,
 };
 
 typedef struct {
@@ -2140,6 +2156,12 @@ typedef struct {
 @property (nonatomic) NSUInteger projectCreationInvocationCount;
 @property (nonatomic) NSUInteger importInvocationCount;
 @property (nonatomic) NSUInteger appendInvocationCount;
+@property (nonatomic) NSUInteger libraryOpenInvocationCount;
+@property (nonatomic) BOOL libraryOpenCompletionDelivered;
+@property (nonatomic) BOOL libraryOpenCompletionSucceeded;
+@property (nonatomic, strong, nullable) dispatch_source_t libraryOpenCompletionTimeoutSource;
+@property (nonatomic, copy) NSString *libraryOpenStatus;
+@property (nonatomic, copy) NSString *libraryOpenReason;
 @property (nonatomic) BOOL fixtureHashesVerifiedBeforeMutation;
 @property (nonatomic) BOOL hasObservedProjectFormat;
 @property (nonatomic) CGSize observedFrameSize;
@@ -2159,6 +2181,8 @@ typedef struct {
         _clipEvidence = [[NSMutableArray alloc] initWithCapacity:3];
         _observedFrameSize = CGSizeZero;
         _observedFrameDuration = kCMTimeInvalid;
+        _libraryOpenStatus = @"not_evaluated";
+        _libraryOpenReason = @"project_bootstrap_library_open_not_evaluated";
     }
     return self;
 }
@@ -2410,6 +2434,9 @@ static BOOL FCPCCWriteDisposableProjectBootstrapProvenance(FCPCCDisposableProjec
         @"project_creation_invocation_count": @(session.projectCreationInvocationCount),
         @"import_invocation_count": @(session.importInvocationCount),
         @"append_invocation_count": @(session.appendInvocationCount),
+        @"library_open_invocation_count": @(session.libraryOpenInvocationCount),
+        @"library_open_status": FCPCCDisposableProjectBootstrapBoundedProvenanceString(session.libraryOpenStatus, @"library_open_status_unavailable"),
+        @"library_open_reason": FCPCCDisposableProjectBootstrapBoundedProvenanceString(session.libraryOpenReason, @"library_open_reason_unavailable"),
         @"no_auto_retry": @YES,
         @"rollback": @"not_attempted_no_rollback_claimed",
         @"fixtures": FCPCCDisposableProjectBootstrapFixturePayloads(session),
@@ -2469,6 +2496,10 @@ static void FCPCCFinishDisposableProjectBootstrap(FCPCCDisposableProjectBootstra
     session.reason = FCPCCDisposableProjectBootstrapBoundedProvenanceString(reason, @"project_bootstrap_failure_reason_unavailable");
     session.currentPasteboard = nil;
     session.currentPasteboardName = nil;
+    if (session.libraryOpenCompletionTimeoutSource != nil) {
+        dispatch_source_cancel(session.libraryOpenCompletionTimeoutSource);
+        session.libraryOpenCompletionTimeoutSource = nil;
+    }
     session.state = FCPCCDisposableProjectBootstrapStateFinished;
     (void)FCPCCWriteDisposableProjectBootstrapProvenance(session);
     FCPCCFinishDisposableProjectBootstrapScheduling();
@@ -2479,6 +2510,17 @@ static void FCPCCScheduleDisposableProjectBootstrapObservation(FCPCCDisposablePr
         return;
     }
     if (session.observationTurns >= FCPCCDisposableProjectBootstrapMaximumObservationTurns) {
+        if (session.state == FCPCCDisposableProjectBootstrapStateWaitingForLibraryOpenCompletion
+            || session.state == FCPCCDisposableProjectBootstrapStateWaitingForOpenedLibrary) {
+            session.libraryOpenStatus = @"timed_out";
+            session.libraryOpenReason = session.state == FCPCCDisposableProjectBootstrapStateWaitingForLibraryOpenCompletion
+                ? @"project_bootstrap_public_library_open_completion_timeout"
+                : @"project_bootstrap_public_library_open_postopen_verification_timeout";
+            FCPCCFinishDisposableProjectBootstrap(session,
+                                                   @"rejected",
+                                                   session.libraryOpenReason);
+            return;
+        }
         FCPCCFinishDisposableProjectBootstrap(session,
                                                @"partial_unverified",
                                                @"project_bootstrap_bounded_observation_exhausted");
@@ -2487,6 +2529,235 @@ static void FCPCCScheduleDisposableProjectBootstrapObservation(FCPCCDisposablePr
     session.observationTurns += 1;
     dispatch_async(dispatch_get_main_queue(), ^{
         FCPCCAdvanceDisposableProjectBootstrap(session);
+    });
+}
+
+static FCPCCDisposableProjectBootstrapLibraryOpenDecision FCPCCDisposableProjectBootstrapLibraryOpenDecisionForEnumeration(BOOL completeTraversal,
+                                                                                                                               NSUInteger openLibraryCount,
+                                                                                                                               BOOL exactEnrolledLibraryIsOpen,
+                                                                                                                               BOOL manifestIsComplete) {
+    if (!completeTraversal || !manifestIsComplete) {
+        return FCPCCDisposableProjectBootstrapLibraryOpenDecisionReject;
+    }
+    if (openLibraryCount == 0) {
+        return FCPCCDisposableProjectBootstrapLibraryOpenDecisionOpenEnrolledLibrary;
+    }
+    if (openLibraryCount == 1 && exactEnrolledLibraryIsOpen) {
+        return FCPCCDisposableProjectBootstrapLibraryOpenDecisionContinueWithoutOpening;
+    }
+    return FCPCCDisposableProjectBootstrapLibraryOpenDecisionReject;
+}
+
+static FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecision FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionForEnumeration(BOOL completeTraversal,
+                                                                                                                                                            NSUInteger openLibraryCount,
+                                                                                                                                                            BOOL exactEnrolledLibraryIsOpen,
+                                                                                                                                                            BOOL manifestIsComplete) {
+    if (!completeTraversal || !manifestIsComplete) {
+        return FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionReject;
+    }
+    if (openLibraryCount == 0) {
+        return FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionPending;
+    }
+    if (openLibraryCount == 1 && exactEnrolledLibraryIsOpen) {
+        return FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionVerified;
+    }
+    return FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionReject;
+}
+
+static BOOL FCPCCDisposableProjectBootstrapValidateCanonicalEnrolledLibraryForPublicOpen(FCPCCLibraryManifestRecord *manifest,
+                                                                                            NSURL **libraryURL,
+                                                                                            NSString **reason) {
+    if (libraryURL == NULL) {
+        *reason = @"project_bootstrap_library_open_url_storage_unavailable";
+        return NO;
+    }
+    *libraryURL = nil;
+    if (manifest == nil || !manifest.isComplete) {
+        *reason = manifest.verificationState.length > 0
+            ? manifest.verificationState
+            : @"project_bootstrap_library_manifest_incomplete";
+        return NO;
+    }
+    if (![manifest.canonicalPath isEqualToString:FCPCCDisposableLibraryBootstrapTargetPath]) {
+        *reason = @"project_bootstrap_enrolled_library_path_not_fixed_target";
+        return NO;
+    }
+    NSString *pathReason = nil;
+    if (!FCPCCDisposableLibraryBootstrapPathHasNoSymlinkComponents(manifest.canonicalPath, YES, &pathReason)) {
+        *reason = pathReason.length > 0
+            ? pathReason
+            : @"project_bootstrap_enrolled_library_path_unverified";
+        return NO;
+    }
+    struct stat metadata = {0};
+    if (lstat(manifest.canonicalPath.fileSystemRepresentation, &metadata) != 0
+        || !S_ISDIR(metadata.st_mode)
+        || metadata.st_dev == 0
+        || metadata.st_ino == 0) {
+        *reason = @"project_bootstrap_enrolled_library_directory_device_or_inode_unverified";
+        return NO;
+    }
+    if (metadata.st_dev != (dev_t)manifest.expectedDevice.unsignedLongLongValue
+        || metadata.st_ino != (ino_t)manifest.expectedInode.unsignedLongLongValue) {
+        *reason = @"project_bootstrap_enrolled_library_device_or_inode_mismatch";
+        return NO;
+    }
+    // The manifest's persistent UID is deliberately pinned to the enrolled
+    // bundle inode for this disposable target. The FCP persistent UID itself
+    // is independently re-read from the complete active-library traversal
+    // after the public document open completes.
+    NSString *manifestPersistentUID = [NSString stringWithFormat:@"%llu", (unsigned long long)metadata.st_ino];
+    if (![manifest.persistentUID isEqualToString:manifestPersistentUID]) {
+        *reason = @"project_bootstrap_enrolled_library_persistent_uid_mismatch";
+        return NO;
+    }
+    *libraryURL = [NSURL fileURLWithPath:manifest.canonicalPath isDirectory:YES];
+    if (*libraryURL == nil || !(*libraryURL).isFileURL) {
+        *reason = @"project_bootstrap_enrolled_library_file_url_unavailable";
+        return NO;
+    }
+    return YES;
+}
+
+static FCPCCDisposableProjectBootstrapLibraryOpenDecision FCPCCDisposableProjectBootstrapInitialLibraryOpenDecision(FCPCCReadOnlyLibrarySet *activeSet,
+                                                                                                                       FCPCCLibraryManifestRecord *manifest,
+                                                                                                                       NSString **reason) {
+    if (activeSet == nil || !activeSet.isCompleteTraversal) {
+        *reason = activeSet.reason.length > 0
+            ? activeSet.reason
+            : @"project_bootstrap_active_library_traversal_incomplete";
+        return FCPCCDisposableProjectBootstrapLibraryOpenDecisionReject;
+    }
+    if (manifest == nil || !manifest.isComplete) {
+        *reason = manifest.verificationState.length > 0
+            ? manifest.verificationState
+            : @"project_bootstrap_library_manifest_incomplete";
+        return FCPCCDisposableProjectBootstrapLibraryOpenDecisionReject;
+    }
+    FCPCCLibraryInvariantResult *invariant = FCPCCEvaluateLibraryInvariant(activeSet, manifest);
+    FCPCCDisposableProjectBootstrapLibraryOpenDecision decision = FCPCCDisposableProjectBootstrapLibraryOpenDecisionForEnumeration(activeSet.isCompleteTraversal,
+                                                                                                                                       activeSet.libraries.count,
+                                                                                                                                       invariant.isVerified,
+                                                                                                                                       manifest.isComplete);
+    if (decision == FCPCCDisposableProjectBootstrapLibraryOpenDecisionReject) {
+        *reason = invariant.reason.length > 0
+            ? invariant.reason
+            : @"project_bootstrap_initial_open_library_state_unverified";
+    }
+    return decision;
+}
+
+static void FCPCCDisposableProjectBootstrapInvokePublicEnrolledLibraryOpen(FCPCCDisposableProjectBootstrapSession *session,
+                                                                            NSURL *libraryURL) {
+    if (session == nil || session.state != FCPCCDisposableProjectBootstrapStateWaitingForLibraryOpenInvocation) {
+        return;
+    }
+    if (![NSThread isMainThread]) {
+        session.libraryOpenStatus = @"rejected";
+        session.libraryOpenReason = @"project_bootstrap_public_library_open_requires_main_queue";
+        FCPCCFinishDisposableProjectBootstrap(session, @"rejected", session.libraryOpenReason);
+        return;
+    }
+    if (libraryURL == nil || !libraryURL.isFileURL || session.libraryOpenInvocationCount != 0) {
+        session.libraryOpenStatus = @"rejected";
+        session.libraryOpenReason = @"project_bootstrap_public_library_open_retry_or_url_unverified";
+        FCPCCFinishDisposableProjectBootstrap(session, @"rejected", session.libraryOpenReason);
+        return;
+    }
+    NSDocumentController *documentController = [NSDocumentController sharedDocumentController];
+    if (documentController == nil) {
+        session.libraryOpenStatus = @"rejected";
+        session.libraryOpenReason = @"project_bootstrap_public_document_controller_unavailable";
+        FCPCCFinishDisposableProjectBootstrap(session, @"rejected", session.libraryOpenReason);
+        return;
+    }
+
+    session.libraryOpenInvocationCount += 1;
+    session.libraryOpenStatus = @"invoked";
+    session.libraryOpenReason = @"project_bootstrap_public_enrolled_library_open_requested";
+    session.state = FCPCCDisposableProjectBootstrapStateWaitingForLibraryOpenCompletion;
+    __weak FCPCCDisposableProjectBootstrapSession *weakSession = session;
+    dispatch_source_t timeoutSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,
+                                                              0,
+                                                              0,
+                                                              dispatch_get_main_queue());
+    if (timeoutSource == nil) {
+        session.libraryOpenStatus = @"rejected";
+        session.libraryOpenReason = @"project_bootstrap_public_library_open_timeout_source_unavailable";
+        FCPCCFinishDisposableProjectBootstrap(session, @"rejected", session.libraryOpenReason);
+        return;
+    }
+    session.libraryOpenCompletionTimeoutSource = timeoutSource;
+    dispatch_source_set_timer(timeoutSource,
+                              dispatch_time(DISPATCH_TIME_NOW,
+                                            (int64_t)(FCPCCDisposableProjectBootstrapLibraryOpenCompletionTimeoutSeconds * NSEC_PER_SEC)),
+                              DISPATCH_TIME_FOREVER,
+                              0);
+    dispatch_source_set_event_handler(timeoutSource, ^{
+        FCPCCDisposableProjectBootstrapSession *timedSession = weakSession;
+        if (timedSession != nil
+            && timedSession.state == FCPCCDisposableProjectBootstrapStateWaitingForLibraryOpenCompletion
+            && !timedSession.libraryOpenCompletionDelivered) {
+            timedSession.libraryOpenStatus = @"timed_out";
+            timedSession.libraryOpenReason = @"project_bootstrap_public_library_open_completion_timeout";
+            FCPCCFinishDisposableProjectBootstrap(timedSession,
+                                                   @"rejected",
+                                                   timedSession.libraryOpenReason);
+        }
+    });
+    dispatch_resume(timeoutSource);
+    // This is the only project-bootstrap library-open surface: a typed public
+    // AppKit document open and presentation of the fixed, prevalidated enrolled
+    // bundle. It neither displays an open panel nor creates, removes, or
+    // overwrites a library.
+    [documentController openDocumentWithContentsOfURL:libraryURL
+                                               display:YES
+                                     completionHandler:^(NSDocument *document, BOOL documentWasAlreadyOpen, NSError *error) {
+        (void)documentWasAlreadyOpen;
+        FCPCCDisposableProjectBootstrapSession *completedSession = weakSession;
+        if (completedSession == nil
+            || completedSession.state != FCPCCDisposableProjectBootstrapStateWaitingForLibraryOpenCompletion) {
+            return;
+        }
+        if (completedSession.libraryOpenCompletionTimeoutSource != nil) {
+            dispatch_source_cancel(completedSession.libraryOpenCompletionTimeoutSource);
+            completedSession.libraryOpenCompletionTimeoutSource = nil;
+        }
+        completedSession.libraryOpenCompletionDelivered = YES;
+        completedSession.libraryOpenCompletionSucceeded = document != nil && error == nil && [NSThread isMainThread];
+        completedSession.libraryOpenStatus = completedSession.libraryOpenCompletionSucceeded
+            ? @"completion_succeeded"
+            : @"completion_failed";
+        completedSession.libraryOpenReason = completedSession.libraryOpenCompletionSucceeded
+            ? @"project_bootstrap_public_enrolled_library_open_completed"
+            : @"project_bootstrap_public_enrolled_library_open_unverified";
+        if (!completedSession.libraryOpenCompletionSucceeded) {
+            FCPCCFinishDisposableProjectBootstrap(completedSession,
+                                                   @"rejected",
+                                                   completedSession.libraryOpenReason);
+            return;
+        }
+        completedSession.state = FCPCCDisposableProjectBootstrapStateWaitingForOpenedLibrary;
+        completedSession.observationTurns = 0;
+        FCPCCScheduleDisposableProjectBootstrapObservation(completedSession);
+    }];
+}
+
+static void FCPCCDisposableProjectBootstrapDispatchPublicEnrolledLibraryOpen(FCPCCDisposableProjectBootstrapSession *session,
+                                                                              NSURL *libraryURL) {
+    if (session == nil || libraryURL == nil || session.libraryOpenInvocationCount != 0) {
+        if (session != nil) {
+            session.libraryOpenStatus = @"rejected";
+            session.libraryOpenReason = @"project_bootstrap_public_library_open_retry_or_url_unverified";
+            FCPCCFinishDisposableProjectBootstrap(session, @"rejected", session.libraryOpenReason);
+        }
+        return;
+    }
+    session.state = FCPCCDisposableProjectBootstrapStateWaitingForLibraryOpenInvocation;
+    session.libraryOpenStatus = @"scheduled";
+    session.libraryOpenReason = @"project_bootstrap_public_enrolled_library_open_scheduled";
+    dispatch_async(dispatch_get_main_queue(), ^{
+        FCPCCDisposableProjectBootstrapInvokePublicEnrolledLibraryOpen(session, libraryURL);
     });
 }
 
@@ -2572,6 +2843,37 @@ static BOOL FCPCCDisposableProjectBootstrapPreflight(FCPCCDisposableProjectBoots
     return YES;
 }
 
+static BOOL FCPCCDisposableProjectBootstrapBeginProjectCreation(FCPCCDisposableProjectBootstrapSession *session,
+                                                                 NSString **reason) {
+    id eventLibraryItem = nil;
+    if (!FCPCCDisposableProjectBootstrapPreflight(session, &eventLibraryItem, reason)) {
+        return NO;
+    }
+    if (session.libraryOpenInvocationCount == 1) {
+        session.libraryOpenStatus = @"postopen_exact_enrolled_library_verified";
+        session.libraryOpenReason = @"project_bootstrap_exact_enrolled_library_verified_after_public_open";
+    }
+    if (session.projectCreationInvocationCount != 0) {
+        *reason = @"project_bootstrap_project_creation_retry_forbidden";
+        return NO;
+    }
+    NSError *creationError = nil;
+    session.projectCreationInvocationCount += 1;
+    id createdProject = ((FCPCCProjectDocumentActionNewProject)session.contracts.createProject.implementation)(
+        (id)session.contracts.createProject.targetClass,
+        session.contracts.createProject.selector,
+        eventLibraryItem,
+        FCPCCDisposableProjectBootstrapProjectName,
+        nil,
+        @"FCPCommandConsole Disposable Project Bootstrap",
+        &creationError);
+    if (createdProject == nil || creationError != nil) {
+        *reason = @"project_bootstrap_native_project_creation_unverified";
+        return NO;
+    }
+    return YES;
+}
+
 static BOOL FCPCCDisposableProjectBootstrapValidateImportedMedia(FCPCCDisposableProjectBootstrapSession *session,
                                                                   id media,
                                                                   NSString *expectedSourcePath,
@@ -2638,6 +2940,48 @@ typedef NS_ENUM(NSUInteger, FCPCCDisposableProjectBootstrapObservationResult) {
     FCPCCDisposableProjectBootstrapObservationResultVerified,
     FCPCCDisposableProjectBootstrapObservationResultFailed,
 };
+
+static FCPCCDisposableProjectBootstrapObservationResult FCPCCDisposableProjectBootstrapObservePostopenEnrolledLibrary(FCPCCDisposableProjectBootstrapSession *session,
+                                                                                                                        NSString **reason) {
+    FCPCCFixedModelTraversalAdapter *adapter = [[FCPCCFixedModelTraversalAdapter alloc] init];
+    FCPCCReadOnlyLibrarySet *activeSet = [adapter enumerateCompleteOpenLibrarySet];
+    if (activeSet == nil || !activeSet.isCompleteTraversal) {
+        *reason = activeSet.reason.length > 0
+            ? activeSet.reason
+            : @"project_bootstrap_postopen_library_traversal_incomplete";
+        return FCPCCDisposableProjectBootstrapObservationResultFailed;
+    }
+    FCPCCLibraryManifestRecord *manifest = [FCPCCLibraryManifestRecord bundledManifest];
+    if (manifest == nil || !manifest.isComplete) {
+        *reason = manifest.verificationState.length > 0
+            ? manifest.verificationState
+            : @"project_bootstrap_postopen_library_manifest_incomplete";
+        return FCPCCDisposableProjectBootstrapObservationResultFailed;
+    }
+    FCPCCLibraryInvariantResult *invariant = FCPCCEvaluateLibraryInvariant(activeSet, manifest);
+    FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecision decision = FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionForEnumeration(activeSet.isCompleteTraversal,
+                                                                                                                                                                      activeSet.libraries.count,
+                                                                                                                                                                      invariant.isVerified,
+                                                                                                                                                                      manifest.isComplete);
+    switch (decision) {
+        case FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionPending:
+            session.libraryOpenStatus = @"postopen_library_pending";
+            session.libraryOpenReason = @"project_bootstrap_public_enrolled_library_open_pending";
+            *reason = session.libraryOpenReason;
+            return FCPCCDisposableProjectBootstrapObservationResultPending;
+        case FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionVerified:
+            session.libraryOpenStatus = @"postopen_exact_enrolled_library_verified";
+            session.libraryOpenReason = @"project_bootstrap_exact_enrolled_library_verified_after_public_open";
+            return FCPCCDisposableProjectBootstrapObservationResultVerified;
+        case FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionReject:
+            *reason = invariant.reason.length > 0
+                ? invariant.reason
+                : @"project_bootstrap_postopen_library_state_unverified";
+            session.libraryOpenStatus = @"postopen_library_verification_failed";
+            session.libraryOpenReason = *reason;
+            return FCPCCDisposableProjectBootstrapObservationResultFailed;
+    }
+}
 
 static FCPCCDisposableProjectBootstrapObservationResult FCPCCDisposableProjectBootstrapResolveCreatedSequence(FCPCCDisposableProjectBootstrapSession *session,
                                                                                                                 NSString **reason) {
@@ -3041,6 +3385,41 @@ static void FCPCCAdvanceDisposableProjectBootstrap(FCPCCDisposableProjectBootstr
     NSString *reason = nil;
     FCPCCDisposableProjectBootstrapObservationResult observation = FCPCCDisposableProjectBootstrapObservationResultFailed;
     switch (session.state) {
+        case FCPCCDisposableProjectBootstrapStateWaitingForLibraryOpenCompletion:
+            if (!session.libraryOpenCompletionDelivered) {
+                FCPCCScheduleDisposableProjectBootstrapObservation(session);
+                return;
+            }
+            if (!session.libraryOpenCompletionSucceeded) {
+                FCPCCFinishDisposableProjectBootstrap(session,
+                                                       @"rejected",
+                                                       session.libraryOpenReason.length > 0
+                                                       ? session.libraryOpenReason
+                                                       : @"project_bootstrap_public_enrolled_library_open_unverified");
+                return;
+            }
+            session.state = FCPCCDisposableProjectBootstrapStateWaitingForOpenedLibrary;
+            FCPCCScheduleDisposableProjectBootstrapObservation(session);
+            return;
+
+        case FCPCCDisposableProjectBootstrapStateWaitingForOpenedLibrary:
+            observation = FCPCCDisposableProjectBootstrapObservePostopenEnrolledLibrary(session, &reason);
+            if (observation == FCPCCDisposableProjectBootstrapObservationResultPending) {
+                FCPCCScheduleDisposableProjectBootstrapObservation(session);
+                return;
+            }
+            if (observation != FCPCCDisposableProjectBootstrapObservationResultVerified) {
+                FCPCCFinishDisposableProjectBootstrap(session, @"rejected", reason);
+                return;
+            }
+            if (!FCPCCDisposableProjectBootstrapBeginProjectCreation(session, &reason)) {
+                FCPCCFinishDisposableProjectBootstrap(session, @"rejected", reason);
+                return;
+            }
+            session.state = FCPCCDisposableProjectBootstrapStateWaitingForSequence;
+            FCPCCScheduleDisposableProjectBootstrapObservation(session);
+            return;
+
         case FCPCCDisposableProjectBootstrapStateWaitingForSequence:
             observation = FCPCCDisposableProjectBootstrapResolveCreatedSequence(session, &reason);
             if (observation == FCPCCDisposableProjectBootstrapObservationResultPending) {
@@ -3131,9 +3510,10 @@ static void FCPCCAdvanceDisposableProjectBootstrap(FCPCCDisposableProjectBootstr
             return;
 
         case FCPCCDisposableProjectBootstrapStatePreflight:
+        case FCPCCDisposableProjectBootstrapStateWaitingForLibraryOpenInvocation:
         case FCPCCDisposableProjectBootstrapStateFinished:
             FCPCCFinishDisposableProjectBootstrap(session,
-                                                   @"partial_unverified",
+                                                   FCPCCDisposableProjectBootstrapHasMutated(session) ? @"partial_unverified" : @"rejected",
                                                    @"project_bootstrap_invalid_state_transition");
             return;
     }
@@ -3165,25 +3545,40 @@ static void FCPCCRunDisposableProjectBootstrap(void) {
         return;
     }
     session.contracts = contracts;
-    id eventLibraryItem = nil;
-    if (!FCPCCDisposableProjectBootstrapPreflight(session, &eventLibraryItem, &reason)) {
-        FCPCCFinishDisposableProjectBootstrap(session, @"rejected", reason);
+    FCPCCLibraryManifestRecord *manifest = [FCPCCLibraryManifestRecord bundledManifest];
+    FCPCCFixedModelTraversalAdapter *adapter = [[FCPCCFixedModelTraversalAdapter alloc] init];
+    FCPCCReadOnlyLibrarySet *activeSet = [adapter enumerateCompleteOpenLibrarySet];
+    FCPCCDisposableProjectBootstrapLibraryOpenDecision libraryOpenDecision = FCPCCDisposableProjectBootstrapInitialLibraryOpenDecision(activeSet,
+                                                                                                                                           manifest,
+                                                                                                                                           &reason);
+    if (libraryOpenDecision == FCPCCDisposableProjectBootstrapLibraryOpenDecisionReject) {
+        session.libraryOpenStatus = @"not_invoked";
+        session.libraryOpenReason = reason.length > 0
+            ? reason
+            : @"project_bootstrap_initial_open_library_state_unverified";
+        FCPCCFinishDisposableProjectBootstrap(session, @"rejected", session.libraryOpenReason);
         return;
     }
-    NSError *creationError = nil;
-    session.projectCreationInvocationCount += 1;
-    id createdProject = ((FCPCCProjectDocumentActionNewProject)session.contracts.createProject.implementation)(
-        (id)session.contracts.createProject.targetClass,
-        session.contracts.createProject.selector,
-        eventLibraryItem,
-        FCPCCDisposableProjectBootstrapProjectName,
-        nil,
-        @"FCPCommandConsole Disposable Project Bootstrap",
-        &creationError);
-    if (createdProject == nil || creationError != nil) {
-        FCPCCFinishDisposableProjectBootstrap(session,
-                                               @"partial_unverified",
-                                               @"project_bootstrap_native_project_creation_unverified");
+    if (libraryOpenDecision == FCPCCDisposableProjectBootstrapLibraryOpenDecisionOpenEnrolledLibrary) {
+        NSURL *enrolledLibraryURL = nil;
+        if (!FCPCCDisposableProjectBootstrapValidateCanonicalEnrolledLibraryForPublicOpen(manifest,
+                                                                                            &enrolledLibraryURL,
+                                                                                            &reason)) {
+            session.libraryOpenStatus = @"not_invoked";
+            session.libraryOpenReason = reason.length > 0
+                ? reason
+                : @"project_bootstrap_enrolled_library_preopen_validation_failed";
+            FCPCCFinishDisposableProjectBootstrap(session, @"rejected", session.libraryOpenReason);
+            return;
+        }
+        FCPCCDisposableProjectBootstrapDispatchPublicEnrolledLibraryOpen(session, enrolledLibraryURL);
+        return;
+    }
+
+    session.libraryOpenStatus = @"not_required_exact_enrolled_library_already_open";
+    session.libraryOpenReason = @"project_bootstrap_exact_enrolled_library_already_open";
+    if (!FCPCCDisposableProjectBootstrapBeginProjectCreation(session, &reason)) {
+        FCPCCFinishDisposableProjectBootstrap(session, @"rejected", reason);
         return;
     }
     session.state = FCPCCDisposableProjectBootstrapStateWaitingForSequence;
@@ -3205,6 +3600,72 @@ BOOL FCPCCDisposableProjectBootstrapTestPrimaryStorylineCountIsExact(NSUInteger 
     return FCPCCDisposableProjectBootstrapHasExactExpectedPrimaryStorylineCount(observedCount,
                                                                                   expectedCount,
                                                                                   importedCount);
+}
+
+NSUInteger FCPCCDisposableProjectBootstrapTestLibraryOpenInvocationCountForInitialState(BOOL completeTraversal,
+                                                                                           NSUInteger openLibraryCount,
+                                                                                           BOOL exactEnrolledLibraryIsOpen,
+                                                                                           BOOL manifestIsComplete) {
+    return FCPCCDisposableProjectBootstrapLibraryOpenDecisionForEnumeration(completeTraversal,
+                                                                              openLibraryCount,
+                                                                              exactEnrolledLibraryIsOpen,
+                                                                              manifestIsComplete)
+        == FCPCCDisposableProjectBootstrapLibraryOpenDecisionOpenEnrolledLibrary ? 1 : 0;
+}
+
+BOOL FCPCCDisposableProjectBootstrapTestInitialLibraryStateRejects(BOOL completeTraversal,
+                                                                     NSUInteger openLibraryCount,
+                                                                     BOOL exactEnrolledLibraryIsOpen,
+                                                                     BOOL manifestIsComplete) {
+    return FCPCCDisposableProjectBootstrapLibraryOpenDecisionForEnumeration(completeTraversal,
+                                                                              openLibraryCount,
+                                                                              exactEnrolledLibraryIsOpen,
+                                                                              manifestIsComplete)
+        == FCPCCDisposableProjectBootstrapLibraryOpenDecisionReject;
+}
+
+BOOL FCPCCDisposableProjectBootstrapTestPostopenLibraryObservationIsPending(BOOL completeTraversal,
+                                                                              NSUInteger openLibraryCount,
+                                                                              BOOL exactEnrolledLibraryIsOpen,
+                                                                              BOOL manifestIsComplete) {
+    return FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionForEnumeration(completeTraversal,
+                                                                                             openLibraryCount,
+                                                                                             exactEnrolledLibraryIsOpen,
+                                                                                             manifestIsComplete)
+        == FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionPending;
+}
+
+BOOL FCPCCDisposableProjectBootstrapTestPostopenLibraryObservationIsVerified(BOOL completeTraversal,
+                                                                               NSUInteger openLibraryCount,
+                                                                               BOOL exactEnrolledLibraryIsOpen,
+                                                                               BOOL manifestIsComplete) {
+    return FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionForEnumeration(completeTraversal,
+                                                                                             openLibraryCount,
+                                                                                             exactEnrolledLibraryIsOpen,
+                                                                                             manifestIsComplete)
+        == FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionVerified;
+}
+
+BOOL FCPCCDisposableProjectBootstrapTestPostopenLibraryObservationRejects(BOOL completeTraversal,
+                                                                            NSUInteger openLibraryCount,
+                                                                            BOOL exactEnrolledLibraryIsOpen,
+                                                                            BOOL manifestIsComplete) {
+    return FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionForEnumeration(completeTraversal,
+                                                                                             openLibraryCount,
+                                                                                             exactEnrolledLibraryIsOpen,
+                                                                                             manifestIsComplete)
+        == FCPCCDisposableProjectBootstrapPostopenLibraryObservationDecisionReject;
+}
+
+BOOL FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeavesProjectMutationsAtZero(BOOL completionHasDocument,
+                                                                                        BOOL completionErrorIsNil,
+                                                                                        NSUInteger projectCreationInvocationCount,
+                                                                                        NSUInteger importInvocationCount,
+                                                                                        NSUInteger appendInvocationCount) {
+    return !(completionHasDocument && completionErrorIsNil)
+        && projectCreationInvocationCount == 0
+        && importInvocationCount == 0
+        && appendInvocationCount == 0;
 }
 
 BOOL FCPCCDisposableLibraryBootstrapTestValidateAbsentCanonicalTarget(NSString *parentPath,

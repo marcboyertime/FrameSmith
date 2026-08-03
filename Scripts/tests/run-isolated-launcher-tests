@@ -49,7 +49,7 @@ for required_launcher_fragment in \
     'verify_reviewed_copied_cdhash' \
     'CandidateCDHashFull' \
     'create_five_entitlements' \
-    'SchemaVersion)" == "11"' \
+    'SchemaVersion)" == "12"' \
     "CompatibilityInstallPhases:0')\" == \"constructor_main_thread_immediate_attempt" \
     "CompatibilityInstallPhases:1')\" == \"application_will_finish_launching_availability_retry" \
     'MaximumMethodGuardAttempts)" == "2"' \
@@ -74,6 +74,13 @@ for required_launcher_fragment in \
     'bootstrap_disposable_project=reviewed_one_shot_requested' \
     'DisposableLibraryBootstrap:CanonicalTargetPath' \
     'DisposableProjectBootstrap:ProjectCreationSelector' \
+    'DisposableProjectBootstrap:PublicLibraryOpenAPI' \
+    'NSDocumentController.openDocumentWithContentsOfURL:display:completionHandler:' \
+    'DisposableProjectBootstrap:PublicLibraryOpenDisplay' \
+    '"true"' \
+    'PublicLibraryOpenMaximumInvocations' \
+    'KnownFailedLiveProvenancePath' \
+    'exactly_one_open_library_required' \
     'actionNewProject:name:sequence:actionName:error:' \
     'PEEditorContainerModule' \
     'FCPCCDisposableProjectBootstrapContracts' \
