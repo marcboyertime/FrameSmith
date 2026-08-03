@@ -1,29 +1,33 @@
 # FCPCommandConsole
 
-Private local repository for the FCPCommandConsole v3 core.
+FCPCommandConsole is a private, local macOS planner with a standalone SwiftUI
+app. It accepts local stills/movies read-only, creates schema-versioned plans,
+and saves inert, byte-verified plan/media packages. It has no network runtime
+and does not automate, patch, launch, or modify Final Cut Pro.
 
-The shipped Phase 1 surface is a four-effect, schema-versioned planner and
-validator with path/cost/provenance safety, deterministic transform/dissolve
-math, and a closed FFmpeg old-TV overlay adapter. It is implemented and tested
-without network access or Final Cut Pro control. Native FCP behavior, copied-app
-patching, library mutation, DepthFlow models, and perceptual quality remain
-unproven.
+The installed app is `/Users/marcboyer/Applications/FCPCommandConsole.app`.
+Build/install/launch it with:
 
-Runtime output is kept outside Git at `~/Movies/FCPCommandConsole/` in the eight
-directories listed in [STATUS.md](STATUS.md). Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), then use `swift run fcpcommandconsole doctor-core`,
-`swift test`, and `make overlay-smoke`. The six repositories under `reference/`
-are shallow, read-only audit snapshots; their exact commits and licenses are
-recorded in [docs/REFERENCE_LOCK.json](docs/REFERENCE_LOCK.json).
+```sh
+swift test
+make install-app
+make launch-app
+```
 
-## Local media app
+The app is explicitly **LOCAL MEDIA PREVIEW ONLY**. Source preview is not an
+effect render. FCPXML export is visible but disabled by `CapabilityGate` because
+Final Cut semantics, selection evidence, import, export, and editability remain
+unverified.
 
-`make install-app` builds and installs the exact owned bundle at
-`~/Applications/FCPCommandConsole.app`; `make launch-app` launches that bundle.
-The SwiftUI shell admits only read-only local stills/movies, builds schema 2.0
-local plans, and previews the selected source only. It does not render effects,
-control Final Cut, or establish Final Cut selection/adjacency evidence. Its
-FCPXML Export control is intentionally disabled by `CapabilityGate`. After a
-valid local plan, the app can save an inert, payload-neutral package under
-`~/Movies/FCPCommandConsole/exports/local-plan-packages/`. It contains the
-schema-2 plan, manifest/provenance, and byte-verified media copies only; it is
-not FCPXML and is not claimed to be Final Cut importable.
+Plans use schema `2.0` and the canonical representations `fcpxml_native`,
+`layered_media`, `motion_template`, `external_editable_composition`, and
+`baked_render`. Legacy schema/value inputs are quarantined and must be replanned.
+
+`Save Local Plan Package` creates an inert package under
+`~/Movies/FCPCommandConsole/exports/local-plan-packages/` by default. It copies
+only verified source bytes and metadata; it is not FCPXML, not an effect render,
+and is not claimed to be Final Cut importable.
+
+See [STATUS.md](STATUS.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
+[docs/RUNBOOK.md](docs/RUNBOOK.md), and [docs/HANDOFF.md](docs/HANDOFF.md) for
+the current evidence boundary and next manual probe.

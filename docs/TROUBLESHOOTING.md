@@ -1,24 +1,50 @@
 # Troubleshooting
 
-## Registry or plan errors
+## Installed app is blank, fails to launch, or has no resources
 
-Use an explicit registry path in tests or run from the repository root. An
-unknown alias, no-match request, ambiguity, stale revision, unknown parameter,
-NaN/infinite coordinate, missing fallback, or paid cost estimate is expected to
-fail closed. Recreate the selection fixture with the current revision instead
-of bypassing validation.
+Run `make install-app`, then:
 
-## Overlay errors
+```sh
+codesign --verify --deep --strict /Users/marcboyer/Applications/FCPCommandConsole.app
+plutil -extract CFBundleIdentifier raw /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Info.plist
+test -f /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json
+test -f /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Resources/schemas/effect-plan.schema.json
+```
 
-`doctor-core` reports whether `/opt/homebrew/bin/ffmpeg` and `ffprobe` are
-executable. The adapter uses a fixed filter graph and bounded resolution/fps;
-it refuses overwrite and reports a verification error when ffprobe does not
-show an alpha-capable `yuva*` pixel format. This is a real gap, not a reason to
-label opaque output as alpha.
+The ID must be `com.marcboyer.FCPCommandConsole`. The installer refuses a
+different existing bundle ID, stages/signs/verifies first, and retains a
+recoverable exact-owned backup on replacement.
 
-## Runtime boundary
+## Media admission fails
 
-No troubleshooting step launches or patches Final Cut Pro, opens a library,
-uses UI automation, touches SafeSight, installs DepthFlow, uploads media, or
-reads secrets. Those capabilities require a separate approved lane and Stage 4
-go/no-go evidence.
+The app accepts only canonical absolute, readable regular local movie/still
+files. Choose the real file, not a directory, FIFO/device, alias/symlink, Final
+Cut application/library path, or undecodable placeholder. A stale-hash failure
+means source bytes changed after admission: re-admit the source and re-plan; do
+not bypass hash checking. A newer admission or Cancel intentionally makes an
+older worker result stale.
+
+## Local package fails
+
+`operation target already exists` is intentional non-overwrite behavior; create
+a new plan/operation rather than deleting existing evidence. Staging is unique
+and cleaned on failure. A stale/nonregular source, slot-plan mismatch, symlinked
+or broad root, and Final Cut/library root all fail closed. Re-admit/re-plan with
+the exact current sources and use an owned local output root.
+
+## FCPXML button is disabled
+
+This is expected. CapabilityGate is the authority. Local-media selections never
+prove Final Cut timeline/spine/adjacency evidence; all FCPXML preview/export
+actions stay blocked. For nonlocal future evidence, a partial semantic profile
+also remains blocked unless it contains the exact contracts for that effect.
+Never enable UI state by duplicating or bypassing gate logic.
+
+## Reduced v2 manual probe fails
+
+The v1 predecessor crashed during `asset-clip` import (incident
+`42DFFCF1-9E45-41DA-992F-ADB212422B07`). Use the immutable v2 package exactly
+once per investigation. Stop on crash, import error, missing transition/media,
+or export normalization difference; record the evidence and do not mutate/retry
+the package. If Final Cut version/build differs from 12.3/450152, treat all
+existing manual evidence as potentially invalid until re-established.

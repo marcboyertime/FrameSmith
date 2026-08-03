@@ -1,14 +1,19 @@
-# Next Codex prompt
+# Next implementation prompt
 
-Begin with Sol Advisor preflight: read the project policy, inspect the current
-worktree and evidence ledger, and obtain a fresh read-only Sol review before any
-change. Preserve the four-effect Phase 1 boundary and all fail-closed policies.
+Start by reading `docs/HANDOFF.md`, `STATUS.md`, current Git state, and the
+current test evidence. Work on `standalone-app`; do not revive stale copied-app
+or private-runtime assumptions.
 
-The next bounded research/implementation lane should define editable native
-representations for melt, portal, masks, segmentation, tracking, and reusable
-custom effects. Establish selection and revision evidence first; keep model or
-generated-media adapters typed and reversible. Do not claim a workflow live
-until a canonically verified disposable library, isolated copied-app
-preferences, pinned least-privilege patcher with entitlement/signature diff,
-main-thread atomic mutation, UUID transaction/undo, and Stage 4 go/no-go record
-exist. No responder/dialog/FCPXML fallback is permitted.
+Only after the Phase 1 manual Final Cut gate has produced evidence may Phase 2
+begin. Phase 2 priorities are reusable custom effects, melt, portal, masks,
+segmentation/tracking, and external editable compositions. For each candidate,
+define a canonical representation, explicit semantic contracts, local package
+provenance, and a new isolated manual evidence probe. Keep transform, opacity,
+color, overlay, tracking, and external-composition claims independently gated.
+
+Preserve the evidence boundary: stock Final Cut, source media, and production
+libraries remain untouched; no UI automation/AppleScript/Accessibility; no paid
+calls, media uploads, or remote pushes without explicit user authority. Use
+non-overwrite outputs, source hashes, current schema validation, and fail-closed
+capability decisions. Do not call a package, DTD pass, or source preview a
+successful Final Cut workflow.

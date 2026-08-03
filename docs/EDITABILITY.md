@@ -1,15 +1,30 @@
 # Editability contract
 
-The core distinguishes an editable native representation from generated media:
+Schema 2.0 uses these canonical representation classes:
 
-| Effect | Representation | Phase 1 evidence |
+| Representation | Meaning in a plan | Verified Final Cut editability? |
 | --- | --- | --- |
-| `native.targeted_rotate_zoom` | native | bounded duration/scale/rotation/easing and project-space anchor equation are tested; FCP installation is unproven |
-| `transition.natural_dissolve` | native | selection/boundary/handle validator is tested; FCP installation is unproven |
-| `look.old_television` | generated-overlay | FFmpeg ProRes 4444 alpha metadata and SHA-256 are verified locally |
-| `motion.living_still` | hybrid | optional DepthFlow status plus explicit native fallback; no model, upload, or runtime integration |
+| `fcpxml_native` | Intended native FCPXML-oriented representation | No |
+| `layered_media` | Intended editable composition of source/layers | No |
+| `motion_template` | Intended Motion-template representation | No |
+| `external_editable_composition` | Intended external editable composition | No |
+| `baked_render` | Intended baked-output representation | No |
 
-An `EditableProperty` list is part of every plan. It describes what a future
-native operation would expose; it is not evidence that the installed FCP build
-accepted a mutation. Generated assets remain content-addressed and replaceable,
-never silently baked into source media.
+Current registry mapping is targeted rotate/zoom, natural dissolve, and Living
+Still → `fcpxml_native`; Old Television → `layered_media`. These labels express
+typed planning intent, not an assertion that Final Cut accepted a semantic,
+imported it, preserved an editable control, or exported it correctly.
+
+Legacy values (`fcp_native`, `generated_asset_plus_fcp_native`, and
+`external_render_required`) are not current representations. Schema 1.0 is
+quarantined with optional suggested migration only; it must be replanned as
+schema 2.0 before local preview or packaging.
+
+Editability needs evidence per semantic contract. A future successful bare
+dissolve import/export may establish asset admission and bare dissolve only. It
+does not establish transform keyframes, opacity keyframes, native color
+adjustment, connected overlay layers, reusable template behavior, or any
+workflow-wide editability claim.
+
+The standalone app's source preview and inert package are not editability
+evidence. FCPXML export remains disabled through CapabilityGate.
