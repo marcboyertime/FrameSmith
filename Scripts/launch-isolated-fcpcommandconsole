@@ -17,6 +17,13 @@ runtime_policy="$runtime_framework/Versions/A/Resources/FCPCCOnboardingQueryComp
 entitlement_verifier="$repo_dir/plugin/build/fcpcc-entitlement-verify"
 runtime_root="/Users/marcboyer/Movies/FCPCommandConsole"
 allowed_library="$runtime_root/FCPCommandConsole Test.fcpbundle"
+fixtures_root="$runtime_root/fixtures"
+fixture_a="$fixtures_root/clip-a.mov"
+fixture_b="$fixtures_root/clip-b.mov"
+fixture_living_still="$fixtures_root/living-still.png"
+fixture_a_sha256="cd44c0c9565c8231ec421541f4a4877f340eae7db5129fb46ffa14f0bf871444"
+fixture_b_sha256="a38a03bf0ababfedc56c6086479c34649a8fea8b2435b04c4901f3987c66f67c"
+fixture_living_still_sha256="170df5348f53221de630c7d7b385e6189f53a27baa2f2246ec7df4f379ed2567"
 isolated_home="$runtime_root/isolated-final-cut-home"
 normal_container_preferences="/Users/marcboyer/Library/Containers/com.apple.FinalCut/Data/Library/Preferences/com.apple.FinalCut.plist"
 normal_user_preferences="/Users/marcboyer/Library/Preferences/com.apple.FinalCut.plist"
@@ -32,7 +39,7 @@ fail() {
 }
 
 usage() {
-    print -u2 -r -- "usage: launch-isolated-fcpcommandconsole --preflight-only|--launch|--launch-bootstrap-disposable-library"
+    print -u2 -r -- "usage: launch-isolated-fcpcommandconsole --preflight-only|--launch|--launch-bootstrap-disposable-library|--launch-bootstrap-disposable-project"
     exit 64
 }
 
@@ -48,6 +55,26 @@ require_exact_regular_file() {
     [[ -f "$path" && ! -L "$path" ]] || fail "$label is missing, non-regular, or symlink: $path"
     canonical="$(/bin/realpath "$path")" || fail "$label cannot be canonicalized: $path"
     [[ "$canonical" == "$path" ]] || fail "$label is noncanonical or traverses a symlink: $path"
+}
+
+verify_disposable_project_bootstrap_fixtures() {
+    require_exact_directory "$fixtures_root" "disposable project fixtures root"
+    require_exact_regular_file "$fixture_a" "disposable project fixture clip-a"
+    require_exact_regular_file "$fixture_b" "disposable project fixture clip-b"
+    require_exact_regular_file "$fixture_living_still" "disposable project fixture living-still"
+    [[ "$(/usr/bin/shasum -a 256 "$fixture_a" | /usr/bin/awk '{print $1}')" == "$fixture_a_sha256" ]] || fail "disposable project fixture clip-a SHA-256 is not reviewed"
+    [[ "$(/usr/bin/shasum -a 256 "$fixture_b" | /usr/bin/awk '{print $1}')" == "$fixture_b_sha256" ]] || fail "disposable project fixture clip-b SHA-256 is not reviewed"
+    [[ "$(/usr/bin/shasum -a 256 "$fixture_living_still" | /usr/bin/awk '{print $1}')" == "$fixture_living_still_sha256" ]] || fail "disposable project fixture living-still SHA-256 is not reviewed"
+}
+
+verify_disposable_project_bootstrap_policy() {
+    [[ "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:ExecutionEnabled')" == "true" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:RuntimeDiscoveryAllowed')" == "false" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:MethodContractsPinnedIn')" == "FCPCommandConsoleRuntime.m:FCPCCDisposableProjectBootstrapContracts" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:EnvironmentVariable')" == "FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:EnvironmentValue')" == "1" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:CanonicalLibraryPath')" == "$allowed_library" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:FixturesRootPath')" == "$fixtures_root" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:ProjectName')" == "FCPCommandConsole Test" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:LifecycleNotification')" == "NSApplicationDidFinishLaunchingNotification" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:MainQueueBoundedStateMachine')" == "true" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:MaximumObservationTurns')" == "24" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:RequiredPrecreateState')" == "one_enrolled_library_one_default_event_zero_owned_clips_zero_projects_zero_deep_loaded_sequences" ]] || fail "embedded disposable-project bootstrap admission policy is not reviewed"
+    [[ "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:ProjectCreationClass')" == "FFProjectDocument" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:ProjectCreationSelector')" == "actionNewProject:name:sequence:actionName:error:" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:DeepLoadedSequenceClass')" == "FFLibrary" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:DeepLoadedSequenceSelector')" == "_deepLoadedSequences" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:EditorLoadClass')" == "PEEditorContainerModule" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:EditorLoadSelector')" == "loadEditorForSequence:" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:ImportClass')" == "FFMediaEventProject" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:NewClipSelector')" == "newClipFromURL:manageFileType:" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:AddOwnedClipSelector')" == "addOwnedClipsObject:" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:PasteboardClass')" == "FFPasteboard" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:PasteboardInitSelector')" == "initWithName:" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:PasteboardWriteSelector')" == "writeRangesOfMedia:options:" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:RangeFactoryClass')" == "FigTimeRangeAndObject" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:RangeFactorySelector')" == "rangeAndObjectWithRange:andObject:" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:EditActionClass')" == "FFEditAction" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:EditActionSelector')" == "editActionOfKind:backTimed:trackType:" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:EditActionKind')" == "2" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:BackTimed')" == "false" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:TrackType')" == "all" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:TimelineClass')" == "FFAnchoredTimelineModule" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:TimelinePerformEditSelector')" == "performEditAction:fromPasteboardWithName:fromAnimation:" ]] || fail "embedded disposable-project bootstrap direct model route is not reviewed"
+    [[ "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:ExpectedProCoreRelativeExecutablePath')" == "Contents/Frameworks/ProCore.framework/Versions/A/ProCore" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:ExpectedProCoreSHA256')" == "567ef84ab789b5bbd44f7e4b5dfbb9640d397adf62ee3c2aeeb6a14330d62d17" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:ExpectedProCoreArm64UUID')" == "D55AA47E-F2E7-33A7-AFB5-C3F1475D1515" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:ExpectedProCoreX86_64UUID')" == "D189280F-E77A-31DF-9BDF-1479B7EE4766" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:NoAutoRetry')" == "true" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:PostMutationFailureStatus')" == "partial_unverified" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:RollbackClaim')" == "not_attempted_no_rollback_claimed" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:NoFixedFrameRatePrecondition')" == "true" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:RecordActualProjectFormat')" == "true" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:RequiredPostappendVerification')" == "exact_fixture_order_exact_adjacency_exact_imported_media_identifiers" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:ProvenanceDirectory')" == "$runtime_root/provenance" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:ProvenanceSchemaVersion')" == "1" ]] || fail "embedded disposable-project bootstrap recovery or evidence policy is not reviewed"
+    [[ "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:FixturePaths:0')" == "$fixture_a" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:FixturePaths:1')" == "$fixture_b" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:FixturePaths:2')" == "$fixture_living_still" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:FixtureSHA256:0')" == "$fixture_a_sha256" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:FixtureSHA256:1')" == "$fixture_b_sha256" && "$(plist_value "$runtime_policy" 'DisposableProjectBootstrap:FixtureSHA256:2')" == "$fixture_living_still_sha256" ]] || fail "embedded disposable-project bootstrap fixtures are not reviewed"
+    if /usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:FixturePaths:3' "$runtime_policy" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:FixtureSHA256:3' "$runtime_policy" >/dev/null 2>&1; then
+        fail "embedded disposable-project bootstrap policy permits an unreviewed fixture"
+    fi
 }
 
 make_or_require_exact_directory() {
@@ -203,7 +230,7 @@ verify_copied_identity() {
     require_exact_regular_file "$runtime_binary" "embedded runtime binary"
     require_exact_regular_file "$runtime_policy" "embedded runtime policy"
     /usr/bin/plutil -lint "$runtime_policy" > "$output_dir/runtime-policy-lint.txt"
-    [[ "$(plist_value "$runtime_policy" SchemaVersion)" == "10" && "$(plist_value "$runtime_policy" ExpectedHostBundleIdentifier)" == "com.apple.FinalCut" && "$(plist_value "$runtime_policy" ExpectedCopiedHostBundlePath)" == "$copied_app" && "$(plist_value "$runtime_policy" ExpectedHostVersion)" == "$expected_version" && "$(plist_value "$runtime_policy" ExpectedHostBuild)" == "$expected_build" && "$(plist_value "$runtime_policy" ExpectedMASReceiptRelativePath)" == "$receipt_relative_path" && "$(plist_value "$runtime_policy" ExpectedMASReceiptSHA256)" == "$expected_receipt_sha256" && "$(plist_value "$runtime_policy" ImmutableCompileTimeAllowlist)" == "true" && "$(plist_value "$runtime_policy" RuntimeDiscoveryAllowed)" == "false" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:0')" == "constructor_main_thread_immediate_attempt" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:1')" == "application_will_finish_launching_availability_retry" && "$(plist_value "$runtime_policy" MaximumMethodGuardAttempts)" == "2" ]] || fail "embedded runtime policy is not reviewed"
+    [[ "$(plist_value "$runtime_policy" SchemaVersion)" == "11" && "$(plist_value "$runtime_policy" ExpectedHostBundleIdentifier)" == "com.apple.FinalCut" && "$(plist_value "$runtime_policy" ExpectedCopiedHostBundlePath)" == "$copied_app" && "$(plist_value "$runtime_policy" ExpectedHostVersion)" == "$expected_version" && "$(plist_value "$runtime_policy" ExpectedHostBuild)" == "$expected_build" && "$(plist_value "$runtime_policy" ExpectedMASReceiptRelativePath)" == "$receipt_relative_path" && "$(plist_value "$runtime_policy" ExpectedMASReceiptSHA256)" == "$expected_receipt_sha256" && "$(plist_value "$runtime_policy" ImmutableCompileTimeAllowlist)" == "true" && "$(plist_value "$runtime_policy" RuntimeDiscoveryAllowed)" == "false" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:0')" == "constructor_main_thread_immediate_attempt" && "$(plist_value "$runtime_policy" 'CompatibilityInstallPhases:1')" == "application_will_finish_launching_availability_retry" && "$(plist_value "$runtime_policy" MaximumMethodGuardAttempts)" == "2" ]] || fail "embedded runtime policy is not reviewed"
     [[ "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:ExecutionEnabled')" == "false" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:RuntimeDiscoveryAllowed')" == "false" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:MethodContractsPinnedIn')" == "FCPCommandConsoleRuntime.m:FCPCCNativeTargetedRotateZoomStaticContracts" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:ExpectedFlexoSHA256')" == "704557a28dcd2668f9991fa6c4b601ecfe4e926161abdf3848bf235da73cb99e" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:CandidatePixelConvention')" == "product_normalized_top_left_to_centered_pixels_x_right_y_up" && "$(plist_value "$runtime_policy" 'NativeTargetedRotateZoomAdapter:SetterOptions')" == "0" ]] || fail "embedded native targeted rotate zoom gate is not reviewed"
     for required_live_proof in candidate_pixel_coordinate_convention full_transform_keyframe_enumeration_and_exact_removal project_owned_undo_scope_and_exact_last_assistant_undo three_property_readback_and_lossless_rollback; do
         /usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:RequiredLiveProofs' "$runtime_policy" | /usr/bin/grep -F -q "$required_live_proof" || fail "embedded native targeted rotate zoom gate omits $required_live_proof"
@@ -216,6 +243,7 @@ verify_copied_identity() {
     if /usr/libexec/PlistBuddy -c 'Print :DisposableLibraryBootstrap:PublicPresentationAPIs:2' "$runtime_policy" >/dev/null 2>&1; then
         fail "embedded disposable-library bootstrap policy permits an unreviewed presentation API"
     fi
+    verify_disposable_project_bootstrap_policy
     if /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhase' "$runtime_policy" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:2' "$runtime_policy" >/dev/null 2>&1; then
         fail "embedded runtime policy permits an unreviewed install phase"
     fi
@@ -273,7 +301,7 @@ run_profile_probes() {
     fi
 }
 
-if [[ "$#" -ne 1 || ( "$1" != "--preflight-only" && "$1" != "--launch" && "$1" != "--launch-bootstrap-disposable-library" ) ]]; then
+if [[ "$#" -ne 1 || ( "$1" != "--preflight-only" && "$1" != "--launch" && "$1" != "--launch-bootstrap-disposable-library" && "$1" != "--launch-bootstrap-disposable-project" ) ]]; then
     usage
 fi
 mode="$1"
@@ -288,6 +316,11 @@ require_exact_directory "$preflight_dir" "preflight provenance directory"
 require_not_running "$preflight_dir/no-fcp-before.txt"
 capture_normal_preferences "$preflight_dir/normal-preferences-before"
 verify_copied_identity "$preflight_dir"
+if [[ "$mode" == "--launch-bootstrap-disposable-project" ]]; then
+    require_exact_directory "$allowed_library" "enrolled disposable project library"
+    verify_disposable_project_bootstrap_fixtures
+    print -r -- "bootstrap_disposable_project_fixtures=reviewed_exact_hashes"
+fi
 run_profile_probes "$preflight_dir"
 capture_normal_preferences "$preflight_dir/normal-preferences-after"
 compare_normal_preferences "$preflight_dir/normal-preferences-before" "$preflight_dir/normal-preferences-after"
@@ -307,8 +340,14 @@ bootstrap_environment=()
 if [[ "$mode" == "--launch-bootstrap-disposable-library" ]]; then
     bootstrap_environment=(FCPCC_BOOTSTRAP_DISPOSABLE_LIBRARY=1)
     print -r -- "bootstrap_disposable_library=reviewed_one_shot_requested"
+    print -r -- "bootstrap_disposable_project=not_requested"
+elif [[ "$mode" == "--launch-bootstrap-disposable-project" ]]; then
+    bootstrap_environment=(FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT=1)
+    print -r -- "bootstrap_disposable_library=not_requested"
+    print -r -- "bootstrap_disposable_project=reviewed_one_shot_requested"
 else
     print -r -- "bootstrap_disposable_library=not_requested"
+    print -r -- "bootstrap_disposable_project=not_requested"
 fi
 /usr/bin/env -i \
     PATH=/usr/bin:/bin:/usr/sbin:/sbin \

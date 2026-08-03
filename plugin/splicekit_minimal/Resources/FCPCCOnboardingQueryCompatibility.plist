@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>10</integer>
+    <integer>11</integer>
     <key>ExpectedHostBundleIdentifier</key>
     <string>com.apple.FinalCut</string>
     <key>ExpectedCopiedHostBundlePath</key>
@@ -147,6 +147,111 @@
         <key>ProvenanceSchemaVersion</key>
         <integer>1</integer>
     </dict>
+    <key>DisposableProjectBootstrap</key>
+    <dict>
+        <key>ExecutionEnabled</key>
+        <true/>
+        <key>RuntimeDiscoveryAllowed</key>
+        <false/>
+        <key>MethodContractsPinnedIn</key>
+        <string>FCPCommandConsoleRuntime.m:FCPCCDisposableProjectBootstrapContracts</string>
+        <key>EnvironmentVariable</key>
+        <string>FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT</string>
+        <key>EnvironmentValue</key>
+        <string>1</string>
+        <key>CanonicalLibraryPath</key>
+        <string>/Users/marcboyer/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle</string>
+        <key>FixturesRootPath</key>
+        <string>/Users/marcboyer/Movies/FCPCommandConsole/fixtures</string>
+        <key>FixturePaths</key>
+        <array>
+            <string>/Users/marcboyer/Movies/FCPCommandConsole/fixtures/clip-a.mov</string>
+            <string>/Users/marcboyer/Movies/FCPCommandConsole/fixtures/clip-b.mov</string>
+            <string>/Users/marcboyer/Movies/FCPCommandConsole/fixtures/living-still.png</string>
+        </array>
+        <key>FixtureSHA256</key>
+        <array>
+            <string>cd44c0c9565c8231ec421541f4a4877f340eae7db5129fb46ffa14f0bf871444</string>
+            <string>a38a03bf0ababfedc56c6086479c34649a8fea8b2435b04c4901f3987c66f67c</string>
+            <string>170df5348f53221de630c7d7b385e6189f53a27baa2f2246ec7df4f379ed2567</string>
+        </array>
+        <key>ProjectName</key>
+        <string>FCPCommandConsole Test</string>
+        <key>LifecycleNotification</key>
+        <string>NSApplicationDidFinishLaunchingNotification</string>
+        <key>MainQueueBoundedStateMachine</key>
+        <true/>
+        <key>MaximumObservationTurns</key>
+        <integer>24</integer>
+        <key>RequiredPrecreateState</key>
+        <string>one_enrolled_library_one_default_event_zero_owned_clips_zero_projects_zero_deep_loaded_sequences</string>
+        <key>ProjectCreationClass</key>
+        <string>FFProjectDocument</string>
+        <key>ProjectCreationSelector</key>
+        <string>actionNewProject:name:sequence:actionName:error:</string>
+        <key>DeepLoadedSequenceClass</key>
+        <string>FFLibrary</string>
+        <key>DeepLoadedSequenceSelector</key>
+        <string>_deepLoadedSequences</string>
+        <key>EditorLoadClass</key>
+        <string>PEEditorContainerModule</string>
+        <key>EditorLoadSelector</key>
+        <string>loadEditorForSequence:</string>
+        <key>ImportClass</key>
+        <string>FFMediaEventProject</string>
+        <key>NewClipSelector</key>
+        <string>newClipFromURL:manageFileType:</string>
+        <key>AddOwnedClipSelector</key>
+        <string>addOwnedClipsObject:</string>
+        <key>PasteboardClass</key>
+        <string>FFPasteboard</string>
+        <key>PasteboardInitSelector</key>
+        <string>initWithName:</string>
+        <key>PasteboardWriteSelector</key>
+        <string>writeRangesOfMedia:options:</string>
+        <key>RangeFactoryClass</key>
+        <string>FigTimeRangeAndObject</string>
+        <key>RangeFactorySelector</key>
+        <string>rangeAndObjectWithRange:andObject:</string>
+        <key>EditActionClass</key>
+        <string>FFEditAction</string>
+        <key>EditActionSelector</key>
+        <string>editActionOfKind:backTimed:trackType:</string>
+        <key>EditActionKind</key>
+        <integer>2</integer>
+        <key>BackTimed</key>
+        <false/>
+        <key>TrackType</key>
+        <string>all</string>
+        <key>TimelineClass</key>
+        <string>FFAnchoredTimelineModule</string>
+        <key>TimelinePerformEditSelector</key>
+        <string>performEditAction:fromPasteboardWithName:fromAnimation:</string>
+        <key>ExpectedProCoreRelativeExecutablePath</key>
+        <string>Contents/Frameworks/ProCore.framework/Versions/A/ProCore</string>
+        <key>ExpectedProCoreSHA256</key>
+        <string>567ef84ab789b5bbd44f7e4b5dfbb9640d397adf62ee3c2aeeb6a14330d62d17</string>
+        <key>ExpectedProCoreArm64UUID</key>
+        <string>D55AA47E-F2E7-33A7-AFB5-C3F1475D1515</string>
+        <key>ExpectedProCoreX86_64UUID</key>
+        <string>D189280F-E77A-31DF-9BDF-1479B7EE4766</string>
+        <key>NoAutoRetry</key>
+        <true/>
+        <key>PostMutationFailureStatus</key>
+        <string>partial_unverified</string>
+        <key>RollbackClaim</key>
+        <string>not_attempted_no_rollback_claimed</string>
+        <key>NoFixedFrameRatePrecondition</key>
+        <true/>
+        <key>RecordActualProjectFormat</key>
+        <true/>
+        <key>RequiredPostappendVerification</key>
+        <string>exact_fixture_order_exact_adjacency_exact_imported_media_identifiers</string>
+        <key>ProvenanceDirectory</key>
+        <string>/Users/marcboyer/Movies/FCPCommandConsole/provenance</string>
+        <key>ProvenanceSchemaVersion</key>
+        <integer>1</integer>
+    </dict>
     <key>ApprovedMethodReplacements</key>
     <array>
         <dict>
@@ -191,6 +296,6 @@
     <key>SourceSnapshotCommit</key>
     <string>f4f6618121309a69b66272b441f34cf8ad57f306</string>
     <key>SourceAttribution</key>
-    <string>Exact Final Cut Pro 12.3 static inspection. The stock pre-injection executable SHA-256 is patcher provenance because the copied host receives one reviewed load command and a new signature. The runtime independently requires the exact copied bundle path, receipt-compatible bundle identifier, unchanged MAS receipt path and SHA-256, version, build, active-slice UUID, and nested ProOnboardingFlowModelOne framework path, SHA-256, active-slice UUID, Objective-C type, and original setter IMP before forwarding that setter with one main-queue asynchronous nil-metadata provider. The only additional replacement is the CCFirstLaunchHelper instance method at arm64 offset 0x924e8 and x86_64 offset 0xc74c0; static inspection pins its PEAppController send at arm64 0x3b648 and x86_64 0x4f1ad, the independent continuation, and the completion-only listener routes at arm64 0x3c32c and x86_64 0x503c8. Its replacement returns without accessing the completion block. The reviewed nested-block encoding is v24@0:8@?&lt;v@?@&quot;NSError&quot;&gt;16. On this supported Objective-C runtime, method_getNumberOfArguments parses that extended encoding as twelve rather than the receiver, selector, and block slots, so the Cloud guard omits an argument-count condition while retaining exact full-encoding, void-return, copied-image, UUID, and architecture-specific original-IMP checks. Schema 10 additionally admits one launcher-flagged disposable-library bootstrap only after NSApplicationDidFinishLaunchingNotification. It pins FFLibraryDocument initWithURL:createDefaultEvent:error: to the exact Flexo image, SHA-256, slice UUID, ABI, and arm64/x86_64 offsets; requires the one canonical absent target, no symlink path components, zero active libraries before creation, public NSDocument registration/presentation, exactly one postcreate active library, and canonical path/device/inode/persistent UID provenance. It never overwrites, removes, retries, opens another library path, imports media, or creates a project fixture.</string>
+    <string>Exact Final Cut Pro 12.3 static inspection. The copied host remains constrained by its exact bundle path, receipt-compatible identifier and receipt SHA-256, version/build, active-slice UUIDs, and the pinned ProOnboardingFlowModelOne identity and method contracts. Schema 10 admitted the launcher-flagged disposable-library bootstrap, which creates only the absent canonical library through the pinned Flexo ABI and never overwrites or removes a library. Schema 11 separately admits one launcher-flagged disposable-project bootstrap after NSApplicationDidFinishLaunchingNotification. It requires exactly the enrolled disposable library and its one default event, zero owned clips/projects/deep-loaded sequences, three fixed regular non-symlink fixture files with pinned SHA-256 hashes, and pinned Flexo and ProCore image identities plus all project, import, pasteboard, edit-action, and timeline contracts. It uses FFProjectDocument actionNewProject:name:sequence:actionName:error:, resolves the exact new sequence through FFLibrary _deepLoadedSequences and the exact editor load, imports only those fixtures with FFMediaEventProject, and appends them only through the fixed FFPasteboard, FigTimeRangeAndObject, FFEditAction kind 2/all, and FFAnchoredTimelineModule path. It observes and records the actual project format without a fixed frame-rate precondition, verifies exact primary-storyline order, adjacency, and imported media identifiers after every append, performs no automatic mutation retry, and records any post-mutation uncertainty as partial_unverified with no rollback claim.</string>
 </dict>
 </plist>

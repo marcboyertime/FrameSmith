@@ -38,7 +38,7 @@ require_fragment() {
 for required_launcher_fragment in \
     'copied_app="/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app"' \
     'copied_executable="$copied_app/Contents/MacOS/Final Cut Pro"' \
-    '--preflight-only|--launch|--launch-bootstrap-disposable-library' \
+    '--preflight-only|--launch|--launch-bootstrap-disposable-library|--launch-bootstrap-disposable-project' \
     'require_not_running' \
     'interpret_process_probe_status' \
     'pgrep_status=0' \
@@ -49,7 +49,7 @@ for required_launcher_fragment in \
     'verify_reviewed_copied_cdhash' \
     'CandidateCDHashFull' \
     'create_five_entitlements' \
-    'SchemaVersion)" == "10"' \
+    'SchemaVersion)" == "11"' \
     "CompatibilityInstallPhases:0')\" == \"constructor_main_thread_immediate_attempt" \
     "CompatibilityInstallPhases:1')\" == \"application_will_finish_launching_availability_retry" \
     'MaximumMethodGuardAttempts)" == "2"' \
@@ -68,9 +68,22 @@ for required_launcher_fragment in \
     'verify_exact_copied_entitlements' \
     '/usr/bin/jq -e' \
     'FCPCC_BOOTSTRAP_DISPOSABLE_LIBRARY=1' \
+    'FCPCC_BOOTSTRAP_DISPOSABLE_PROJECT=1' \
     'bootstrap_environment=()' \
     'bootstrap_disposable_library=reviewed_one_shot_requested' \
+    'bootstrap_disposable_project=reviewed_one_shot_requested' \
     'DisposableLibraryBootstrap:CanonicalTargetPath' \
+    'DisposableProjectBootstrap:ProjectCreationSelector' \
+    'actionNewProject:name:sequence:actionName:error:' \
+    'PEEditorContainerModule' \
+    'FCPCCDisposableProjectBootstrapContracts' \
+    'verify_disposable_project_bootstrap_fixtures' \
+    'fixture_a_sha256=' \
+    'fixture_b_sha256=' \
+    'fixture_living_still_sha256=' \
+    'partial_unverified' \
+    'not_attempted_no_rollback_claimed' \
+    'NoFixedFrameRatePrecondition' \
     'NSApplicationDidFinishLaunchingNotification' \
     '@36@0:8@16B24^@28' \
     '@36@0:8@16c24^@28' \

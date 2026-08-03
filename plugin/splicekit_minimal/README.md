@@ -19,6 +19,23 @@ requires its exact path/device/inode/persistent-UID provenance, and records one
 exclusive-create JSON result. It never removes, overwrites, retries, discovers
 another library, invokes FCPXML, or automates the UI; a failed or partial create
 is retained as evidence.
+
+Schema 11 adds a distinct, one-shot disposable-project spike through
+`--launch-bootstrap-disposable-project`, never through generic UI or browser
+automation. It first requires the already enrolled library, one default event,
+zero owned clips/projects/deep-loaded sequences, and the three exact regular
+non-symlink fixtures with pinned SHA-256 hashes. The runtime creates the fixed
+project through `FFProjectDocument`, resolves its exact sequence via
+`FFLibrary _deepLoadedSequences`, loads that sequence through the pinned editor
+contract, imports only the three fixed files through `FFMediaEventProject`, and
+appends each clipped range through `FFPasteboard`, `FigTimeRangeAndObject`,
+`FFEditAction` kind 2/`all`, and `FFAnchoredTimelineModule`. Its main-queue
+state machine permits at most 24 observation turns and never retries a mutation.
+It records the observed project resolution and frame duration rather than
+requiring a frame rate. After every append it requires an ordered primary
+storyline with the exact source identifiers and adjacent ranges. Any uncertainty
+after a mutation is retained as `partial_unverified` provenance; no rollback is
+attempted or claimed.
 Workflow 1 has one typed native adapter for `native.targeted_rotate_zoom`.
 Its fixed Final Cut 12.3 contract records only the inspected selection
 reacquisition, represented-tool/video-effect-stack/xform path, transform
@@ -108,7 +125,8 @@ pre-injection executable SHA-256 remains a patcher provenance check because
 the copied executable must gain one reviewed load command and a new signature.
 The runtime never writes Final Cut preferences. No production library may be
 open; the existing exactly-one disposable library manifest gate remains
-fail-closed and all mutations remain disabled.
+fail-closed. Other mutation adapters remain disabled; the only separately armed
+write is the Schema 11 disposable-project spike described above.
 
 The fixed CloudContent names and contracts were manually transcribed from the
 locked `reference/elliotttate/SpliceKit` snapshot at

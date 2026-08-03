@@ -2,6 +2,13 @@
 #import <math.h>
 #import "FCPCommandConsoleRuntime.h"
 
+#if defined(FCPCC_RUNTIME_TESTING)
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestPrimaryStorylineCountIsExact(
+    NSUInteger observedCount,
+    NSUInteger expectedCount,
+    NSUInteger importedCount);
+#endif
+
 static int require(BOOL condition, NSString *message) {
     if (!condition) {
         fprintf(stderr, "MutationStubTests: %s\n", message.UTF8String);
@@ -34,6 +41,15 @@ int main(void) {
         if (require(FCPCCDisposableLibraryBootstrapTestActiveLibraryCountAllowsCreation(0)
                     && !FCPCCDisposableLibraryBootstrapTestActiveLibraryCountAllowsCreation(1),
                     @"disposable-library bootstrap active-library-count gate was not zero-only")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableProjectBootstrapTestPrimaryStorylineCountIsExact(1, 1, 3)
+                    && FCPCCDisposableProjectBootstrapTestPrimaryStorylineCountIsExact(2, 2, 3)
+                    && FCPCCDisposableProjectBootstrapTestPrimaryStorylineCountIsExact(3, 3, 3)
+                    && !FCPCCDisposableProjectBootstrapTestPrimaryStorylineCountIsExact(1, 2, 3)
+                    && !FCPCCDisposableProjectBootstrapTestPrimaryStorylineCountIsExact(3, 4, 3)
+                    && !FCPCCDisposableProjectBootstrapTestPrimaryStorylineCountIsExact(0, 0, 3),
+                    @"disposable-project bootstrap per-append primary-storyline count gate was not exact")) {
             return 1;
         }
         NSString *bootstrapUnitRoot = [@"/Users/Shared"
