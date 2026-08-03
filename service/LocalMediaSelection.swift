@@ -70,6 +70,7 @@ public struct LocalMediaSelection: Codable, Equatable, Sendable {
             tokenID: "local-media-\(ContentHasher.sha256(Data(revisionMaterial.utf8)).prefix(24))",
             selectionType: type,
             timelineID: timelineID,
+            origin: .localMedia,
             clipIDs: media.map(\.itemID),
             sourceIdentities: media.map(\.sourceIdentity),
             revision: revision,

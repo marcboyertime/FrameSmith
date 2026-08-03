@@ -33,21 +33,14 @@ final class CapabilityGateTests: XCTestCase {
         }
         XCTAssertNoThrow(try gate.require(plan, capability: .localOnlyPreview))
         XCTAssertThrowsError(try gate.require(plan, capability: .fcpxmlExport)) { error in
-            XCTAssertEqual(
-                error as? CapabilityGateError,
-                .missingManualFCPXMLSemanticsEvidence(
-                    capability: .fcpxmlExport,
-                    effectID: .targetedRotateZoom,
-                    missing: [.assetAdmission, .transformKeyframes]
-                )
-            )
+            XCTAssertEqual(error as? CapabilityGateError, .missingVerifiedFinalCutSelectionEvidence(.fcpxmlExport))
         }
     }
 
     func testDissolveOnlyEvidenceDoesNotUnlockOtherWorkflows() throws {
         let gate = CapabilityGate(manualSemanticsEvidence: .init(admittedContracts: [.assetAdmission, .bareDissolveTransition]))
         for capability in [FCPCommandConsoleCapability.fcpxmlPreview, .fcpxmlExport] {
-            XCTAssertTrue(gate.decision(for: try plan(for: .naturalDissolve), capability: capability).allowed, capability.rawValue)
+            XCTAssertFalse(gate.decision(for: try plan(for: .naturalDissolve), capability: capability).allowed, capability.rawValue)
             XCTAssertFalse(gate.decision(for: try plan(for: .targetedRotateZoom), capability: capability).allowed, capability.rawValue)
             XCTAssertFalse(gate.decision(for: try plan(for: .livingStill), capability: capability).allowed, capability.rawValue)
             XCTAssertFalse(gate.decision(for: try plan(for: .oldTelevision), capability: capability).allowed, capability.rawValue)
@@ -56,9 +49,10 @@ final class CapabilityGateTests: XCTestCase {
 
     func testInsufficientPartialEvidenceFailsClosedForItsEffect() throws {
         let gate = CapabilityGate(manualSemanticsEvidence: .init(admittedContracts: [.assetAdmission]))
-        let plan = try plan(for: .targetedRotateZoom)
+        let plan = try verifiedFinalCutPlan()
+        let evidence = try XCTUnwrap(VerifiedFinalCutSelectionEvidence(verifiedToken: plan.selectionToken))
         XCTAssertFalse(gate.decision(for: plan, capability: .fcpxmlPreview).allowed)
-        XCTAssertThrowsError(try gate.require(plan, capability: .fcpxmlPreview)) { error in
+        XCTAssertThrowsError(try gate.require(plan, capability: .fcpxmlPreview, selectionEvidence: evidence)) { error in
             XCTAssertEqual(
                 error as? CapabilityGateError,
                 .missingManualFCPXMLSemanticsEvidence(
@@ -68,6 +62,42 @@ final class CapabilityGateTests: XCTestCase {
                 )
             )
         }
+    }
+
+    func testOnlyExactVerifiedFinalCutEvidenceAndSemanticProfileUnlocksEffect() throws {
+        let plan = try verifiedFinalCutPlan()
+        let evidence = try XCTUnwrap(VerifiedFinalCutSelectionEvidence(verifiedToken: plan.selectionToken))
+        let gate = CapabilityGate(manualSemanticsEvidence: .init(admittedContracts: [.assetAdmission, .transformKeyframes]))
+
+        XCTAssertTrue(gate.decision(for: plan, capability: .fcpxmlPreview, selectionEvidence: evidence).allowed)
+        XCTAssertNoThrow(try gate.require(plan, capability: .fcpxmlExport, selectionEvidence: evidence))
+        XCTAssertFalse(gate.decision(for: plan, capability: .fcpxmlPreview).allowed)
+
+        var originChanged = plan
+        originChanged.selectionToken.origin = .unverifiedExternal
+        var timelineChanged = plan
+        timelineChanged.selectionToken.timelineID = "forged-timeline"
+        var clipChanged = plan
+        clipChanged.selectionToken.clipIDs = ["forged-clip"]
+        var revisionChanged = plan
+        revisionChanged.selectionToken.revision = "forged-revision"
+        var sourceChanged = plan
+        sourceChanged.selectionToken.sourceIdentities[0].sha256 = String(repeating: "b", count: 64)
+
+        for changed in [originChanged, timelineChanged, clipChanged, revisionChanged, sourceChanged] {
+            XCTAssertFalse(gate.decision(for: changed, capability: .fcpxmlPreview, selectionEvidence: evidence).allowed)
+            XCTAssertThrowsError(try gate.require(changed, capability: .fcpxmlExport, selectionEvidence: evidence))
+        }
+    }
+
+    func testMissingSerializedOriginDecodesAsUnverifiedButCurrentEncodingIncludesIt() throws {
+        let token = try currentPlan().selectionToken
+        let encoded = try JSONEncoder().encode(token)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(object["origin"] as? String, SelectionOrigin.unverifiedExternal.rawValue)
+        object.removeValue(forKey: "origin")
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+        XCTAssertEqual(try JSONDecoder().decode(SelectionToken.self, from: legacy).origin, .unverifiedExternal)
     }
 
     func testEachEffectHasExactRequiredSemanticContracts() {
@@ -140,6 +170,12 @@ final class CapabilityGateTests: XCTestCase {
     private func plan(for effectID: EffectID) throws -> EffectPlan {
         var plan = try currentPlan()
         plan.effectID = effectID
+        return plan
+    }
+
+    private func verifiedFinalCutPlan() throws -> EffectPlan {
+        var plan = try currentPlan()
+        plan.selectionToken.origin = .finalCutTimelineClaim
         return plan
     }
 }

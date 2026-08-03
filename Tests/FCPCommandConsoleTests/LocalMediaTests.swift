@@ -105,6 +105,7 @@ final class LocalMediaTests: XCTestCase {
         )
         XCTAssertEqual(result.plan.schemaVersion, "2.0")
         XCTAssertEqual(result.plan.selectionToken.timelineID, LocalMediaSelection.timelineID)
+        XCTAssertEqual(result.plan.selectionToken.origin, .localMedia)
         XCTAssertTrue(result.localPreviewDecision.allowed)
         XCTAssertFalse(result.fcpxmlExportDecision.allowed)
         XCTAssertEqual(result.fcpxmlExportDecision.reason, "Local media selection does not establish Final Cut selection or adjacency evidence")

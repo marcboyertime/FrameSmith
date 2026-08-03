@@ -182,6 +182,7 @@ public struct PlannerHelperSelection: Codable, Equatable, Sendable {
     public let tokenID: String
     public let selectionType: SelectionType
     public let timelineID: String
+    public let origin: SelectionOrigin
     public let clipIDs: [String]
     public let sourceIdentities: [PlannerHelperSourceIdentity]
     public let revision: String
@@ -209,6 +210,7 @@ public struct PlannerHelperSelection: Codable, Equatable, Sendable {
         tokenID = core.tokenID
         selectionType = core.selectionType
         timelineID = core.timelineID
+        origin = core.origin
         clipIDs = core.clipIDs
         sourceIdentities = core.sourceIdentities.map(PlannerHelperSourceIdentity.init(core:))
         revision = core.revision
@@ -237,6 +239,7 @@ public struct PlannerHelperSelection: Codable, Equatable, Sendable {
         tokenID: String,
         selectionType: SelectionType,
         timelineID: String,
+        origin: SelectionOrigin = .unverifiedExternal,
         clipIDs: [String],
         sourceIdentities: [PlannerHelperSourceIdentity],
         revision: String,
@@ -263,6 +266,7 @@ public struct PlannerHelperSelection: Codable, Equatable, Sendable {
         self.tokenID = tokenID
         self.selectionType = selectionType
         self.timelineID = timelineID
+        self.origin = origin
         self.clipIDs = clipIDs
         self.sourceIdentities = sourceIdentities
         self.revision = revision
@@ -292,6 +296,7 @@ public struct PlannerHelperSelection: Codable, Equatable, Sendable {
             tokenID: tokenID,
             selectionType: selectionType,
             timelineID: timelineID,
+            origin: origin,
             clipIDs: clipIDs,
             sourceIdentities: sourceIdentities.map(\.core),
             revision: revision,
@@ -321,6 +326,7 @@ public struct PlannerHelperSelection: Codable, Equatable, Sendable {
         case tokenID = "token_id"
         case selectionType = "selection_type"
         case timelineID = "timeline_id"
+        case origin
         case clipIDs = "clip_ids"
         case sourceIdentities = "source_identities"
         case revision
@@ -355,6 +361,7 @@ public struct PlannerHelperSelection: Codable, Equatable, Sendable {
         }
         selectionType = parsedSelectionType
         timelineID = try container.decode(String.self, forKey: .timelineID)
+        origin = try container.decodeIfPresent(SelectionOrigin.self, forKey: .origin) ?? .unverifiedExternal
         clipIDs = try container.decode([String].self, forKey: .clipIDs)
         sourceIdentities = try container.decode([PlannerHelperSourceIdentity].self, forKey: .sourceIdentities)
         revision = try container.decode(String.self, forKey: .revision)
@@ -632,7 +639,7 @@ public struct PlannerHelperResources {
         "registry/effects/motion.living_still.json": "a55f1190a30d62e924248296453300d877887383cbf0258071836c6043e9b954",
         "registry/effects/native.targeted_rotate_zoom.json": "1d2466047ff29ce9035e30a82d5edcd670d2535d62afa2d684fbc4795e9eaa73",
         "registry/effects/transition.natural_dissolve.json": "4ad74486a4d5186843e2fa6c054ab232caefc04f5555b6bc43781898727e8636",
-        "schemas/effect-plan.schema.json": "9def9990e3bedc13c23f52ad3bcf2a52c22e5262dbab08a6925e23749534b438"
+        "schemas/effect-plan.schema.json": "4387255973853dabba3d1ab62eb94bbb7e8e649a5516733ea3508a586520bf01"
     ]
 
     public init(rootURL: URL) throws {
@@ -770,7 +777,7 @@ public struct PlannerHelperEngine {
         guard let request = envelope["request"] as? [String: Any], let selection = envelope["selection"] as? [String: Any] else { return }
         try rejectUnknown(request, allowed: ["original_text"])
         try rejectUnknown(selection, allowed: [
-            "token_id", "selection_type", "timeline_id", "clip_ids", "source_identities", "revision",
+            "token_id", "selection_type", "timeline_id", "origin", "clip_ids", "source_identities", "revision",
             "start_frame", "end_frame", "source_duration_frames", "source_range_start_frame",
             "source_range_end_frame", "left_source_duration_frames", "right_source_duration_frames",
             "left_source_range_start_frame", "left_source_range_end_frame", "right_source_range_start_frame",

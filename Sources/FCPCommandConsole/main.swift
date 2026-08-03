@@ -145,6 +145,7 @@ struct FCPCommandConsoleCLI {
             tokenID: tokenID.uuidString,
             selectionType: isDissolve ? .twoAdjacentClips : .singleClip,
             timelineID: "bounded-cli-timeline",
+            origin: .unverifiedExternal,
             clipIDs: clips,
             sourceIdentities: identities,
             revision: revision,

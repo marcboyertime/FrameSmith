@@ -307,6 +307,10 @@ final class CoreTests: XCTestCase {
         var duplicate = try planner.plan(request: "cross dissolve", selection: selection(.twoAdjacentClips, clips: ["clip-a", "clip-b"]))
         duplicate.selectionToken.sourceIdentities[1] = duplicate.selectionToken.sourceIdentities[0]
         XCTAssertThrowsError(try PlanValidator(registry: registry).validate(duplicate))
+        var forgedLocalTimeline = plan
+        forgedLocalTimeline.selectionToken.timelineID = LocalMediaSelection.timelineID
+        forgedLocalTimeline.selectionToken.isSpine = false
+        XCTAssertThrowsError(try PlanValidator(registry: registry).validate(forgedLocalTimeline), "local preview semantics require the typed local_media origin")
     }
 
     func testPlanSchemaIncludesWireAndTypedIdentityContract() throws {
@@ -320,6 +324,9 @@ final class CoreTests: XCTestCase {
         let defs = schema["$defs"] as! [String: Any]
         let token = defs["selectionToken"] as! [String: Any]
         XCTAssertNotNil((token["properties"] as! [String: Any])["sourceIdentities"])
+        let origin = (token["properties"] as! [String: Any])["origin"] as? [String: Any]
+        XCTAssertEqual(origin?["enum"] as? [String], ["local_media", "unverified_external", "final_cut_timeline_claim"])
+        XCTAssertTrue((token["required"] as? [String] ?? []).contains("origin"))
         XCTAssertNotNil(defs["sourceIdentity"])
     }
 
@@ -567,5 +574,70 @@ final class CoreTests: XCTestCase {
         let verifyRecord = await verifyCoordinator.record(operationID: verifyPlan.operationID)
         XCTAssertEqual(verifyRecord?.state, .rollbackRequired)
         XCTAssertNil(verifyRecord?.verifiedEvidence)
+    }
+
+    func testJobCoordinatorRejectsInvalidPlansBeforePreviewApplyCancelAndPlanUndoAuthorization() async throws {
+        final class Counter: @unchecked Sendable { var value = 0 }
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fcpcc-invalid-job-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registry = try registry()
+        let valid = try DeterministicPlanner(registry: registry).plan(
+            request: "crop",
+            selection: selection(),
+            target: .confirmed(x: 0.5, y: 0.5)
+        )
+        var schemaOne = valid
+        schemaOne.schemaVersion = "1.0"
+        var invalidRepresentation = valid
+        invalidRepresentation.representation = .bakedRender
+        var invalidSelection = valid
+        invalidSelection.selectionToken.isSpine = false
+        let coordinator = try JobCoordinator(runtimeRoot: root, registry: registry)
+
+        for invalid in [schemaOne, invalidRepresentation, invalidSelection] {
+            do {
+                _ = try await coordinator.preview(plan: invalid)
+                XCTFail("invalid plan preview must not persist")
+            } catch {}
+            let record = await coordinator.record(operationID: invalid.operationID)
+            let history = await coordinator.history()
+            XCTAssertNil(record)
+            XCTAssertTrue(history.isEmpty)
+        }
+
+        let applyCounter = Counter()
+        do {
+            _ = try await coordinator.apply(plan: schemaOne, currentRevision: "r1") {
+                applyCounter.value += 1
+                return VerifiedMutationEvidence(evidenceID: "unexpected", afterSnapshotHash: "unexpected", verified: true)
+            }
+            XCTFail("schema 1.0 plan must not reach mutation")
+        } catch {}
+        XCTAssertEqual(applyCounter.value, 0)
+        let schemaOneRecord = await coordinator.record(operationID: schemaOne.operationID)
+        XCTAssertNil(schemaOneRecord)
+
+        do {
+            _ = try await coordinator.cancel(operationID: schemaOne.operationID)
+            XCTFail("cancel cannot authorize an unpersisted invalid plan")
+        } catch let error as JobCoordinatorError {
+            guard case .unknownOperation = error else { return XCTFail("unexpected cancel error: \(error)") }
+        }
+
+        _ = try await coordinator.apply(plan: valid, currentRevision: "r1", beforeSnapshotHash: "before") {
+            VerifiedMutationEvidence(evidenceID: "apply", afterSnapshotHash: "after", verified: true, postMutationRevision: "r2")
+        }
+        let undoCounter = Counter()
+        do {
+            _ = try await coordinator.undo(plan: invalidRepresentation, currentRevision: "r2") { _ in
+                undoCounter.value += 1
+                return VerifiedMutationEvidence(evidenceID: "unexpected", afterSnapshotHash: "before", verified: true)
+            }
+            XCTFail("invalid representation must not reach undo mutation")
+        } catch {}
+        XCTAssertEqual(undoCounter.value, 0)
+        let appliedRecord = await coordinator.record(operationID: valid.operationID)
+        XCTAssertEqual(appliedRecord?.state, .applied)
     }
 }

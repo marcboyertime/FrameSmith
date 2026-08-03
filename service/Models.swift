@@ -135,6 +135,14 @@ public enum SelectionType: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// Describes where a selection claim originated. This descriptive value is not
+/// authorization: FCPXML capability also requires trusted external evidence.
+public enum SelectionOrigin: String, Codable, CaseIterable, Sendable {
+    case localMedia = "local_media"
+    case unverifiedExternal = "unverified_external"
+    case finalCutTimelineClaim = "final_cut_timeline_claim"
+}
+
 public enum Backend: String, Codable, CaseIterable, Sendable {
     case native
     case ffmpeg
@@ -243,6 +251,7 @@ public struct SelectionToken: Codable, Equatable, Sendable {
     public var tokenID: String
     public var selectionType: SelectionType
     public var timelineID: String
+    public var origin: SelectionOrigin
     public var clipIDs: [String]
     public var sourceIdentities: [SourceIdentity]
     public var revision: String
@@ -270,6 +279,7 @@ public struct SelectionToken: Codable, Equatable, Sendable {
         tokenID: String = UUID().uuidString,
         selectionType: SelectionType,
         timelineID: String = "timeline",
+        origin: SelectionOrigin = .unverifiedExternal,
         clipIDs: [String],
         sourceIdentities: [SourceIdentity] = [],
         revision: String,
@@ -296,6 +306,7 @@ public struct SelectionToken: Codable, Equatable, Sendable {
         self.tokenID = tokenID
         self.selectionType = selectionType
         self.timelineID = timelineID
+        self.origin = origin
         self.clipIDs = clipIDs
         self.sourceIdentities = sourceIdentities
         self.revision = revision
@@ -318,6 +329,45 @@ public struct SelectionToken: Codable, Equatable, Sendable {
         self.handleAfterFrames = handleAfterFrames
         self.isSpine = isSpine
         self.adjacent = adjacent
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tokenID, selectionType, timelineID, origin, clipIDs, sourceIdentities, revision
+        case startFrame, endFrame, sourceDurationFrames, sourceRangeStartFrame, sourceRangeEndFrame
+        case leftSourceDurationFrames, rightSourceDurationFrames, leftSourceRangeStartFrame, leftSourceRangeEndFrame
+        case rightSourceRangeStartFrame, rightSourceRangeEndFrame, leftClipEndFrame, rightClipStartFrame
+        case boundaryFrame, frameRate, handleBeforeFrames, handleAfterFrames, isSpine, adjacent
+    }
+
+    /// Missing origin is legacy/unverified input, never an implicit Final Cut claim.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tokenID = try container.decode(String.self, forKey: .tokenID)
+        selectionType = try container.decode(SelectionType.self, forKey: .selectionType)
+        timelineID = try container.decode(String.self, forKey: .timelineID)
+        origin = try container.decodeIfPresent(SelectionOrigin.self, forKey: .origin) ?? .unverifiedExternal
+        clipIDs = try container.decode([String].self, forKey: .clipIDs)
+        sourceIdentities = try container.decode([SourceIdentity].self, forKey: .sourceIdentities)
+        revision = try container.decode(String.self, forKey: .revision)
+        startFrame = try container.decodeIfPresent(Int.self, forKey: .startFrame)
+        endFrame = try container.decodeIfPresent(Int.self, forKey: .endFrame)
+        sourceDurationFrames = try container.decodeIfPresent(Int.self, forKey: .sourceDurationFrames)
+        sourceRangeStartFrame = try container.decodeIfPresent(Int.self, forKey: .sourceRangeStartFrame)
+        sourceRangeEndFrame = try container.decodeIfPresent(Int.self, forKey: .sourceRangeEndFrame)
+        leftSourceDurationFrames = try container.decodeIfPresent(Int.self, forKey: .leftSourceDurationFrames)
+        rightSourceDurationFrames = try container.decodeIfPresent(Int.self, forKey: .rightSourceDurationFrames)
+        leftSourceRangeStartFrame = try container.decodeIfPresent(Int.self, forKey: .leftSourceRangeStartFrame)
+        leftSourceRangeEndFrame = try container.decodeIfPresent(Int.self, forKey: .leftSourceRangeEndFrame)
+        rightSourceRangeStartFrame = try container.decodeIfPresent(Int.self, forKey: .rightSourceRangeStartFrame)
+        rightSourceRangeEndFrame = try container.decodeIfPresent(Int.self, forKey: .rightSourceRangeEndFrame)
+        leftClipEndFrame = try container.decodeIfPresent(Int.self, forKey: .leftClipEndFrame)
+        rightClipStartFrame = try container.decodeIfPresent(Int.self, forKey: .rightClipStartFrame)
+        boundaryFrame = try container.decodeIfPresent(Int.self, forKey: .boundaryFrame)
+        frameRate = try container.decodeIfPresent(Int.self, forKey: .frameRate)
+        handleBeforeFrames = try container.decode(Int.self, forKey: .handleBeforeFrames)
+        handleAfterFrames = try container.decode(Int.self, forKey: .handleAfterFrames)
+        isSpine = try container.decode(Bool.self, forKey: .isSpine)
+        adjacent = try container.decode(Bool.self, forKey: .adjacent)
     }
 
     public var frameCount: Int? {

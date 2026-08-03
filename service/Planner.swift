@@ -267,7 +267,7 @@ public struct PlanValidator: Sendable {
         guard !token.tokenID.isEmpty, !token.revision.isEmpty else { throw PlanValidationError.invalidSelection("token id and revision are required") }
         guard token.clipIDs.allSatisfy({ !$0.isEmpty }) else { throw PlanValidationError.invalidSelection("empty clip id") }
         guard Set(token.clipIDs).count == token.clipIDs.count else { throw PlanValidationError.invalidSelection("duplicate clip id") }
-        let isLocalMediaPreview = token.timelineID == LocalMediaSelection.timelineID
+        let isLocalMediaPreview = token.origin == .localMedia
         guard token.isSpine || isLocalMediaPreview else { throw PlanValidationError.invalidSelection("selection must be on the spine") }
         let nonNegativeFrames: [Int?] = [token.startFrame, token.endFrame, token.sourceDurationFrames, token.sourceRangeStartFrame, token.sourceRangeEndFrame, token.leftSourceDurationFrames, token.rightSourceDurationFrames, token.leftSourceRangeStartFrame, token.leftSourceRangeEndFrame, token.rightSourceRangeStartFrame, token.rightSourceRangeEndFrame, token.boundaryFrame, token.leftClipEndFrame, token.rightClipStartFrame]
         guard nonNegativeFrames.compactMap({ $0 }).allSatisfy({ $0 >= 0 }) else { throw PlanValidationError.invalidSelection("negative frame value") }

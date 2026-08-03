@@ -149,11 +149,11 @@ public actor JobCoordinator {
     private let jobsDirectory: URL
     private let rollbackDirectory: URL
     private let historyURL: URL
-    private let registry: EffectRegistry?
+    private let registry: EffectRegistry
     private var jobs: [UUID: JobRecord]
     private var events: [JobHistoryEvent]
 
-    public init(runtimeRoot: URL, registry: EffectRegistry? = nil) throws {
+    public init(runtimeRoot: URL, registry: EffectRegistry) throws {
         let canonical = runtimeRoot.standardizedFileURL
         guard canonical.isFileURL, canonical.path.hasPrefix("/"), canonical.path != "/", !canonical.path.split(separator: "/").contains("..") else {
             throw JobCoordinatorError.invalidRuntimeRoot("runtime root must be an absolute canonical directory")
@@ -355,6 +355,7 @@ public actor JobCoordinator {
 
     @discardableResult
     public func undo(plan: EffectPlan, revisionProvider: @escaping @Sendable () throws -> String, mutation: @escaping @Sendable (JobRecord) throws -> VerifiedMutationEvidence) throws -> JobRecord {
+        try validate(plan)
         let hash = try StablePlanHasher.hash(plan)
         guard let record = jobs[plan.operationID] else { throw JobCoordinatorError.unknownOperation(plan.operationID) }
         guard record.planHash == hash else { throw JobCoordinatorError.duplicateOperation(plan.operationID) }
@@ -581,7 +582,7 @@ public actor JobCoordinator {
     }
 
     private func validate(_ plan: EffectPlan) throws {
-        if let registry { try PlanValidator(registry: registry).validate(plan) }
+        try PlanValidator(registry: registry).validate(plan)
     }
 
     private func transition(_ record: JobRecord, to state: JobState, detail: String) throws -> JobRecord {
