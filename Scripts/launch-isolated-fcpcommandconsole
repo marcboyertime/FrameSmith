@@ -29,7 +29,7 @@ normal_container_preferences="/Users/marcboyer/Library/Containers/com.apple.Fina
 normal_user_preferences="/Users/marcboyer/Library/Preferences/com.apple.FinalCut.plist"
 expected_version="12.3"
 expected_build="450152"
-expected_copied_cdhash_full="681b64c6f3c712efcd9fcf35245cef61190ffad32eca312fffa1dc9e1378feb6"
+expected_copied_cdhash_full="79aba9b09d7db573fc6d78304826bdab89dad988010a0be691c1d0c581d2d639"
 expected_receipt_sha256="2e8a161e71eb0c7dbf94aee945234fe27c43665938f64a60d6615b153b3d8d8e"
 receipt_relative_path="Contents/_MASReceipt/receipt"
 

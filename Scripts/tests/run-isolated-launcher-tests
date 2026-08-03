@@ -45,7 +45,7 @@ for required_launcher_fragment in \
     'pgrep_status=1' \
     'pgrep_status=$pgrep_status' \
     'codesign --verify --deep --strict --verbose=4' \
-    'expected_copied_cdhash_full="681b64c6f3c712efcd9fcf35245cef61190ffad32eca312fffa1dc9e1378feb6"' \
+    'expected_copied_cdhash_full="79aba9b09d7db573fc6d78304826bdab89dad988010a0be691c1d0c581d2d639"' \
     'verify_reviewed_copied_cdhash' \
     'CandidateCDHashFull' \
     'create_five_entitlements' \
