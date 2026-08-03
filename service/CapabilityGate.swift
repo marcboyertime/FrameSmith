@@ -67,6 +67,7 @@ public struct CapabilityDecision: Equatable, Sendable {
 public enum CapabilityGateError: Error, LocalizedError, Equatable, Sendable {
     case migrationRequired(LegacyEffectPlanQuarantine)
     case invalidCurrentPlanSchema(String)
+    case localMediaSelectionIsNotFinalCutEvidence(FCPCommandConsoleCapability)
     case missingManualFCPXMLSemanticsEvidence(
         capability: FCPCommandConsoleCapability,
         effectID: EffectID,
@@ -77,6 +78,7 @@ public enum CapabilityGateError: Error, LocalizedError, Equatable, Sendable {
         switch self {
         case .migrationRequired: return "Legacy effect plans are quarantined and must be replanned as schema 2.0"
         case .invalidCurrentPlanSchema(let version): return "Capability requires a current schema 2.0 plan, got \(version)"
+        case .localMediaSelectionIsNotFinalCutEvidence(let capability): return "\(capability.rawValue) is blocked because local media selection does not establish Final Cut selection or adjacency evidence"
         case .missingManualFCPXMLSemanticsEvidence(let capability, let effectID, let missing):
             let requirements = missing.map(\.rawValue).sorted().joined(separator: ", ")
             return "\(capability.rawValue) for \(effectID.rawValue) is blocked until manual FCPXML semantics evidence admits: \(requirements)"
@@ -108,6 +110,9 @@ public struct CapabilityGate: Sendable {
         case .localOnlyPreview, .inertPayloadNeutralPackage:
             return CapabilityDecision(capability: capability, allowed: true, reason: "Current v2 plan is eligible for local-only, payload-neutral work")
         case .fcpxmlPreview, .fcpxmlExport:
+            guard plan.selectionToken.timelineID != LocalMediaSelection.timelineID else {
+                return CapabilityDecision(capability: capability, allowed: false, reason: "Local media selection does not establish Final Cut selection or adjacency evidence")
+            }
             let missing = manualSemanticsEvidence.missingContracts(for: plan.effectID)
             guard missing.isEmpty else {
                 let requirements = missing.map(\.rawValue).sorted().joined(separator: ", ")
@@ -130,6 +135,9 @@ public struct CapabilityGate: Sendable {
         case .localOnlyPreview, .inertPayloadNeutralPackage:
             return
         case .fcpxmlPreview, .fcpxmlExport:
+            guard plan.selectionToken.timelineID != LocalMediaSelection.timelineID else {
+                throw CapabilityGateError.localMediaSelectionIsNotFinalCutEvidence(capability)
+            }
             let missing = manualSemanticsEvidence.missingContracts(for: plan.effectID)
             guard missing.isEmpty else {
                 throw CapabilityGateError.missingManualFCPXMLSemanticsEvidence(

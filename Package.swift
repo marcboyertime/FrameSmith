@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "FCPCommandConsoleCore", targets: ["FCPCommandConsoleCore"]),
         .executable(name: "fcpcommandconsole", targets: ["FCPCommandConsole"]),
+        .executable(name: "FCPCommandConsoleApp", targets: ["FCPCommandConsoleApp"]),
         .executable(name: "fcpcommandconsole-planner-helper", targets: ["FCPCommandConsolePlannerHelper"]),
         .executable(name: "fcpcommandconsole-roundtrip-spike", targets: ["FCPCommandConsoleRoundTripSpike"])
     ],
@@ -19,6 +20,11 @@ let package = Package(
             name: "FCPCommandConsole",
             dependencies: ["FCPCommandConsoleCore"],
             path: "Sources/FCPCommandConsole"
+        ),
+        .executableTarget(
+            name: "FCPCommandConsoleApp",
+            dependencies: ["FCPCommandConsoleCore"],
+            path: "Sources/FCPCommandConsoleApp"
         ),
         .executableTarget(
             name: "FCPCommandConsolePlannerHelper",

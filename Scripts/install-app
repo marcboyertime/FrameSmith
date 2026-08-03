@@ -1,0 +1,60 @@
+#!/bin/sh
+set -eu
+
+project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+app_parent="$HOME/Applications"
+target="$app_parent/FCPCommandConsole.app"
+bundle_id="com.marcboyer.FCPCommandConsole"
+
+mkdir -p "$app_parent"
+cd "$project_root"
+swift build -c release --product FCPCommandConsoleApp
+bin_dir=$(swift build -c release --show-bin-path)
+binary="$bin_dir/FCPCommandConsoleApp"
+[ -x "$binary" ]
+
+stage_root=$(mktemp -d "$app_parent/.FCPCommandConsole.app.stage.XXXXXX")
+stage_bundle="$stage_root/FCPCommandConsole.app"
+cleanup() { rm -rf "$stage_root"; }
+trap cleanup EXIT HUP INT TERM
+
+mkdir -p "$stage_bundle/Contents/MacOS" "$stage_bundle/Contents/Resources/registry"
+cp "$binary" "$stage_bundle/Contents/MacOS/FCPCommandConsoleApp"
+ditto "$project_root/registry/effects" "$stage_bundle/Contents/Resources/registry/effects"
+ditto "$project_root/schemas" "$stage_bundle/Contents/Resources/schemas"
+cat > "$stage_bundle/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleDisplayName</key><string>FCPCommandConsole</string>
+  <key>CFBundleExecutable</key><string>FCPCommandConsoleApp</string>
+  <key>CFBundleIdentifier</key><string>com.marcboyer.FCPCommandConsole</string>
+  <key>CFBundleName</key><string>FCPCommandConsole</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+</dict></plist>
+PLIST
+plutil -lint "$stage_bundle/Contents/Info.plist" >/dev/null
+
+if [ -e "$target" ]; then
+  existing_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$target/Contents/Info.plist" 2>/dev/null || true)
+  if [ "$existing_id" != "$bundle_id" ]; then
+    echo "Refusing to replace non-owned bundle: $target" >&2
+    exit 1
+  fi
+  backup="$app_parent/.FCPCommandConsole.app.backup.$(date +%Y%m%d%H%M%S)"
+  mv "$target" "$backup"
+  if ! mv "$stage_bundle" "$target"; then
+    mv "$backup" "$target"
+    exit 1
+  fi
+  echo "Installed $target (previous owned bundle preserved at $backup)"
+else
+  mv "$stage_bundle" "$target"
+  echo "Installed $target"
+fi

@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+app="$HOME/Applications/FCPCommandConsole.app"
+[ -d "$app" ] || { echo "App is not installed: $app" >&2; exit 1; }
+open -n "$app"

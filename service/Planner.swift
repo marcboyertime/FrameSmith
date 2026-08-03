@@ -267,7 +267,8 @@ public struct PlanValidator: Sendable {
         guard !token.tokenID.isEmpty, !token.revision.isEmpty else { throw PlanValidationError.invalidSelection("token id and revision are required") }
         guard token.clipIDs.allSatisfy({ !$0.isEmpty }) else { throw PlanValidationError.invalidSelection("empty clip id") }
         guard Set(token.clipIDs).count == token.clipIDs.count else { throw PlanValidationError.invalidSelection("duplicate clip id") }
-        guard token.isSpine else { throw PlanValidationError.invalidSelection("selection must be on the spine") }
+        let isLocalMediaPreview = token.timelineID == LocalMediaSelection.timelineID
+        guard token.isSpine || isLocalMediaPreview else { throw PlanValidationError.invalidSelection("selection must be on the spine") }
         let nonNegativeFrames: [Int?] = [token.startFrame, token.endFrame, token.sourceDurationFrames, token.sourceRangeStartFrame, token.sourceRangeEndFrame, token.leftSourceDurationFrames, token.rightSourceDurationFrames, token.leftSourceRangeStartFrame, token.leftSourceRangeEndFrame, token.rightSourceRangeStartFrame, token.rightSourceRangeEndFrame, token.boundaryFrame, token.leftClipEndFrame, token.rightClipStartFrame]
         guard nonNegativeFrames.compactMap({ $0 }).allSatisfy({ $0 >= 0 }) else { throw PlanValidationError.invalidSelection("negative frame value") }
         guard token.handleBeforeFrames >= 0, token.handleAfterFrames >= 0 else { throw PlanValidationError.invalidSelection("negative handle") }
@@ -279,6 +280,7 @@ public struct PlanValidator: Sendable {
         switch definition.identifier {
         case .naturalDissolve:
             guard token.selectionType == .twoAdjacentClips, token.clipIDs.count == 2 else { throw PlanValidationError.invalidSelection("dissolve requires exactly two clips") }
+            if isLocalMediaPreview { return }
             guard token.adjacent else { throw PlanValidationError.invalidSelection("dissolve clips must be adjacent") }
             guard let boundary = token.boundaryFrame ?? token.endFrame, boundary >= 0 else { throw PlanValidationError.invalidSelection("frame-quantized boundary is required") }
             let leftRangeStart = token.leftSourceRangeStartFrame ?? token.sourceRangeStartFrame
