@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>SchemaVersion</key>
-    <integer>12</integer>
+    <integer>13</integer>
     <key>ExpectedHostBundleIdentifier</key>
     <string>com.apple.FinalCut</string>
     <key>ExpectedCopiedHostBundlePath</key>
@@ -183,6 +183,16 @@
         <true/>
         <key>PublicLibraryOpenNeverCreatesRemovesOrOverwritesLibrary</key>
         <true/>
+        <key>ActiveSessionOwnership</key>
+        <string>single_static_strong_root</string>
+        <key>ActiveSessionSetAtLifecycleState</key>
+        <string>running_before_async_escape</string>
+        <key>ActiveSessionDuplicateStartFailsClosed</key>
+        <true/>
+        <key>ActiveSessionWeakCompletionBackedByRoot</key>
+        <true/>
+        <key>ActiveSessionReleaseCondition</key>
+        <string>identity_matching_after_finished_timeout_pasteboard_and_provenance_finalization</string>
         <key>KnownFailedLiveProvenancePath</key>
         <string>/Users/marcboyer/Movies/FCPCommandConsole/provenance/disposable-project-bootstrap-5244F4D3-8B35-4289-9B82-0CFC58CF0829.json</string>
         <key>KnownFailedLiveReason</key>
@@ -324,6 +334,6 @@
     <key>SourceSnapshotCommit</key>
     <string>f4f6618121309a69b66272b441f34cf8ad57f306</string>
     <key>SourceAttribution</key>
-    <string>Exact Final Cut Pro 12.3 static inspection. The copied host remains constrained by its exact bundle path, receipt-compatible identifier and receipt SHA-256, version/build, active-slice UUIDs, and the pinned ProOnboardingFlowModelOne identity and method contracts. Schema 10 admitted the launcher-flagged disposable-library bootstrap, which creates only the absent canonical library through the pinned Flexo ABI and never overwrites or removes a library. Schema 11 separately admitted one launcher-flagged disposable-project bootstrap after NSApplicationDidFinishLaunchingNotification. Its recorded failed zero-mutation run at disposable-project-bootstrap-5244F4D3-8B35-4289-9B82-0CFC58CF0829.json rejected exactly_one_open_library_required and is failure evidence, not success evidence. Schema 12 preserves the fixed one-shot project/import/append contracts and adds only a bounded public AppKit open when the complete initial library traversal has zero libraries. Before that one main-queue NSDocumentController openDocumentWithContentsOfURL:display:completionHandler: call, it revalidates only the canonical enrolled fcpbundle path with no symlink components, directory/device/inode, and manifest persistent UID. It permits no dialog, responder action, UI automation, alternate path, retry, library creation, removal, or overwrite. Completion requires a nonnil document and nil error, followed by another complete traversal proving exactly one enrolled library before FFProjectDocument actionNewProject:name:sequence:actionName:error: can run. It then resolves the exact new sequence through FFLibrary _deepLoadedSequences and the exact editor load, imports only the three fixed files with FFMediaEventProject, and appends them only through the fixed FFPasteboard, FigTimeRangeAndObject, FFEditAction kind 2/all, and FFAnchoredTimelineModule path. It observes and records the actual project format without a fixed frame-rate precondition, verifies exact primary-storyline order, adjacency, and imported media identifiers after every append, performs no automatic mutation retry, and records library-open invocation/status/reason plus any post-mutation uncertainty as partial_unverified with no rollback claim.</string>
+    <string>Exact Final Cut Pro 12.3 static inspection. The copied host remains constrained by its exact bundle path, receipt-compatible identifier and receipt SHA-256, version/build, active-slice UUIDs, and the pinned ProOnboardingFlowModelOne identity and method contracts. Schema 10 admitted the launcher-flagged disposable-library bootstrap, which creates only the absent canonical library through the pinned Flexo ABI and never overwrites or removes a library. Schema 11 separately admitted one launcher-flagged disposable-project bootstrap after NSApplicationDidFinishLaunchingNotification. Its recorded failed zero-mutation run at disposable-project-bootstrap-5244F4D3-8B35-4289-9B82-0CFC58CF0829.json rejected exactly_one_open_library_required and is failure evidence, not success evidence. Schema 12 preserves the fixed one-shot project/import/append contracts and adds only a bounded public AppKit open when the complete initial library traversal has zero libraries. Before that one main-queue NSDocumentController openDocumentWithContentsOfURL:display:completionHandler: call, it revalidates only the canonical enrolled fcpbundle path with no symlink components, directory/device/inode, and manifest persistent UID. It permits no dialog, responder action, UI automation, alternate path, retry, library creation, removal, or overwrite. Completion requires a nonnil document and nil error, followed by another complete traversal proving exactly one enrolled library before FFProjectDocument actionNewProject:name:sequence:actionName:error: can run. Schema 13 retains the callback-driven public-open timeout and one-invocation gate, and roots exactly one active, exact-armed Running session strongly before any asynchronous escape. Weak completion handlers are thereby backed until FCPCCFinishDisposableProjectBootstrap clears only the identity-matching root after timeout cancellation, pasteboard cleanup, Finished state, and provenance finalization. It then resolves the exact new sequence through FFLibrary _deepLoadedSequences and the exact editor load, imports only the three fixed files with FFMediaEventProject, and appends them only through the fixed FFPasteboard, FigTimeRangeAndObject, FFEditAction kind 2/all, and FFAnchoredTimelineModule path. It observes and records the actual project format without a fixed frame-rate precondition, verifies exact primary-storyline order, adjacency, and imported media identifiers after every append, performs no automatic mutation retry, and records library-open invocation/status/reason plus any post-mutation uncertainty as partial_unverified with no rollback claim.</string>
 </dict>
 </plist>

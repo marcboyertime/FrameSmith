@@ -45,6 +45,17 @@ pinned editor contract, import only the three fixed files through
 invocation/status/reason as well as observed project resolution and frame
 duration. It never retries a mutation; all post-mutation uncertainty remains
 `partial_unverified` with no rollback claim.
+
+Schema 13 corrects the asynchronous lifetime exposed by the live Schema 12
+library-open proof. On the exact armed lifecycle transition to `Running`, the
+runtime installs one static strong active-session root before any asynchronous
+escape. The public document-open completion and its 30-second dispatch-source
+timeout remain weakly captured, but the root keeps the session alive until
+`FCPCCFinishDisposableProjectBootstrap` has cancelled the timeout, cleared
+pasteboard state, marked the session finished, finalized provenance, and then
+released only the identity-matching root. A duplicate active-session start
+fails closed; there is no retry or generic session registry.
+
 Workflow 1 has one typed native adapter for `native.targeted_rotate_zoom`.
 Its fixed Final Cut 12.3 contract records only the inspected selection
 reacquisition, represented-tool/video-effect-stack/xform path, transform
@@ -135,7 +146,7 @@ the copied executable must gain one reviewed load command and a new signature.
 The runtime never writes Final Cut preferences. No production library may be
 open; the existing exactly-one disposable library manifest gate remains
 fail-closed. Other mutation adapters remain disabled; the only separately armed
-write is the Schema 12 disposable-project spike described above.
+write is the Schema 13 disposable-project spike described above.
 
 The fixed CloudContent names and contracts were manually transcribed from the
 locked `reference/elliotttate/SpliceKit` snapshot at

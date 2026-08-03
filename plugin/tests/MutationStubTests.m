@@ -38,6 +38,10 @@ FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeave
     NSUInteger projectCreationInvocationCount,
     NSUInteger importInvocationCount,
     NSUInteger appendInvocationCount);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestActiveSessionOwnershipStartsAsyncBranch(void);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestDuplicateActiveSessionStartFailsClosed(void);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestFinishReleasesIdentityMatchingSession(void);
+FOUNDATION_EXPORT BOOL FCPCCDisposableProjectBootstrapTestWeakCompletionIsBackedByActiveSessionRoot(void);
 #endif
 
 static int require(BOOL condition, NSString *message) {
@@ -110,6 +114,13 @@ int main(void) {
                     && FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeavesProjectMutationsAtZero(YES, NO, 0, 0, 0)
                     && !FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeavesProjectMutationsAtZero(NO, YES, 1, 0, 0),
                     @"failed public library-open completion did not preserve zero project mutations")) {
+            return 1;
+        }
+        if (require(FCPCCDisposableProjectBootstrapTestActiveSessionOwnershipStartsAsyncBranch()
+                    && FCPCCDisposableProjectBootstrapTestDuplicateActiveSessionStartFailsClosed()
+                    && FCPCCDisposableProjectBootstrapTestFinishReleasesIdentityMatchingSession()
+                    && FCPCCDisposableProjectBootstrapTestWeakCompletionIsBackedByActiveSessionRoot(),
+                    @"disposable-project bootstrap active-session ownership did not retain or release the one-shot lifecycle correctly")) {
             return 1;
         }
         NSString *bootstrapUnitRoot = [@"/Users/Shared"

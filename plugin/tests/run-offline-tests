@@ -608,7 +608,7 @@ if [[ -e "$retired_runtime_policy_source" || -e "$retired_runtime_policy_build" 
     fail "retired isolated preference policy remains present"
 fi
 for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "12" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SchemaVersion' "$policy_path")" != "13" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBundleIdentifier' "$policy_path")" != "com.apple.FinalCut" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedCopiedHostBundlePath' "$policy_path")" != "/Users/marcboyer/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostVersion' "$policy_path")" != "12.3" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostBuild' "$policy_path")" != "450152" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedStockPreInjectionHostExecutableSHA256' "$policy_path")" != "6d29cb4326c2f35c96fbc57f29741fba8b5156265e188b19c975bc6cefba8390" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostArm64UUID' "$policy_path")" != "AD024067-E145-3988-AFF9-BD33391C416D" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedHostX86_64UUID' "$policy_path")" != "2ACCBD11-6965-3D09-BD87-9A900FDC740E" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptRelativePath' "$policy_path")" != "$mas_receipt_relative_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedMASReceiptSHA256' "$policy_path")" != "$expected_mas_receipt_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkRelativeExecutablePath' "$policy_path")" != "$onboarding_framework_relative_executable_path" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkSHA256' "$policy_path")" != "$expected_onboarding_framework_sha256" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkArm64UUID' "$policy_path")" != "$expected_onboarding_framework_arm64_uuid" || "$(/usr/libexec/PlistBuddy -c 'Print :ExpectedOnboardingFrameworkX86_64UUID' "$policy_path")" != "$expected_onboarding_framework_x86_64_uuid" ]]; then
         fail "compatibility policy copied-host, receipt, or onboarding identity is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :ImmutableCompileTimeAllowlist' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:0' "$policy_path")" != "constructor_main_thread_immediate_attempt" || "$(/usr/libexec/PlistBuddy -c 'Print :CompatibilityInstallPhases:1' "$policy_path")" != "application_will_finish_launching_availability_retry" || "$(/usr/libexec/PlistBuddy -c 'Print :MaximumMethodGuardAttempts' "$policy_path")" != "2" ]]; then
@@ -639,6 +639,9 @@ for policy_path in "$runtime_policy_source" "$runtime_policy_build"; do
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PublicLibraryOpenAPI' "$policy_path")" != "NSDocumentController.openDocumentWithContentsOfURL:display:completionHandler:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PublicLibraryOpenDisplay' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PublicLibraryOpenRequiresMainQueue' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PublicLibraryOpenAllowedInitialOpenLibraryCount' "$policy_path")" != "0" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PublicLibraryOpenMaximumInvocations' "$policy_path")" != "1" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PublicLibraryOpenRequiredPreopenIdentity' "$policy_path")" != "canonical_path_no_symlink_directory_device_inode_persistent_uid" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PublicLibraryOpenCompletionRequirements' "$policy_path")" != "non_nil_document_nil_error" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PublicLibraryOpenRequiredPostopenState' "$policy_path")" != "exactly_one_enrolled_open_library" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PublicLibraryOpenNoDialogResponderAutomationOrAlternatePath' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PublicLibraryOpenNoRetry' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PublicLibraryOpenNeverCreatesRemovesOrOverwritesLibrary' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:KnownFailedLiveProvenancePath' "$policy_path")" != "/Users/marcboyer/Movies/FCPCommandConsole/provenance/disposable-project-bootstrap-5244F4D3-8B35-4289-9B82-0CFC58CF0829.json" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:KnownFailedLiveReason' "$policy_path")" != "exactly_one_open_library_required" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:KnownFailedLiveMutationCounts' "$policy_path")" != "project_zero_import_zero_append_zero" ]]; then
         fail "disposable project bootstrap public library-open policy is not exact"
+    fi
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ActiveSessionOwnership' "$policy_path")" != "single_static_strong_root" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ActiveSessionSetAtLifecycleState' "$policy_path")" != "running_before_async_escape" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ActiveSessionDuplicateStartFailsClosed' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ActiveSessionWeakCompletionBackedByRoot' "$policy_path")" != "true" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ActiveSessionReleaseCondition' "$policy_path")" != "identity_matching_after_finished_timeout_pasteboard_and_provenance_finalization" ]]; then
+        fail "disposable project bootstrap active-session lifetime policy is not exact"
     fi
     if [[ "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ProjectCreationClass' "$policy_path")" != "FFProjectDocument" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ProjectCreationSelector' "$policy_path")" != "actionNewProject:name:sequence:actionName:error:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:DeepLoadedSequenceClass' "$policy_path")" != "FFLibrary" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:DeepLoadedSequenceSelector' "$policy_path")" != "_deepLoadedSequences" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EditorLoadClass' "$policy_path")" != "PEEditorContainerModule" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EditorLoadSelector' "$policy_path")" != "loadEditorForSequence:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:ImportClass' "$policy_path")" != "FFMediaEventProject" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:NewClipSelector' "$policy_path")" != "newClipFromURL:manageFileType:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:AddOwnedClipSelector' "$policy_path")" != "addOwnedClipsObject:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PasteboardClass' "$policy_path")" != "FFPasteboard" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PasteboardInitSelector' "$policy_path")" != "initWithName:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:PasteboardWriteSelector' "$policy_path")" != "writeRangesOfMedia:options:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:RangeFactoryClass' "$policy_path")" != "FigTimeRangeAndObject" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:RangeFactorySelector' "$policy_path")" != "rangeAndObjectWithRange:andObject:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EditActionClass' "$policy_path")" != "FFEditAction" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EditActionSelector' "$policy_path")" != "editActionOfKind:backTimed:trackType:" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:EditActionKind' "$policy_path")" != "2" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:BackTimed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:TrackType' "$policy_path")" != "all" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:TimelineClass' "$policy_path")" != "FFAnchoredTimelineModule" || "$(/usr/libexec/PlistBuddy -c 'Print :DisposableProjectBootstrap:TimelinePerformEditSelector' "$policy_path")" != "performEditAction:fromPasteboardWithName:fromAnimation:" ]]; then
         fail "disposable project bootstrap direct model route is not exact"
@@ -688,6 +691,15 @@ for required_project_bootstrap_fragment in \
         fail "disposable project bootstrap source is missing: $required_project_bootstrap_fragment"
     fi
 done
+for required_active_session_fragment in \
+    'static __strong FCPCCDisposableProjectBootstrapSession *FCPCCDisposableProjectBootstrapActiveSession' \
+    'FCPCCDisposableProjectBootstrapActiveSession' \
+    'FCPCCDisposableProjectBootstrapRetainActiveSessionIfAbsent' \
+    'FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching' \
+    'project_bootstrap_duplicate_active_session_start' \
+    'project_bootstrap_active_session_root_unavailable'; do
+    require_fragment "$required_active_session_fragment" "$runtime_implementation" "disposable project bootstrap active-session lifecycle"
+done
 public_library_open_source="$(/usr/bin/sed -n '/^static void FCPCCDisposableProjectBootstrapInvokePublicEnrolledLibraryOpen/,/^}/p' "$runtime_implementation")"
 for required_public_library_open_fragment in \
     '[documentController openDocumentWithContentsOfURL:libraryURL' \
@@ -707,6 +719,41 @@ for required_public_library_open_fragment in \
 done
 if [[ "$(print -r -- "$public_library_open_source" | "$rg_bin" -F -o '[documentController openDocumentWithContentsOfURL:libraryURL' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" != "1" ]]; then
     fail "disposable project bootstrap public library open is not exactly once in its only invocation helper"
+fi
+project_bootstrap_finish_source="$(/usr/bin/sed -n '/^static void FCPCCFinishDisposableProjectBootstrap(/,/^}/p' "$runtime_implementation")"
+for required_project_bootstrap_finish_fragment in \
+    'session.status = FCPCCDisposableProjectBootstrapBoundedProvenanceString' \
+    'session.reason = FCPCCDisposableProjectBootstrapBoundedProvenanceString' \
+    'session.currentPasteboard = nil' \
+    'session.currentPasteboardName = nil' \
+    'dispatch_source_cancel(session.libraryOpenCompletionTimeoutSource)' \
+    'session.state = FCPCCDisposableProjectBootstrapStateFinished' \
+    'FCPCCWriteDisposableProjectBootstrapProvenance(session)' \
+    'FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(session)'; do
+    if ! print -r -- "$project_bootstrap_finish_source" | "$rg_bin" -F -q -- "$required_project_bootstrap_finish_fragment"; then
+        fail "disposable project bootstrap finish is missing: $required_project_bootstrap_finish_fragment"
+    fi
+done
+project_bootstrap_finish_provenance_line="$(print -r -- "$project_bootstrap_finish_source" | "$rg_bin" -n -F 'FCPCCWriteDisposableProjectBootstrapProvenance(session)' | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+project_bootstrap_finish_release_line="$(print -r -- "$project_bootstrap_finish_source" | "$rg_bin" -n -F 'FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(session)' | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+if [[ -z "$project_bootstrap_finish_provenance_line" || -z "$project_bootstrap_finish_release_line" || "$project_bootstrap_finish_release_line" -le "$project_bootstrap_finish_provenance_line" ]]; then
+    fail "disposable project bootstrap active-session root is released before provenance finalization"
+fi
+project_bootstrap_lifecycle_source="$(/usr/bin/sed -n '/^static void FCPCCHandleDisposableProjectBootstrapDidFinishLaunching(/,/^}/p' "$runtime_implementation")"
+for required_project_bootstrap_lifecycle_fragment in \
+    'FCPCCDisposableProjectBootstrapLifecycleStateRunning' \
+    'FCPCCDisposableProjectBootstrapRetainActiveSessionIfAbsent(session)' \
+    'FCPCCRunDisposableProjectBootstrap(session)' \
+    'project_bootstrap_duplicate_active_session_start'; do
+    if ! print -r -- "$project_bootstrap_lifecycle_source" | "$rg_bin" -F -q -- "$required_project_bootstrap_lifecycle_fragment"; then
+        fail "disposable project bootstrap lifecycle ownership is missing: $required_project_bootstrap_lifecycle_fragment"
+    fi
+done
+project_bootstrap_lifecycle_running_line="$(print -r -- "$project_bootstrap_lifecycle_source" | "$rg_bin" -n -F 'FCPCCDisposableProjectBootstrapLifecycle = FCPCCDisposableProjectBootstrapLifecycleStateRunning' | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+project_bootstrap_lifecycle_retain_line="$(print -r -- "$project_bootstrap_lifecycle_source" | "$rg_bin" -n -F 'FCPCCDisposableProjectBootstrapRetainActiveSessionIfAbsent(session)' | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+project_bootstrap_lifecycle_run_line="$(print -r -- "$project_bootstrap_lifecycle_source" | "$rg_bin" -n -F 'FCPCCRunDisposableProjectBootstrap(session)' | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+if [[ -z "$project_bootstrap_lifecycle_running_line" || -z "$project_bootstrap_lifecycle_retain_line" || -z "$project_bootstrap_lifecycle_run_line" || "$project_bootstrap_lifecycle_running_line" -ge "$project_bootstrap_lifecycle_retain_line" || "$project_bootstrap_lifecycle_retain_line" -ge "$project_bootstrap_lifecycle_run_line" ]]; then
+    fail "disposable project bootstrap does not root the Running session before its asynchronous branch"
 fi
 primary_storyline_source="$(/usr/bin/sed -n '/^static NSArray \*FCPCCDisposableProjectBootstrapPrimaryStorylineItems/,/^}/p' "$runtime_implementation")"
 if ! print -r -- "$primary_storyline_source" | "$rg_bin" -F -q '[itemsValue isKindOfClass:[NSArray class]]' || print -r -- "$primary_storyline_source" | "$rg_bin" -F -q 'FCPCCDisposableProjectBootstrapArrayFromSetOrArray'; then
@@ -838,7 +885,7 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
     current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$patcher_script")"
     for required_current_policy_fragment in \
         'Print :SchemaVersion' \
-        '" != "12"' \
+        '" != "13"' \
         'ExpectedHostBundleIdentifier' \
         'ExpectedCopiedHostBundlePath' \
         'ExpectedHostVersion' \
@@ -874,14 +921,14 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         'immediate_noop_return_without_completion_access' \
         'ApprovedMethodReplacements:2'; do
         if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q "$required_current_policy_fragment"; then
-            fail "patcher current Schema-12 policy contract is missing: $required_current_policy_fragment"
+            fail "patcher current Schema-13 policy contract is missing: $required_current_policy_fragment"
         fi
     done
     if print -r -- "$current_policy_source" | "$rg_bin" -F -q 'discard_query_block_noop'; then
-        fail "patcher current Schema-12 policy retains the retired query-discard contract"
+        fail "patcher current Schema-13 policy retains the retired query-discard contract"
     fi
     if ! print -r -- "$current_policy_source" | "$rg_bin" -F -q 'invalid Cloud nested-block argument-count condition'; then
-        fail "patcher current Schema-12 policy does not reject a restored Cloud nested-block argument-count condition"
+        fail "patcher current Schema-13 policy does not reject a restored Cloud nested-block argument-count condition"
     fi
     project_policy_source="$(/usr/bin/sed -n '/^verify_disposable_project_bootstrap_policy()/,/^}/p' "$patcher_script")"
     for required_project_policy_fragment in \
@@ -910,14 +957,22 @@ for patcher_script in "$initial_patcher" "$runtime_updater" "$runtime_verifier";
         fi
     done
     for required_public_open_policy_fragment in \
-        'verify_schema12_public_library_open_policy' \
+        'verify_schema13_public_library_open_and_active_session_policy' \
         'PublicLibraryOpenAPI' \
         'NSDocumentController.openDocumentWithContentsOfURL:display:completionHandler:' \
         'PublicLibraryOpenDisplay' \
         'PublicLibraryOpenMaximumInvocations' \
+        'ActiveSessionOwnership' \
+        'single_static_strong_root' \
+        'ActiveSessionSetAtLifecycleState' \
+        'running_before_async_escape' \
+        'ActiveSessionDuplicateStartFailsClosed' \
+        'ActiveSessionWeakCompletionBackedByRoot' \
+        'ActiveSessionReleaseCondition' \
+        'identity_matching_after_finished_timeout_pasteboard_and_provenance_finalization' \
         'KnownFailedLiveProvenancePath' \
         'exactly_one_open_library_required'; do
-        require_fragment "$required_public_open_policy_fragment" "$patcher_script" "Schema-12 public library-open policy"
+        require_fragment "$required_public_open_policy_fragment" "$patcher_script" "Schema-13 public library-open and active-session policy"
     done
 done
 require_fragment 'expected_copied_host_bundle_path="$live_copied_app"' "$runtime_updater" "transactional updater exact live path"
@@ -956,7 +1011,7 @@ for exact_schema11_provenance_fragment in \
     'verify_exact_schema11_complete_update_provenance' \
     'schema11-preupdate-provenance.txt' \
     'exact_schema11_complete_update_provenance' \
-    'if [[ "$current_policy_schema" == "11" ]]'; do
+    'elif [[ "$current_policy_schema" == "11" ]]'; do
     require_fragment "$exact_schema11_provenance_fragment" "$runtime_updater" "exact Schema-11 to Schema-12 update admission"
 done
 schema11_preupdate_policy_source="$(/usr/bin/sed -n '/^verify_exact_schema11_preupdate_policy()/,/^}/p' "$runtime_updater")"
@@ -972,6 +1027,41 @@ for required_schema11_preupdate_policy_fragment in \
         fail "exact Schema-11 pre-update policy gate is missing: $required_schema11_preupdate_policy_fragment"
     fi
 done
+
+for exact_schema12_provenance_fragment in \
+    'expected_schema12_runtime_sha256="f2bf2888502ab250cba726cadf1b537853332d1ec7102e169bf71fd1a30215dc"' \
+    'expected_schema12_policy_sha256="45ae2c964224eff68b690291071e3e3397b4e038e9bbce85a1ce81e082855b43"' \
+    'expected_schema12_copied_cdhash_full="26976281ca2d011606365ee004fd9a38a8093f86abaecbe1e0801c3b7ee7adf2"' \
+    'expected_schema12_source_provenance="/Users/marcboyer/Movies/FCPCommandConsole/provenance/patch-20260803T032026Z-update-runtime-73971"' \
+    'verify_exact_schema12_preupdate_policy' \
+    'verify_exact_schema12_complete_update_provenance' \
+    'schema12-preupdate-provenance.txt' \
+    'exact_schema12_complete_update_provenance' \
+    'if [[ "$current_policy_schema" == "12" ]]'; do
+    require_fragment "$exact_schema12_provenance_fragment" "$runtime_updater" "exact Schema-12 to Schema-13 update admission"
+done
+schema12_preupdate_policy_source="$(/usr/bin/sed -n '/^verify_exact_schema12_preupdate_policy()/,/^}/p' "$runtime_updater")"
+for required_schema12_preupdate_policy_fragment in \
+    'Print :SchemaVersion' \
+    '" != "12"' \
+    'expected_schema12_policy_sha256' \
+    'expected_schema12_runtime_sha256' \
+    'PublicLibraryOpenAPI' \
+    'PublicLibraryOpenMaximumInvocations' \
+    'ActiveSessionOwnership' \
+    'ActiveSessionSetAtLifecycleState' \
+    'ActiveSessionDuplicateStartFailsClosed' \
+    'ActiveSessionWeakCompletionBackedByRoot' \
+    'ActiveSessionReleaseCondition'; do
+    if ! print -r -- "$schema12_preupdate_policy_source" | "$rg_bin" -F -q -- "$required_schema12_preupdate_policy_fragment"; then
+        fail "exact Schema-12 pre-update policy gate is missing: $required_schema12_preupdate_policy_fragment"
+    fi
+done
+schema12_branch_line="$("$rg_bin" -n -F -- 'if [[ "$current_policy_schema" == "12" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+schema11_branch_line="$("$rg_bin" -n -F -- 'elif [[ "$current_policy_schema" == "11" ]]' "$runtime_updater" | /usr/bin/cut -d: -f1 | /usr/bin/head -n 1)"
+if [[ -z "$schema12_branch_line" || -z "$schema11_branch_line" || "$schema12_branch_line" -ge "$schema11_branch_line" ]]; then
+    fail "Schema-12 exact provenance admission must precede the retained Schema-11 route"
+fi
 
 updater_current_policy_source="$(/usr/bin/sed -n '/^verify_compatibility_policy()/,/^}/p' "$runtime_updater")"
 for retired_current_updater_fragment in \

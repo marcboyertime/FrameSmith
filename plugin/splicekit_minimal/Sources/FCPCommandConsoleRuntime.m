@@ -2189,6 +2189,28 @@ typedef struct {
 
 @end
 
+// The lifecycle permits exactly one explicitly armed project-bootstrap
+// session. Async blocks intentionally retain it weakly; this root holds the
+// sole strong ownership until FCPCCFinishDisposableProjectBootstrap finalizes
+// provenance and releases the identity-matching session.
+static __strong FCPCCDisposableProjectBootstrapSession *FCPCCDisposableProjectBootstrapActiveSession;
+
+static BOOL FCPCCDisposableProjectBootstrapRetainActiveSessionIfAbsent(FCPCCDisposableProjectBootstrapSession *session) {
+    if (session == nil || FCPCCDisposableProjectBootstrapActiveSession != nil) {
+        return NO;
+    }
+    FCPCCDisposableProjectBootstrapActiveSession = session;
+    return YES;
+}
+
+static BOOL FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(FCPCCDisposableProjectBootstrapSession *session) {
+    if (session == nil || FCPCCDisposableProjectBootstrapActiveSession != session) {
+        return NO;
+    }
+    FCPCCDisposableProjectBootstrapActiveSession = nil;
+    return YES;
+}
+
 static void FCPCCFinishDisposableProjectBootstrapScheduling(void);
 static void FCPCCAdvanceDisposableProjectBootstrap(FCPCCDisposableProjectBootstrapSession *session);
 
@@ -2502,6 +2524,7 @@ static void FCPCCFinishDisposableProjectBootstrap(FCPCCDisposableProjectBootstra
     }
     session.state = FCPCCDisposableProjectBootstrapStateFinished;
     (void)FCPCCWriteDisposableProjectBootstrapProvenance(session);
+    (void)FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(session);
     FCPCCFinishDisposableProjectBootstrapScheduling();
 }
 
@@ -3519,9 +3542,18 @@ static void FCPCCAdvanceDisposableProjectBootstrap(FCPCCDisposableProjectBootstr
     }
 }
 
-static void FCPCCRunDisposableProjectBootstrap(void) {
-    FCPCCDisposableProjectBootstrapSession *session = [[FCPCCDisposableProjectBootstrapSession alloc] init];
+static void FCPCCRunDisposableProjectBootstrap(FCPCCDisposableProjectBootstrapSession *session) {
     NSString *reason = nil;
+    if (session == nil || FCPCCDisposableProjectBootstrapActiveSession != session) {
+        if (session != nil) {
+            FCPCCFinishDisposableProjectBootstrap(session,
+                                                   @"rejected",
+                                                   @"project_bootstrap_active_session_root_unavailable");
+        } else {
+            FCPCCFinishDisposableProjectBootstrapScheduling();
+        }
+        return;
+    }
     if (![NSThread isMainThread]) {
         FCPCCFinishDisposableProjectBootstrap(session, @"rejected", @"project_bootstrap_requires_main_thread");
         return;
@@ -3666,6 +3698,48 @@ BOOL FCPCCDisposableProjectBootstrapTestFailedLibraryOpenLeavesProjectMutationsA
         && projectCreationInvocationCount == 0
         && importInvocationCount == 0
         && appendInvocationCount == 0;
+}
+
+BOOL FCPCCDisposableProjectBootstrapTestActiveSessionOwnershipStartsAsyncBranch(void) {
+    FCPCCDisposableProjectBootstrapSession *session = [[FCPCCDisposableProjectBootstrapSession alloc] init];
+    BOOL retained = FCPCCDisposableProjectBootstrapRetainActiveSessionIfAbsent(session);
+    BOOL owned = retained && FCPCCDisposableProjectBootstrapActiveSession == session;
+    BOOL released = FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(session);
+    return owned && released && FCPCCDisposableProjectBootstrapActiveSession == nil;
+}
+
+BOOL FCPCCDisposableProjectBootstrapTestDuplicateActiveSessionStartFailsClosed(void) {
+    FCPCCDisposableProjectBootstrapSession *firstSession = [[FCPCCDisposableProjectBootstrapSession alloc] init];
+    FCPCCDisposableProjectBootstrapSession *duplicateSession = [[FCPCCDisposableProjectBootstrapSession alloc] init];
+    BOOL firstRetained = FCPCCDisposableProjectBootstrapRetainActiveSessionIfAbsent(firstSession);
+    BOOL duplicateRejected = !FCPCCDisposableProjectBootstrapRetainActiveSessionIfAbsent(duplicateSession)
+        && FCPCCDisposableProjectBootstrapActiveSession == firstSession;
+    BOOL released = FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(firstSession);
+    return firstRetained && duplicateRejected && released && FCPCCDisposableProjectBootstrapActiveSession == nil;
+}
+
+BOOL FCPCCDisposableProjectBootstrapTestFinishReleasesIdentityMatchingSession(void) {
+    FCPCCDisposableProjectBootstrapSession *activeSession = [[FCPCCDisposableProjectBootstrapSession alloc] init];
+    FCPCCDisposableProjectBootstrapSession *otherSession = [[FCPCCDisposableProjectBootstrapSession alloc] init];
+    BOOL retained = FCPCCDisposableProjectBootstrapRetainActiveSessionIfAbsent(activeSession);
+    BOOL wrongIdentityPreserved = !FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(otherSession)
+        && FCPCCDisposableProjectBootstrapActiveSession == activeSession;
+    BOOL matchingIdentityReleased = FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(activeSession)
+        && FCPCCDisposableProjectBootstrapActiveSession == nil;
+    return retained && wrongIdentityPreserved && matchingIdentityReleased;
+}
+
+BOOL FCPCCDisposableProjectBootstrapTestWeakCompletionIsBackedByActiveSessionRoot(void) {
+    FCPCCDisposableProjectBootstrapSession *session = [[FCPCCDisposableProjectBootstrapSession alloc] init];
+    BOOL retained = FCPCCDisposableProjectBootstrapRetainActiveSessionIfAbsent(session);
+    __weak FCPCCDisposableProjectBootstrapSession *weakSession = session;
+    session = nil;
+    FCPCCDisposableProjectBootstrapSession *rootedSession = FCPCCDisposableProjectBootstrapActiveSession;
+    BOOL weakCompletionIsBacked = retained
+        && weakSession != nil
+        && weakSession == rootedSession;
+    BOOL released = FCPCCDisposableProjectBootstrapReleaseActiveSessionIfMatching(rootedSession);
+    return weakCompletionIsBacked && released && FCPCCDisposableProjectBootstrapActiveSession == nil;
 }
 
 BOOL FCPCCDisposableLibraryBootstrapTestValidateAbsentCanonicalTarget(NSString *parentPath,
@@ -4926,13 +5000,39 @@ static void FCPCCFinishDisposableProjectBootstrapScheduling(void) {
 }
 
 static void FCPCCHandleDisposableProjectBootstrapDidFinishLaunching(void) {
-    if (![NSThread isMainThread]
-        || FCPCCDisposableProjectBootstrapLifecycle != FCPCCDisposableProjectBootstrapLifecycleStateWaitingForDidFinishLaunching) {
+    if (![NSThread isMainThread]) {
         FCPCCFinishDisposableProjectBootstrapScheduling();
         return;
     }
+    if (FCPCCDisposableProjectBootstrapLifecycle != FCPCCDisposableProjectBootstrapLifecycleStateWaitingForDidFinishLaunching) {
+        if (FCPCCDisposableProjectBootstrapActiveSession != nil) {
+            FCPCCFinishDisposableProjectBootstrap(FCPCCDisposableProjectBootstrapActiveSession,
+                                                   @"rejected",
+                                                   @"project_bootstrap_duplicate_active_session_start");
+        } else {
+            FCPCCFinishDisposableProjectBootstrapScheduling();
+        }
+        return;
+    }
+    if (!FCPCCDisposableProjectBootstrapEnvironmentIsExact()) {
+        FCPCCFinishDisposableProjectBootstrapScheduling();
+        return;
+    }
+    FCPCCDisposableProjectBootstrapSession *session = [[FCPCCDisposableProjectBootstrapSession alloc] init];
     FCPCCDisposableProjectBootstrapLifecycle = FCPCCDisposableProjectBootstrapLifecycleStateRunning;
-    FCPCCRunDisposableProjectBootstrap();
+    if (!FCPCCDisposableProjectBootstrapRetainActiveSessionIfAbsent(session)) {
+        if (FCPCCDisposableProjectBootstrapActiveSession != nil) {
+            FCPCCFinishDisposableProjectBootstrap(FCPCCDisposableProjectBootstrapActiveSession,
+                                                   @"rejected",
+                                                   @"project_bootstrap_duplicate_active_session_start");
+        } else {
+            FCPCCFinishDisposableProjectBootstrap(session,
+                                                   @"rejected",
+                                                   @"project_bootstrap_active_session_root_unavailable");
+        }
+        return;
+    }
+    FCPCCRunDisposableProjectBootstrap(session);
 }
 
 static void FCPCCBeginDisposableProjectBootstrapAfterApplicationDidFinishLaunching(void) {
