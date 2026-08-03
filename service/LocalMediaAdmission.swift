@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import Darwin
 import Foundation
 import ImageIO
@@ -81,8 +82,9 @@ public struct LocalMediaAdmission: Sendable {
     public init() {}
 
     public func admit(_ input: URL) async throws -> LocalMediaAsset {
-        let url = try canonicalRegularFile(from: input)
-        let sha256 = try ContentHasher.sha256File(url)
+        let url = try Self.canonicalRegularFile(from: input)
+        let sha256 = try hashCancellable(url)
+        try Task.checkCancellation()
 
         if let still = stillMetadata(url) {
             return LocalMediaAsset(
@@ -128,7 +130,7 @@ public struct LocalMediaAdmission: Sendable {
         }
     }
 
-    private func canonicalRegularFile(from input: URL) throws -> URL {
+    static func canonicalRegularFile(from input: URL) throws -> URL {
         guard input.isFileURL, input.path.hasPrefix("/") else { throw LocalMediaAdmissionError.notAbsoluteLocalFile(input) }
         let lexical = input.standardizedFileURL
         guard lexical.path == input.path, !lexical.path.isEmpty, lexical.path != "/",
@@ -151,6 +153,19 @@ public struct LocalMediaAdmission: Sendable {
         return canonical
     }
 
+    private func hashCancellable(_ url: URL) throws -> String {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { throw LocalMediaAdmissionError.unreadable(url) }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while true {
+            try Task.checkCancellation()
+            let chunk = try handle.read(upToCount: 1_048_576) ?? Data()
+            if chunk.isEmpty { break }
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
     private func stillMetadata(_ url: URL) -> LocalMediaDimensions? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -167,7 +182,7 @@ public struct LocalMediaAdmission: Sendable {
         return "local-\(sha256.prefix(16))-\(pathHash.prefix(12))"
     }
 
-    private func isForbiddenFinalCutPath(_ url: URL) -> Bool {
+    static func isForbiddenFinalCutPath(_ url: URL) -> Bool {
         let path = url.path
         return path == "/Applications/Final Cut Pro.app" || path.hasPrefix("/Applications/Final Cut Pro.app/") || path.contains(".fcpbundle") || path.contains("/Final Cut Pro Libraries/")
     }

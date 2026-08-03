@@ -40,12 +40,22 @@ cat > "$stage_bundle/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 plutil -lint "$stage_bundle/Contents/Info.plist" >/dev/null
+staged_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$stage_bundle/Contents/Info.plist")
+[ "$staged_id" = "$bundle_id" ]
+test -f "$stage_bundle/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json"
+test -f "$stage_bundle/Contents/Resources/schemas/effect-plan.schema.json"
+codesign --force --deep --sign - "$stage_bundle"
+codesign --verify --deep --strict "$stage_bundle"
 
 if [ -e "$target" ]; then
   existing_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$target/Contents/Info.plist" 2>/dev/null || true)
   if [ "$existing_id" != "$bundle_id" ]; then
     echo "Refusing to replace non-owned bundle: $target" >&2
     exit 1
+  fi
+  if diff -qr "$target" "$stage_bundle" >/dev/null 2>&1; then
+    echo "Installed bundle is already byte-identical: $target"
+    exit 0
   fi
   backup="$app_parent/.FCPCommandConsole.app.backup.$(date +%Y%m%d%H%M%S)"
   mv "$target" "$backup"

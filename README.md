@@ -22,4 +22,8 @@ recorded in [docs/REFERENCE_LOCK.json](docs/REFERENCE_LOCK.json).
 The SwiftUI shell admits only read-only local stills/movies, builds schema 2.0
 local plans, and previews the selected source only. It does not render effects,
 control Final Cut, or establish Final Cut selection/adjacency evidence. Its
-FCPXML Export control is intentionally disabled by `CapabilityGate`.
+FCPXML Export control is intentionally disabled by `CapabilityGate`. After a
+valid local plan, the app can save an inert, payload-neutral package under
+`~/Movies/FCPCommandConsole/exports/local-plan-packages/`. It contains the
+schema-2 plan, manifest/provenance, and byte-verified media copies only; it is
+not FCPXML and is not claimed to be Final Cut importable.

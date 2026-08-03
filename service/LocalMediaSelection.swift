@@ -1,6 +1,6 @@
 import Foundation
 
-public enum LocalMediaRole: String, Codable, CaseIterable, Sendable {
+public enum LocalMediaRole: String, Codable, CaseIterable, Hashable, Sendable {
     case primary
     case outgoing
     case incoming

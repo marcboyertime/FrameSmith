@@ -143,6 +143,20 @@ final class LocalMediaTests: XCTestCase {
         }
     }
 
+    func testAdmissionGenerationMakesOlderAndCancelledWorkStaleDeterministically() {
+        var generation = LocalMediaOperationGeneration()
+        let first = generation.begin(.primary)
+        let newer = generation.begin(.primary)
+        XCTAssertFalse(generation.isCurrent(first, for: .primary))
+        XCTAssertTrue(generation.isCurrent(newer, for: .primary))
+        generation.cancel(.primary)
+        XCTAssertFalse(generation.isCurrent(newer, for: .primary))
+        let outgoing = generation.begin(.outgoing)
+        XCTAssertTrue(generation.isCurrent(outgoing, for: .outgoing))
+        generation.cancelAll()
+        XCTAssertFalse(generation.isCurrent(outgoing, for: .outgoing))
+    }
+
     private func assertAdmission(_ url: URL, equals expected: LocalMediaAdmissionError, file: StaticString = #filePath, line: UInt = #line) async {
         do {
             _ = try await LocalMediaAdmission().admit(url)

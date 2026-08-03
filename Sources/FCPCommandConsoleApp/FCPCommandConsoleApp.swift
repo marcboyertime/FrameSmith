@@ -22,34 +22,61 @@ private final class AppModel: ObservableObject {
     @Published var incoming: LocalMediaAsset?
     @Published var target: Target?
     @Published var result: LocalMediaPlanningResult?
+    @Published var package: LocalPlanPackage?
     @Published var errorMessage: String?
     @Published var loadingRole: LocalMediaRole?
-    private var admissionTask: Task<Void, Never>?
+    @Published var isSavingPackage = false
+    private var admissionTasks: [LocalMediaRole: Task<AdmissionOutcome, Never>] = [:]
+    private var admissionGeneration = LocalMediaOperationGeneration()
+    private var packageTask: Task<PackageOutcome, Never>?
+    private var packageGeneration: UInt64 = 0
+
+    private enum AdmissionOutcome: Sendable {
+        case admitted(LocalMediaAsset)
+        case failed(String)
+        case cancelled
+    }
+
+    private enum PackageOutcome: Sendable {
+        case built(LocalPlanPackage)
+        case failed(String)
+        case cancelled
+    }
 
     func admit(_ url: URL, as role: LocalMediaRole) {
-        admissionTask?.cancel()
+        admissionTasks[role]?.cancel()
+        let token = admissionGeneration.begin(role)
         loadingRole = role
         errorMessage = nil
         let admission = LocalMediaAdmission()
-        admissionTask = Task { [weak self] in
+        let task = Task.detached(priority: .userInitiated) { () -> AdmissionOutcome in
             do {
                 let media = try await admission.admit(url)
-                guard !Task.isCancelled else { return }
-                self?.assign(media, to: role)
+                return Task.isCancelled ? .cancelled : .admitted(media)
             } catch is CancellationError {
-                return
+                return .cancelled
             } catch {
-                guard !Task.isCancelled else { return }
-                self?.errorMessage = error.localizedDescription
+                return Task.isCancelled ? .cancelled : .failed(error.localizedDescription)
             }
-            self?.loadingRole = nil
-            self?.admissionTask = nil
+        }
+        admissionTasks[role] = task
+        Task { [weak self] in
+            let outcome = await task.value
+            guard let self, self.admissionGeneration.isCurrent(token, for: role) else { return }
+            self.admissionTasks[role] = nil
+            if self.loadingRole == role { self.loadingRole = nil }
+            switch outcome {
+            case .admitted(let media): self.assign(media, to: role)
+            case .failed(let message): self.errorMessage = message
+            case .cancelled: break
+            }
         }
     }
 
     func cancelAdmission() {
-        admissionTask?.cancel()
-        admissionTask = nil
+        for task in admissionTasks.values { task.cancel() }
+        admissionTasks.removeAll()
+        admissionGeneration.cancelAll()
         loadingRole = nil
     }
 
@@ -61,6 +88,7 @@ private final class AppModel: ObservableObject {
         }
         target = nil
         result = nil
+        package = nil
         errorMessage = nil
     }
 
@@ -71,6 +99,7 @@ private final class AppModel: ObservableObject {
         incoming = nil
         target = nil
         result = nil
+        package = nil
         errorMessage = nil
         command = ""
     }
@@ -86,6 +115,7 @@ private final class AppModel: ObservableObject {
     func plan() {
         errorMessage = nil
         result = nil
+        package = nil
         do {
             let registryURL = try appResource(named: "registry/effects")
             let schemaURL = try appResource(named: "schemas/effect-plan.schema.json")
@@ -97,6 +127,44 @@ private final class AppModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func savePackage() {
+        guard let result, result.inertPackageDecision.allowed else { return }
+        packageTask?.cancel()
+        packageGeneration &+= 1
+        let token = packageGeneration
+        isSavingPackage = true
+        errorMessage = nil
+        let task = Task.detached(priority: .userInitiated) { () -> PackageOutcome in
+            do {
+                let package = try LocalPlanPackageBuilder().build(result)
+                return Task.isCancelled ? .cancelled : .built(package)
+            } catch is CancellationError {
+                return .cancelled
+            } catch {
+                return Task.isCancelled ? .cancelled : .failed(error.localizedDescription)
+            }
+        }
+        packageTask = task
+        Task { [weak self] in
+            let outcome = await task.value
+            guard let self, self.packageGeneration == token else { return }
+            self.packageTask = nil
+            self.isSavingPackage = false
+            switch outcome {
+            case .built(let package): self.package = package
+            case .failed(let message): self.errorMessage = message
+            case .cancelled: break
+            }
+        }
+    }
+
+    func cancelPackage() {
+        packageGeneration &+= 1
+        packageTask?.cancel()
+        packageTask = nil
+        isSavingPackage = false
     }
 
     private func appResource(named relativePath: String) throws -> URL {
@@ -146,6 +214,14 @@ private struct ContentView: View {
                 if model.loadingRole != nil {
                     Button("Cancel") { model.cancelAdmission() }
                 }
+                if model.isSavingPackage {
+                    Button("Cancel Save") { model.cancelPackage() }
+                }
+                if let result = model.result {
+                    Button(model.isSavingPackage ? "Saving Local Package…" : "Save Local Plan Package") { model.savePackage() }
+                        .disabled(!result.inertPackageDecision.allowed || model.isSavingPackage)
+                        .help(result.inertPackageDecision.reason)
+                }
                 if let result = model.result {
                     let export = result.fcpxmlExportDecision
                     Button("FCPXML Export") {}
@@ -166,6 +242,12 @@ private struct ContentView: View {
             }
             if let result = model.result {
                 PlanSummary(result: result)
+            }
+            if let package = model.package {
+                Text("Saved inert local plan/media package: \(package.url.path). It is not importable FCPXML.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
             Spacer(minLength: 0)
         }

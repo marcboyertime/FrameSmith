@@ -5,13 +5,17 @@ import Foundation
 public struct LocalMediaPlanningResult: Equatable, Sendable {
     public let plan: EffectPlan
     public let admission: EffectPlanAdmissionResult
+    public let selection: LocalMediaSelection
     public let localPreviewDecision: CapabilityDecision
+    public let inertPackageDecision: CapabilityDecision
     public let fcpxmlExportDecision: CapabilityDecision
 
-    public init(plan: EffectPlan, admission: EffectPlanAdmissionResult, localPreviewDecision: CapabilityDecision, fcpxmlExportDecision: CapabilityDecision) {
+    public init(plan: EffectPlan, admission: EffectPlanAdmissionResult, selection: LocalMediaSelection, localPreviewDecision: CapabilityDecision, inertPackageDecision: CapabilityDecision, fcpxmlExportDecision: CapabilityDecision) {
         self.plan = plan
         self.admission = admission
+        self.selection = selection
         self.localPreviewDecision = localPreviewDecision
+        self.inertPackageDecision = inertPackageDecision
         self.fcpxmlExportDecision = fcpxmlExportDecision
     }
 }
@@ -39,7 +43,9 @@ public struct LocalMediaPlannerSession {
         return LocalMediaPlanningResult(
             plan: effectPlan,
             admission: admission,
+            selection: selection,
             localPreviewDecision: capabilityGate.decision(for: admission, capability: .localOnlyPreview),
+            inertPackageDecision: capabilityGate.decision(for: admission, capability: .inertPayloadNeutralPackage),
             fcpxmlExportDecision: capabilityGate.decision(for: admission, capability: .fcpxmlExport)
         )
     }
