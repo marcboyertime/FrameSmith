@@ -386,8 +386,11 @@ verify_exact_schema9_preupdate_policy() {
     if [[ "$schema_version" != "9" || "$policy_sha256" != "$expected_schema9_policy_sha256" || "$runtime_sha256" != "$expected_schema9_runtime_sha256" ]]; then
         fail "$label Schema-9 runtime or policy is not the reviewed pre-update baseline"
     fi
-    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:ExecutionEnabled' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:RuntimeDiscoveryAllowed' "$policy_path")" != "false" || "$(/usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter:MethodContractsPinnedIn' "$policy_path")" != "FCPCommandConsoleRuntime.m:FCPCCNativeTargetedRotateZoomStaticContracts" ]] || /usr/libexec/PlistBuddy -c 'Print :DisposableLibraryBootstrap' "$policy_path" >/dev/null 2>&1; then
-        fail "$label Schema-9 policy is not the reviewed pre-bootstrap contract"
+    # The pinned Schema-9 hash above predates the source-only targeted-transform
+    # contract tranche.  Do not invent a policy key that was never deployed;
+    # the exact runtime/policy/CDHash/provenance tuple is the admission proof.
+    if /usr/libexec/PlistBuddy -c 'Print :NativeTargetedRotateZoomAdapter' "$policy_path" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c 'Print :DisposableLibraryBootstrap' "$policy_path" >/dev/null 2>&1; then
+        fail "$label Schema-9 policy contains a source-only or bootstrap contract that was not in the reviewed deployed baseline"
     fi
 }
 
