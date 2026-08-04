@@ -1,313 +1,229 @@
-# FCPCommandConsole handoff
+# FCPCommandConsole Handoff (for Claude)
 
-Refreshed 2026-08-03. This is the standalone product handoff. Read it before
-changing code, running a manual Final Cut probe, or interpreting a package.
+Date: 2026-08-03
 
-## 1. Current checkpoint
+Goal: private local-first Final Cut command assistant.
+Current objective: finish Phase 1 after current blocker is resolved.
 
-| Item | Value |
-| --- | --- |
-| Repository | `/Users/marcboyer/Developer/FCPCommandConsole` |
-| Working branch | `standalone-app` |
-| Implementation checkpoint before this documentation refresh | `406edb8` — `Add inert local plan packaging` |
-| Prior foundational commits | `51209bb` schema-v2 taxonomy; `98d1340` granular capability evidence; `184f003` standalone local-media app |
-| Checkpoint worktree | clean before this documentation-only refresh |
-| Build/test evidence | `swift build` passed; `swift test` passed 79 tests, 0 failures |
-| App bundle | `/Users/marcboyer/Applications/FCPCommandConsole.app` |
-| Bundle ID | `com.marcboyer.FCPCommandConsole` |
-| App signature | `codesign --verify --deep --strict` passed |
-| Live process snapshot | PID `6515` was observed; this is drift-prone and must not be treated as current without rechecking |
-| Final Cut environment | Final Cut Pro 12.3, build 450152 |
+## 0) Current checkpoint
 
-The current product is a **standalone local-media planner and inert package
-tool**. It does not control Final Cut, write an FCP library, automate a UI,
-render an effect, or claim an editable Final Cut result.
+- Repository: `/Users/marcboyer/Developer/FCPCommandConsole`
+- Branch: `standalone-app`
+- HEAD: `c282b0f` (`Anchor local package writes and invalidate stale plans`)
+- Worktree: clean
+- Build/test evidence at this checkpoint: `swift build` passed;
+  `swift test` passed **94 tests, 0 failures**; `make test` core audit passed.
+- App bundle: `/Users/marcboyer/Applications/FCPCommandConsole.app`
+  (reinstalled from the working tree, `codesign --verify --deep --strict`
+  passed, bundle ID and bundled schema/registry resources verified)
+- Runtime root: `/Users/marcboyer/Movies/FCPCommandConsole`
+- Installed bundle bundle ID: `com.marcboyer.FCPCommandConsole`
 
-## 2. What is implemented and verified
+## 1) What is done right now
 
-### Schema and planner
+1. Standalone app shell and local-planner UI are implemented.
+2. Schema + planner is now Schema `2.0` only for production-like pathways.
+3. Final Cut claim semantics are gated and contract-driven.
+4. Local-only selection is prevented from becoming a false Final Cut edit claim.
+5. Inert local package builder and manifest/provenance generation are implemented.
+6. Installer/launch flow exists for local app execution.
+7. Local filesystem writes (package building and app install) are anchored and
+   symlink-hardened; see section 4b.
+8. Tests currently pass at 94 (82 at the `17e5180` checkpoint, plus 12 added by
+   the section 4b pass).
 
-The only emitted plan schema is `2.0`. The only canonical representation values
-are:
+Important: this means we have a hardened local tool, not yet Full Phase 1 Final Cut approval.
 
-- `fcpxml_native`
-- `layered_media`
-- `motion_template`
-- `external_editable_composition`
-- `baked_render`
+## 2) Exact commit history worth remembering
 
-Registry mapping: targeted rotate/zoom, natural dissolve, and Living Still use
-`fcpxml_native`; Old Television uses `layered_media`. This is typed planning
-intent only, not Final Cut acceptance.
+- `c282b0f` Anchor local package writes and invalidate stale plans
+- `17e5180` Harden Final Cut selection and job validation
+- `d69a0f3` Refresh standalone checkpoint documentation
+- `406edb8` Add inert local plan packaging
+- `184f003` Add local media planning app shell
+- `98d1340` Scope FCPXML capability evidence by effect
+- `51209bb` Migrate effect plans to schema v2
+- `56cf92c` Reduce FCPXML probe after importer crash
+- `96bc693` Add FCPXML round-trip evidence gate
+- `353a7a2` Pivot to standalone handoff workflow
 
-Schema `1.0` and raw values `fcp_native`,
-`generated_asset_plus_fcp_native`, and `external_render_required` are
-quarantined. They can have an explanatory suggested mapping but cannot silently
-be upgraded into a current plan, previewed, packaged, exported, or executed.
-Replan and validate a schema-2 plan. Unknown schema versions fail closed.
+## 3) Architecture map you can continue from
 
-### Capability model
+Primary components:
 
-`service/CapabilityGate.swift` is the authority for capability decisions. It
-allows current v2 plans for local-only source preview and inert payload-neutral
-packaging. It denies FCPXML preview/export whenever manual semantic contracts
-are missing. It also denies FCPXML for `LocalMediaSelection` regardless of a
-semantic profile because local files do not establish Final Cut selection,
-spine, revision, or adjacency evidence.
+- `Sources/FCPCommandConsoleApp/FCPCommandConsoleApp.swift`:
+  panel and UI orchestration.
+- `service/Planner.swift`:
+  plan-building entry and selection token handoff.
+- `service/Models.swift`:
+  schema-v2 typed models, representation gating, plan validation helpers.
+- `service/CapabilityGate.swift`:
+  final capability decision engine.
+- `service/JobCoordinator.swift`:
+  validates plans before preview/package/apply.
+- `service/LocalMediaAdmission.swift`:
+  safe local media intake and metadata extraction.
+- `service/LocalMediaSelection.swift`:
+  typed slot roles and selection model.
+- `service/LocalPlanPackage.swift`:
+  local package builder (media + metadata).
+- `service/LocalMediaOperationGeneration.swift`:
+  stale-result cancellation protections.
+- `service/FCPXMLRoundTripSpike.swift`:
+  reduced FCPXML probe assets (not production execution path).
+- `service/DirectoryDescriptor.swift`:
+  `DirectoryHandle` / `SourceFileHandle`, the `*at`-syscall filesystem layer
+  every package write goes through.
+- `Scripts/install-app`:
+  local signed install + verified backup swap.
 
-Semantic evidence is granular:
+## 4) What was fixed in latest pass (`17e5180`)
 
-| Contract | Why it is separate |
-| --- | --- |
-| asset admission | Source/media resource acceptance |
-| bare dissolve transition | A plain transition semantic |
-| transform keyframes | Position/scale/rotation keyframe behavior |
-| opacity keyframes | Opacity/fade behavior |
-| native color adjustment | Color-control behavior |
-| connected overlay layers | Layer placement/compositing behavior |
+1. Removed brittle timeline magic-string checks from selection proof.
+2. Made FCP-like proof use explicit verified evidence type flow.
+3. Enforced schema/representation validation in job coordinator (validator can no longer be silently skipped).
+4. Strengthened local/token provenance checks around identity, timeline metadata, spine flags, and adjacency.
+5. Preserved backward-safe source/schema mapping for Schema v2.
 
-Natural dissolve needs asset admission plus bare dissolve. Targeted rotate/zoom
-needs asset admission plus transform keyframes. Living Still additionally needs
-opacity and native color. Old Television needs opacity, native color, and
-connected overlays. A successful bare-dissolve test must not unlock any other
-workflow.
+Net effect: local-only artifacts and inert package generation remain possible, but they cannot claim Final Cut capability without explicit evidence.
 
-### Local media app
+## 4b) What was fixed in `c282b0f`
 
-`FCPCommandConsoleApp` is a SwiftUI macOS executable product. It has command
-text, role slots, Open panels, file drop, source metadata, source-only
-`VideoPlayer`/still preview, aspect-fit point selection, plan summary,
-FCPXML-disabled explanation, cancellation, and error state.
+This pass closed items 1–4 of the old section 6 list. It is local-filesystem
+and UI-state work only. **It produces no new Final Cut evidence and changes no
+capability decision.**
 
-`service/LocalMediaAdmission.swift` performs read-only admission:
+1. **Descriptor-anchored package writes** (`service/DirectoryDescriptor.swift`,
+   `service/LocalPlanPackage.swift`). The output root is still validated by
+   path, but it is then opened with `O_DIRECTORY|O_NOFOLLOW` and every
+   subsequent create, copy, hash, and publish is an `*at` syscall relative to
+   that descriptor. Renaming an ancestor or swapping it for a symlink after
+   validation can no longer redirect a write out of the vetted directory.
+   Source media is held open by one descriptor for hash-before, copy, and
+   hash-after, so those three steps provably describe one inode.
+2. **Publish is exclusive and atomic.** `renameatx_np(..., RENAME_EXCL)`
+   replaced the `fileExists` check plus `moveItem`, so "must not overwrite" is
+   part of the rename. A dangling symlink at the operation target is now
+   refused instead of being written through.
+3. **Cancellation linearization.** The rename is the single commit point.
+   Cancellation is no longer swallowed into `.ioFailure`, a returned package is
+   never downgraded to "cancelled" (it is on disk either way), only one package
+   operation may be in flight, and a cancel that loses the race is reported
+   with the published path instead of being dropped.
+4. **Stale-input invalidation.** `LocalMediaPlanInputs` records the command,
+   target, and all three role identities a plan was built from.
+   `LocalMediaPlanningResult.staleness(against:)` reports the first drift in a
+   fixed order; the app drops a drifted plan, and
+   `LocalPlanPackageBuilder.build(_:currentInputs:)` refuses to package one.
+   This catches what re-hashing cannot: a retyped command, a moved target
+   point, or a newly filled role slot leaves every hash intact.
+5. **Installer hardening** (`Scripts/install-app`). Refuses a symlinked
+   `~/Applications`, a symlinked or dangling `FCPCommandConsole.app` target
+   (previously a dangling link was written straight through), a non-directory
+   target, and a symlinked `Contents/Info.plist`. Confirms staging stayed
+   inside the parent, and verifies the installed bundle (identity, resources,
+   `codesign --verify --deep --strict`) after the swap, rolling back to the
+   backup if verification fails.
 
-- canonical absolute regular local movie/still only;
-- rejects symlinks, directories, FIFOs/devices, unsafe/broad paths, Final Cut
-  application/library paths, unreadable inputs, and undecodable content;
-- hashes source bytes without modifying them;
-- uses ImageIO for still dimensions and asynchronous AVFoundation properties for
-  movies (duration/frame rate/audio/video dimensions).
+Known limitation: replacing an installed bundle is still two renames in one
+directory, not one atomic exchange — POSIX has no shell-reachable way to swap
+two non-empty directories. The window between them is a rollback point, and
+the result is verified, but it is not a single atomic operation.
 
-Admission workers are detached from the main actor. Per-role generation tokens
-in `service/LocalMediaOperationGeneration.swift` ensure a cancelled or older
-worker cannot later overwrite a slot. The same pattern keeps cancelled package
-work from publishing a stale app result.
+## 5) Known high-value blocker (must clear before saying Phase 1 is done)
 
-`service/LocalMediaSelection.swift` has explicit roles:
+There is still a one-pass manual roundtrip importer blocker in Final Cut.
 
-- one-source workflows: `primary` only;
-- dissolve: `outgoing` and `incoming` only, in that order.
-
-Tokens use `timelineID = local-media-preview`, with `isSpine=false` and
-`adjacent=false`. That is intentional evidence honesty, not a validation bug.
-`service/Planner.swift` permits these tokens for local planning while
-`CapabilityGate` retains the FCPXML block.
-
-`service/AspectFitPointMapper.swift` maps view points to normalized targets and
-back. It rejects nonfinite input, invalid geometry, letterbox space, and outside
-clicks. It is separately tested and is not proof of Final Cut's coordinate
-convention.
-
-### Inert local packages
-
-`service/LocalPlanPackage.swift` provides `LocalPlanPackageBuilder`. It accepts
-only a current v2 admission and the exact `LocalMediaSelection` whose token and
-source identities match the plan. It asks CapabilityGate for
-`inertPayloadNeutralPackage` before writing.
-
-Default output root:
-
-`~/Movies/FCPCommandConsole/exports/local-plan-packages/`
-
-For each operation UUID it creates a sibling unique staging directory, validates
-the output root, refuses an existing target, checks each source is still a
-canonical regular non-symlink file, hashes it immediately before copy, hashes
-the copied file, hashes the source again, and atomically publishes only when all
-hashes match. The source is not altered. Failure removes only the exact staging
-directory.
-
-Each package contains:
-
-```text
-<operation UUID>/
-  EffectPlan.json
-  Manifest.json
-  Provenance.json
-  README.txt
-  Media/<role>-<sanitized basename>
-```
-
-It contains no `.fcpxml`, effect render, shell command, or claim of Final Cut
-editability. Manifest fields include relative paths, SHA-256, bytes, media
-role/type, schema version, operation, `containsFCPXML=false`,
-`containsEffectRender=false`, and `finalCutCompatibility=unverified`.
-
-## 3. Current commands and evidence
-
-Run from the repository root:
-
-```sh
-git status --short
-git rev-parse --abbrev-ref HEAD
-swift build
-swift test
-make install-app
-codesign --verify --deep --strict /Users/marcboyer/Applications/FCPCommandConsole.app
-plutil -extract CFBundleIdentifier raw /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Info.plist
-test -f /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json
-test -f /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Resources/schemas/effect-plan.schema.json
-make launch-app
-pgrep -fl '/FCPCommandConsole.app/Contents/MacOS/FCPCommandConsoleApp' || true
-git diff --check
-```
-
-Expected app identifier is `com.marcboyer.FCPCommandConsole`. `Scripts/install-app`
-builds release, stages the exact bundle under `~/Applications`, copies registry
-and schema resources, ad-hoc signs with `codesign --force --deep --sign -`,
-verifies `--deep --strict`, verifies ID/resources, then swaps only an existing
-bundle with the same ID. It preserves a recoverable hidden backup when bytes
-differ and skips another backup for byte-identical output.
-
-Known backups from this checkpoint sequence include:
-
-- `/Users/marcboyer/Applications/.FCPCommandConsole.app.backup.20260803090251`
-- `/Users/marcboyer/Applications/.FCPCommandConsole.app.backup.20260803091103`
-
-Do not delete backups casually. They are recoverable evidence of exact prior
-owned bundles.
-
-## 4. Final Cut crash and reduced v2 gate
-
-The prior v1 round-trip attempt crashed during Final Cut `asset-clip` import.
-Preserve these exact facts:
-
-| Item | Value |
-| --- | --- |
-| Crash report | `/Users/marcboyer/Library/Logs/DiagnosticReports/Final Cut Pro-2026-08-03-082455.ips` |
-| Incident ID | `42DFFCF1-9E45-41DA-992F-ADB212422B07` |
-| Predecessor operation | `A78B1B9D-60D7-4CD8-960B-FA9104C301E7` |
-| Crash phase | importer `asset-clip` |
-| Final Cut build | 12.3 / 450152 |
-
-The reduced v2 package is immutable for the next manual test:
+Immutable reduced v2 spike package:
 
 `/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/CA7D0733-A435-498E-BD82-149CFF863FC3`
 
-It includes `FCPCommandConsole-RoundTrip-Spike.fcpxml`, media, manifest, plan,
-provenance, README, and `evidence.json`. Its syntax/DTD package checks passed;
-that does **not** establish Final Cut import, transition, export, or semantic
-acceptance. All manual semantic evidence is unknown.
+Includes:
 
-The next manual gate is exactly one operation:
+- `FCPCommandConsole-RoundTrip-Spike.fcpxml`
+- `manifest.json`
+- `evidence.json`
+- `provenance.json`
+- `plan.json`
+- `README.md`
+- `Media/`
+- `Returned/` folder
 
-1. On Final Cut 12.3 build 450152, manually import that exact immutable v2
-   package.
-2. Inspect whether the bare dissolve and media appear as expected.
-3. Export/read back the result and compare it to the recorded expectation.
-4. Stop on the first error, crash, alert, missing media, missing transition, or
-   normalized-export discrepancy. Capture the outcome before any retry.
+Known crash history to preserve:
 
-If and only if it succeeds, admit **asset admission + bare dissolve** for that
-specific evidence profile. Keep transform, opacity, color, and overlay probes
-separate and blocked. Phase 1 remains 0/4 Final Cut-accepted until workflow
-specific manual evidence exists.
+- crash report `/Users/marcboyer/Library/Logs/DiagnosticReports/Final Cut Pro-2026-08-03-082455.ips`
+- incident id `42DFFCF1-9E45-41DA-992F-ADB212422B07`
+- FCP version/build: 12.3 / 450152
 
-## 5. Failure modes and fixes
+Manual rule for the next agent:
 
-| Symptom | Meaning | Correct response |
-| --- | --- | --- |
-| App blank or exits | Wrong/unsigned bundle or missing resources | Re-run `make install-app`; verify codesign, ID, registry/schema files |
-| Installer refuses replacement | Existing bundle has a different identifier | Do not overwrite it; inspect it and choose a distinct owned target only with authority |
-| Admission rejects a file | It is a symlink, nonregular, unsafe, Final Cut path, or undecodable | Use the canonical real local file; never weaken admission |
-| Old media appears after a newer drop/Cancel | This would be a stale UI result | Inspect generation-token/task handling; older results must be ignored |
-| Package collision | Operation UUID target exists | Re-plan to get a new operation; do not overwrite evidence |
-| Package stale hash/nonregular failure | Source changed or no longer matches admission | Re-admit and re-plan; preserve the old evidence |
-| Package staging remains | A failure/cancellation cleanup defect | Inspect only that UUID staging directory and fix cleanup; never broad-delete the output root |
-| FCPXML button disabled | Correct CapabilityGate behavior | Read the gate reason; do not duplicate or bypass it |
-| v2 import crashes/fails/misses transition | Manual semantics not established | Stop immediately, preserve package/crash/log evidence, do not retry modified payloads |
-| Export differs/normalizes | Final Cut semantics differ from the package assumption | Record exact difference; treat contract as unknown/failed |
-| Final Cut build changes | Existing manual evidence may not apply | Re-identify version/build and re-establish evidence with a new bounded probe |
+- Perform exactly one manual import/export sanity pass with that package.
+- Stop at first crash, alert, missing transition, missing media, or export mismatch.
+- Record results before any mutation/retry.
+- Only admit contracts that match observed behavior.
 
-## 6. Safety-rule review
+## 6) Remaining technical work before all four workflows can be claimed
 
-### Essential failure-prevention boundaries
+Items 1–4 of this list are done in the working tree; see section 4b. What is
+left is the part that cannot be done in code:
 
-- Never modify stock `/Applications/Final Cut Pro.app`, source media, or any
-  production Final Cut library.
-- Do not use AppleScript, Accessibility APIs, keyboard/mouse simulation, or
-  coordinate-based UI automation.
-- Do not make paid calls, upload media, or push to a remote without explicit
-  user authority.
-- Keep secrets out of source, logs, shell history, command arguments, and
-  packages.
-- Use canonical paths, symlink/nonregular rejection, SHA-256, exact identity
-  matching, non-overwrite targets, staging publication, and fail-closed gates.
-- Treat a DTD pass, source preview, local package, app signature, or test pass
-  as implementation evidence only, never as Final Cut workflow acceptance.
+1. One successful import/export roundtrip for minimal contract (dissolve pathway only), then build other contracts only with manual evidence.
+2. Workflow validations:
+   - targeted rotate/zoom keyframe editability
+   - natural dissolve manual duration/edge edits
+   - old TV overlays/controls are native-editable in Final Cut
+   - living still movement/fade/color editability
 
-### Archived or nonbinding historical restrictions
+## 7) Evidence and safety constraints to preserve
 
-Copied-app launchers, private runtime injection/patch rules, isolated copied
-preferences, and related private-runtime constraints are archived history. They
-should not drive standalone implementation or documentation. Do not revive that
-route as a shortcut to a Phase 1 claim.
+1. Never edit source media.
+2. Never use stock Final Cut app or production libraries.
+3. Never use AppleScript, Accessibility, keyboard/mouse simulation, or coordinate automation.
+4. Keep generated output local and canonical under runtime directories only.
+5. Preserve hashes and provenance for provenance and rollback confidence.
+6. No remote Git actions.
+7. No paid-generation calls unless explicitly approved.
+8. Never treat parse/test pass as Full Final Cut acceptance.
 
-The Movies runtime root and read-only `reference/` snapshots remain useful
-scope/reproducibility conventions. They are defaults and audit context, not
-evidence that a workflow or Final Cut semantic works.
+## 8) Failure modes and what to do
 
-## 7. Authority and practical autonomy for the next AI
+1. Package imports but semantics missing:
+   keep blocked and investigate only this specific contract.
+2. Package hash mismatch:
+   reject, re-admit source, and re-plan.
+3. UI stale output after edits:
+   refresh planner state and cancel stale in-flight results.
+4. App launch/import issue:
+   re-run install, verify signature/resources, then retry.
+5. Final Cut alert/abort:
+   capture logs immediately and stop touching related payloads.
 
-A next AI may autonomously edit focused project files, build/test/install the
-standalone app, launch an app process it owns, use terminal tooling, create
-synthetic local fixtures, and use network access for focused public research or
-local dependency investigation when useful. Preserve current user edits and
-report actual commands/results.
+## 9) Fast checks for continuity
 
-That autonomy does not authorize stock Final Cut/source/production-library
-changes, UI automation, paid services, media uploads, secrets exposure, or
-remote pushes. Research should be evidence-backed; implementation should retain
-the non-overwrite/hash/fail-closed boundaries above.
+Run these after code changes:
 
-## 8. Prioritized next steps
+- `git status --short`
+- `git rev-parse --abbrev-ref HEAD`
+- `swift build`
+- `swift test`
+- `sh -n Scripts/install-app`
+- `make install-app`
+- `codesign --verify --deep --strict /Users/marcboyer/Applications/FCPCommandConsole.app`
+- `plutil -extract CFBundleIdentifier raw /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Info.plist`
+- `test -f /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Resources/schemas/effect-plan.schema.json`
+- `test -f /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json`
+- `git diff --check`
 
-1. Verify the current branch/state and rerun `swift build`, `swift test`, and
-   installed-app signature/resource checks before changing behavior.
-2. Carry out the one immutable reduced-v2 manual import/export probe only when
-   the owner is ready to observe Final Cut manually. Record either success or
-   the first stop condition.
-3. If bare dissolve succeeds, encode only the two admitted contracts and keep
-   all other workflow capabilities blocked.
-4. If it fails, preserve exact evidence and diagnose the reduced package/export
-   observation without broadening payload semantics or touching Final Cut by
-   automation.
-5. After Phase 1 manual evidence is established, begin Phase 2 with reusable
-   custom effects, melt, portal, masks, segmentation/tracking, and external
-   editable compositions. Each needs its own contracts and probe.
+## 10) Completion language (avoid overclaim)
 
-## 9. Code hotspots
+Current state is best described as:
 
-| Path | Purpose |
-| --- | --- |
-| `service/Models.swift` | Schema v2 plan model and legacy quarantine |
-| `service/Planner.swift` | Deterministic planning and local-token validation boundary |
-| `service/CapabilityGate.swift` | Central local/inert/FCPXML decisions and semantic-contract requirements |
-| `service/LocalMediaAdmission.swift` | Read-only ImageIO/AVFoundation admission and cancellable hashing |
-| `service/LocalMediaSelection.swift` | Roles, exact counts, local-only token |
-| `service/AspectFitPointMapper.swift` | Letterbox-safe target mapping |
-| `service/LocalMediaOperationGeneration.swift` | Stale result prevention |
-| `service/LocalMediaPlanning.swift` | Plan/admission/selection/capability result |
-| `service/LocalPlanPackage.swift` | Inert package construction, root/source/hash/staging checks |
-| `Sources/FCPCommandConsoleApp/FCPCommandConsoleApp.swift` | Standalone UI and detached worker coordination |
-| `Scripts/install-app` | Staged signed install and backup behavior |
-| `service/FCPXMLRoundTripSpike.swift` | Reduced v2 package/evidence; do not turn it into production export |
-| `Tests/FCPCommandConsoleTests/LocalMediaTests.swift` | Admission/roles/point/generation tests |
-| `Tests/FCPCommandConsoleTests/LocalPlanPackageTests.swift` | Package success/failure cleanup/hash safety tests |
+- Local planning and packaging architecture are implemented.
+- Hardening on local/FCP-origin claims has improved.
+- Manual Final Cut acceptance for the four target workflows is not yet complete.
 
-## 10. Completion language
+Until manual and import/export gates are passed with preserved evidence, do not claim:
 
-Use precise language. It is correct to say the standalone app, local admission,
-schema v2 planner, capability gate, and inert package builder are implemented
-and tested. It is not correct to say Final Cut import, export, transition,
-transform, editability, source preview effects, or any of the four workflows is
-working. Current Final Cut acceptance is **0/4**.
+- “all workflows are working”
+- “editable Final Cut transitions and transforms are in production behavior”
+- “Phase 1 accepted”

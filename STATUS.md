@@ -1,15 +1,15 @@
 # FCPCommandConsole status
 
-Checkpoint refreshed 2026-08-03 from local evidence. The code checkpoint before
-this documentation refresh is commit `406edb8` on branch `standalone-app` with
-a clean working tree.
+Checkpoint refreshed 2026-08-03 from local evidence. The code checkpoint is
+commit `c282b0f` on branch `standalone-app`, which added the local-filesystem
+hardening described in `docs/HANDOFF.md` section 4b.
 
 ## Verified implementation and local app facts
 
 | Item | Evidence |
 | --- | --- |
-| Core build | `swift build` passed at checkpoint `406edb8` |
-| Test suite | `swift test`: 79 tests, 0 failures |
+| Core build | `swift build` passed at checkpoint `c282b0f` |
+| Test suite | `swift test`: 94 tests, 0 failures |
 | Standalone app | `/Users/marcboyer/Applications/FCPCommandConsole.app` |
 | Bundle identity | `com.marcboyer.FCPCommandConsole` |
 | Signature | `codesign --verify --deep --strict` passed |
@@ -55,6 +55,16 @@ source before/copy/after, and publishes only on a complete match. A package
 contains `EffectPlan.json`, `Manifest.json`, `Provenance.json`, `README.txt`,
 and copied `Media/` files. It contains no `.fcpxml`, effect render, shell
 command, or Final Cut compatibility claim.
+
+Every one of those writes is anchored to a file descriptor opened on the vetted
+output root (`service/DirectoryDescriptor.swift`), so an ancestor renamed or
+replaced with a symlink after validation cannot redirect the staging, the media
+copies, or the publish. The publish itself is a single
+`renameatx_np(..., RENAME_EXCL)`: it is the commit point, it cannot overwrite
+an existing entry or a dangling symlink, and a cancellation that arrives after
+it is reported with the published path rather than dropped. A plan whose
+command, target point, or role sources have drifted since it was made is
+refused before the output root is touched.
 
 ## Final Cut evidence boundary
 
