@@ -1,12 +1,12 @@
 # Phase 1 acceptance
 
-Refreshed 2026-08-03 from checkpoint `406edb8`. Phase 1 remains **incomplete:
+Refreshed 2026-08-03 from checkpoint `c282b0f`. Phase 1 remains **incomplete:
 0/4 Final Cut workflows accepted**.
 
 ## Verified offline and local-app facts
 
 - `swift build` succeeded.
-- `swift test` passed 79 tests with 0 failures.
+- `swift test` passed 94 tests with 0 failures.
 - Schema v2 models, registry, deterministic parser/planner, validator, legacy
   quarantine, granular capability gate, local admission, role tokens,
   aspect-fit mapping, source preview, and inert package builder are implemented
@@ -16,6 +16,11 @@ Refreshed 2026-08-03 from checkpoint `406edb8`. Phase 1 remains **incomplete:
   `com.marcboyer.FCPCommandConsole`; signature/resource checks passed.
 - Local packages preserve source bytes and refuse stale/nonregular/symlinked
   sources, unsafe roots, operation collisions, and identity mismatch.
+- Package writes are anchored to a descriptor on the vetted output root and
+  published with `renameatx_np(RENAME_EXCL)`; a plan whose command, target, or
+  role sources have drifted is refused before the output root is touched.
+- The installer refuses symlinked, dangling, and non-bundle install targets and
+  verifies the installed bundle after the swap.
 
 None of these are Final Cut workflow acceptance.
 
@@ -31,10 +36,19 @@ The immutable reduced v2 package at
 `/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/CA7D0733-A435-498E-BD82-149CFF863FC3`
 passed syntax/DTD checks only. All Final Cut manual semantic rows are unknown.
 
+Preflight was re-run read-only on 2026-08-03: both media files still match
+their `manifest.json` SHA-256 and byte counts, the FCPXML is still valid
+against the installed FCPXML 1.13 DTD, `Returned/` is empty, and the disposable
+`FCPCommandConsole Test` library exists. The package is byte-identical to what
+was generated, so the manual pass starts from a proven input.
+
 Acceptance next requires exactly one manual import/export test of that package.
 Stop on the first error, crash, alert, missing media/transition, or normalized
 export difference. If it succeeds, record only asset admission and bare-dissolve
 transition evidence. Transform, opacity, color, and overlay probes stay separate.
+
+`docs/ROUNDTRIP_MANUAL_PASS.md` is the execution sheet: numbered steps, stop
+conditions, and the rows to fill in during the pass.
 
 ## Workflow matrix
 

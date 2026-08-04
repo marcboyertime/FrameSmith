@@ -155,6 +155,12 @@ Known crash history to preserve:
 - incident id `42DFFCF1-9E45-41DA-992F-ADB212422B07`
 - FCP version/build: 12.3 / 450152
 
+Preflight re-verified read-only on 2026-08-03: media SHA-256 and byte counts
+still match `manifest.json`, the FCPXML is still DTD-valid against the
+installed 1.13 DTD, `Returned/` is empty, and the disposable
+`FCPCommandConsole Test` library exists. Execution sheet:
+`docs/ROUNDTRIP_MANUAL_PASS.md`.
+
 Manual rule for the next agent:
 
 - Perform exactly one manual import/export sanity pass with that package.
