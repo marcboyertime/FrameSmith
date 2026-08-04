@@ -22,33 +22,61 @@ Package under test (immutable — do not regenerate, edit, or retry it):
 | `evidence.json` semantic rows | all four still `unknown` |
 | Disposable library `~/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle` | present |
 | `media-rep` `src` URLs | point at the package's own `Media/`, not the fixtures |
+| `Scripts/launch-isolated-fcpcommandconsole --preflight-only` | `preflight=pass` (copied-app identity, entitlements, sandbox probes, no FCP running, preferences unchanged) |
 
 The input is therefore byte-identical to what was generated and DTD-validated
 on 2026-08-03. Re-run the two hash checks if any significant time passes before
 the pass is executed.
+
+## Which Final Cut to launch
+
+**Never the stock `/Applications/Final Cut Pro.app`, and never by
+double-clicking anything.** The pass runs the reviewed copy at
+`~/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app`
+through `Scripts/launch-isolated-fcpcommandconsole`, which is the only launch
+path that verifies the copy's identity, forces an isolated `HOME`, and applies
+`config/fcpcommandconsole-isolation.sb`. That profile denies every `.fcpbundle`
+except the disposable library, so a production library cannot be opened even by
+accident.
 
 ## Steps
 
 Stop at the **first** failure. Do not retry, do not regenerate, do not move to
 the next step.
 
-1. Quit Final Cut Pro if it is running.
-2. Open Final Cut Pro and open **only** the disposable library
-   `FCPCommandConsole Test`. No production library may be open.
-3. File ▸ Import ▸ XML…, choose
-   `FCPCommandConsole-RoundTrip-Spike.fcpxml`, and target the disposable
-   library. **Stop and record if there is any error, alert, or crash.**
-4. Confirm the event **FCPCommandConsole Dissolve Admission Probe** was created
+1. Confirm no Final Cut is running: `pgrep -lf "Final Cut"` prints nothing.
+   The launcher refuses to start otherwise.
+2. Launch, from the repo root, in a terminal you can leave open — the command
+   blocks until Final Cut quits:
+
+   ```sh
+   Scripts/launch-isolated-fcpcommandconsole --launch
+   ```
+
+   It prints `preflight=pass` and a provenance directory before launching.
+   If it prints anything else and exits, stop and record that output; the
+   pass has not started.
+3. Confirm the open library is **`FCPCommandConsole Test`** and nothing else.
+   If no library opens, File ▸ Open Library ▸ Other… and choose
+   `~/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle`. An error when
+   any *other* library is offered is the sandbox working correctly, not a
+   probe failure — record it and carry on with the disposable library.
+4. File ▸ Import ▸ XML…, press `⇧⌘G`, paste the absolute path of
+   `FCPCommandConsole-RoundTrip-Spike.fcpxml` from the package, and import.
+   **Stop and record on any error, alert, beachball, or crash.**
+5. Confirm the event **FCPCommandConsole Dissolve Admission Probe** was created
    with two browser clips and a project of the same name.
-5. Open the project and inspect the spine: two clips with a one-second
+6. Confirm both clips show real media, not missing-file/red placeholders.
+7. Open the project and inspect the spine: two clips with a one-second
    transition between them. Record whether the transition exists at all, and
-   what Final Cut named it.
-6. Confirm both clips show real media, not missing-file placeholders.
-7. Select the project, File ▸ Export XML…, and write the result into the
-   package's `Returned/` directory. `Returned/` is the only part of the package
-   that may be written to.
-8. Compare the returned FCPXML against the source: asset ids, durations, the
-   transition element and its duration, and any normalization Final Cut applied.
+   the exact name Final Cut gave it.
+8. Select the project in the browser, File ▸ Export XML…, press `⇧⌘G`, and
+   save into the package's `Returned/` directory. `Returned/` is the only part
+   of the package that may be written to.
+9. Quit Final Cut. The launcher exits and writes its after-snapshots.
+10. Compare the returned FCPXML against the source: asset ids, durations, the
+    transition element and its duration, and any normalization Final Cut
+    applied.
 
 ## Results — fill in during the pass
 
