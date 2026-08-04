@@ -36,26 +36,44 @@ The immutable reduced v2 package at
 `/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/CA7D0733-A435-498E-BD82-149CFF863FC3`
 passed syntax/DTD checks only. All Final Cut manual semantic rows are unknown.
 
-Preflight was re-run read-only on 2026-08-03: both media files still match
-their `manifest.json` SHA-256 and byte counts, the FCPXML is still valid
-against the installed FCPXML 1.13 DTD, `Returned/` is empty, and the disposable
-`FCPCommandConsole Test` library exists. The package is byte-identical to what
-was generated, so the manual pass starts from a proven input.
+### The manual pass was executed on 2026-08-03 (23:19–23:28)
 
-Acceptance next requires exactly one manual import/export test of that package.
-Stop on the first error, crash, alert, missing media/transition, or normalized
-export difference. If it succeeds, record only asset admission and bare-dissolve
-transition evidence. Transform, opacity, color, and overlay probes stay separate.
+One pass, through the guarded isolated launcher against the reviewed copied
+app, into the disposable library. Full results and the returned XML analysis
+are in `docs/ROUNDTRIP_MANUAL_PASS.md`.
 
-`docs/ROUNDTRIP_MANUAL_PASS.md` is the execution sheet: numbered steps, stop
-conditions, and the rows to fill in during the pass.
+| Contract | Result |
+| --- | --- |
+| Import completed without error or crash | pass — the v1 `addAssetClip:` crash did not recur |
+| asset admission | **pass** — both assets resolved with real uid/sig, correct durations, codecs detected |
+| bare dissolve transition | **fail** — returned at `offset="0s"` with `enabled="0"` and a synthesized `<effect uid=""/>` |
+| transition timing and handles | **fail** — 8s + 8s butt cut, no overlap, no handles |
+| returned FCPXML round trip | partial — export works; the transition did not round-trip faithfully |
+
+**Natural dissolve is not accepted.** It requires asset admission *and* bare
+dissolve; bare dissolve failed. No capability gate moved: `SemanticProfile`
+has no persisted contract store and defaults to an empty admitted set, so every
+FCPXML pathway remains closed.
+
+The result is nonetheless real progress. The v1 predecessor crashed during
+`asset-clip` import and never reached semantics; the reduced v2 package
+imported cleanly, which localises the remaining problem to transition
+construction rather than asset handling. The probe's hypothesis — that a bare
+`<transition>` element suffices — is disproven, and the returned XML says
+precisely why: `offset` and the `filter-video` child are both `#IMPLIED` in the
+DTD, so omitting them passes validation but yields a disabled placeholder at
+time zero.
+
+Revision 3 requirements are recorded at the end of
+`docs/ROUNDTRIP_MANUAL_PASS.md`. It must be a new operation ID; revision 2 is
+not to be modified, regenerated, or retried.
 
 ## Workflow matrix
 
 | Workflow | Offline/local status | Final Cut acceptance |
 | --- | --- | --- |
 | Targeted rotate/zoom | planner/math/local point selection implemented | not accepted |
-| Natural dissolve | registry + reduced v2 syntax package | not accepted |
+| Natural dissolve | registry + reduced v2 syntax package; v2 imported cleanly but the bare transition was rejected as a disabled placeholder | not accepted — asset admission observed, bare dissolve failed |
 | Old Television | layered-media plan/composition/local package only | not accepted |
 | Living Still | native-fallback plan/local package only | not accepted |
 

@@ -76,17 +76,23 @@ The immutable reduced v2 round-trip package is:
 
 `/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/CA7D0733-A435-498E-BD82-149CFF863FC3`
 
-Its syntax/DTD package evidence passed, but every manual Final Cut semantic
-status remains unknown. The predecessor v1 import crashed during `asset-clip`
-import:
+The predecessor v1 import crashed during `asset-clip` import:
 
 - report: `/Users/marcboyer/Library/Logs/DiagnosticReports/Final Cut Pro-2026-08-03-082455.ips`
 - incident: `42DFFCF1-9E45-41DA-992F-ADB212422B07`
 - predecessor operation: `A78B1B9D-60D7-4CD8-960B-FA9104C301E7`
 
-The sole next manual action is one controlled import of that exact immutable v2
-package into Final Cut 12.3/450152, followed by an export/readback of the bare
-dissolve result. Stop immediately on any error, crash, alert, missing media,
-missing transition, or export normalization discrepancy; record evidence before
-any retry. Even success admits only **asset admission + bare dissolve**. Do not
-extend it to transform, opacity, color, or connected-overlay semantics.
+**The v2 manual pass was executed on 2026-08-03 23:19–23:28** through the
+guarded isolated launcher into the disposable library. It did not crash. Both
+assets were admitted with real uid/sig, correct durations, and detected codecs,
+so the v1 crash did not recur. The bare transition was **rejected**: Final Cut
+returned it at `offset="0s"` with `enabled="0"` against a synthesized
+`<effect uid=""/>`, and the two clips butt-cut at 8s with no overlap or handles.
+
+Phase 1 therefore remains **incomplete: 0/4 Final Cut workflows accepted**.
+Natural dissolve needs asset admission *and* bare dissolve; only the former was
+observed. No capability gate moved. Full results, the returned XML analysis,
+and revision 3 requirements are in `docs/ROUNDTRIP_MANUAL_PASS.md`.
+
+Revision 2 is spent evidence. Do not modify, regenerate, or retry it; a
+revision 3 probe must use a new operation ID.

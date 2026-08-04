@@ -45,3 +45,34 @@ in this revision.
 DTD validation proves only source syntax. Asset admission, transition semantics,
 transition timing/handles, and returned-FCPXML round trip remain `unknown` until
 manual import/export evidence exists.
+
+## Outcome of the revision 2 pass (2026-08-03)
+
+Executed once. **Asset admission passed; the bare transition hypothesis is
+disproven.** Final Cut imported the reduced package without a crash — the v1
+`addAssetClip:` failure did not recur — and returned the transition as:
+
+```xml
+<effect id="r2" uid=""/>
+...
+<transition offset="0s" duration="1s">
+    <filter-video ref="r2" enabled="0"/>
+</transition>
+```
+
+Pinned to the timeline head rather than the 8s cut, backed by a synthesized
+effect with an empty UID, and imported disabled. The clips butt-cut at 8s with
+no overlap or handles.
+
+The cause is visible in the DTD: `<!ATTLIST transition offset %time; #IMPLIED>`
+and `<!ELEMENT transition (filter-video?, …)>`. Both the offset and the effect
+reference are optional *for validation* and required *for semantics*, so a
+deliberately bare transition validates and then imports as an inert
+placeholder. The revision 2 design note above — that the package "deliberately
+contains no … effect UID" — is exactly what the probe set out to test, and the
+answer is that the omission is fatal.
+
+`evidence.json` inside the package still reads `unknown` for these rows and is
+left untouched: the package is the immutable artifact under test. Recorded
+evidence lives in `docs/ROUNDTRIP_MANUAL_PASS.md` and
+`docs/PHASE1_ACCEPTANCE.md`, along with the revision 3 requirements.

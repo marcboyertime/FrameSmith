@@ -78,18 +78,46 @@ the next step.
     transition element and its duration, and any normalization Final Cut
     applied.
 
-## Results — fill in during the pass
+## Results — pass executed 2026-08-03 23:19–23:28
+
+Final Cut Pro 12.3 / 450152, reviewed copy, launched via
+`Scripts/launch-isolated-fcpcommandconsole --launch`
+(provenance `isolated-launch-preflight.M4kLXl`). Returned export:
+`Returned/FCPCommandConsole Dissolve Admission Probe.fcpxmld/Info.fcpxml`.
 
 | Row | Status | Evidence |
 | --- | --- | --- |
-| Import completed without error/crash | unknown | |
-| Asset admission (both clips resolve to real media) | unknown | |
-| Bare dissolve transition present | unknown | |
-| Transition timing / handles preserved | unknown | |
-| Returned FCPXML round trip | unknown | |
+| Import completed without error/crash | **pass** | No alert, error, or crash. Event and project both created. The v1 crash in `addAssetClip:toObject:parentFormatID:` did not recur. |
+| Asset admission | **pass** | Both assets returned with real `uid`/`sig`, `videoSources="1" audioSources="1"`, 8s durations, codecs detected as Apple ProRes 422 LT + Linear PCM. |
+| Bare dissolve transition present | **fail** | Returned as `<transition offset="0s" duration="1s"><filter-video ref="r2" enabled="0"/></transition>` with a synthesized `<effect id="r2" uid=""/>`. Pinned to the timeline head, not the cut; no real effect; imported disabled. |
+| Transition timing / handles preserved | **fail** | `clip-a` `offset="0s"` dur 8s, `clip-b` `offset="8s"`, sequence `duration="16s"`. Exactly 8+8 — butt cut, zero overlap, no handles. |
+| Returned FCPXML round trip | **partial** | The export mechanism works: a readable `.fcpxmld` bundle was produced. The content did not round-trip faithfully — the transition was rewritten as above. |
 
-FCP version/build observed: ______  (expected 12.3 / 450152)
-Date/time of pass: ______
+### Normalizations Final Cut applied
+
+- Document version `1.13` → `1.14`.
+- `<format id="r1" name="FFVideoFormat1080p30"/>` resolved to full
+  `frameDuration="100/3000s" width="1920" height="1080"
+  colorSpace="1-1-1 (Rec. 709)"`. **Name-only format references are accepted.**
+- Media was **copied into the library**: returned `src` points at
+  `FCPCommandConsole Test.fcpbundle/…/Original Media/`, not at the package copy.
+  What is proven is import-with-copy; leave-in-place referencing is untested.
+- Library scaffolding (smart collections) added by the exporter.
+
+### Deviation
+
+The returned XML contains a marker the source never had:
+`<marker start="17/15s" duration="100/3000s" value="Marker 1"/>` on `clip-b`.
+The operator does not recall pressing `M` and it cannot be proven either way.
+It is recorded as an operator artifact: it is exactly one frame long at 30fps,
+frame-aligned at frame 34, and carries Final Cut's default sequential name for
+a manually created marker — no XML import path synthesizes markers, and the
+analysis features name theirs descriptively. The project `modDate`
+(23:24:30) falls between import (23:22:15) and export (23:28).
+
+It does not bear on either finding: asset admission was settled at import
+before any marker could exist, and a marker on `clip-b` cannot cause a
+transition to be placed at offset 0, disabled, with an empty effect UID.
 
 ## On crash or alert
 
@@ -103,11 +131,38 @@ The known predecessor failure, for comparison: revision 1
 `FFXMLImporter AssetClipImport addAssetClip:toObject:parentFormatID:`,
 incident `42DFFCF1-9E45-41DA-992F-ADB212422B07`.
 
-## What a success does and does not admit
+## What this pass admits
 
-A clean pass admits **asset admission** and **bare dissolve** only, and only
-for the natural-dissolve pathway. It does not admit transform, opacity, color,
-or connected-overlay semantics, and it does not advance the other three
-workflows — each needs its own package and its own manual pass. Update
-`evidence.json`, `docs/PHASE1_ACCEPTANCE.md`, and the `CapabilityGate` contract
-only for the rows this pass actually observed.
+**Asset admission only.** Natural dissolve is **not** accepted: it requires
+asset admission *and* bare dissolve, and bare dissolve failed. No capability
+gate moves — `SemanticProfile` has no persisted contract store and defaults to
+an empty admitted set, so every FCPXML pathway stays closed. Phase 1 remains
+**0/4 workflows accepted**.
+
+Nothing here admits transform, opacity, color, or connected-overlay semantics,
+and nothing advances the other three workflows.
+
+Do not edit `evidence.json`, `manifest.json`, or anything else inside the
+package. It is the immutable artifact under test and `Returned/` is the only
+part that may be written. Evidence is recorded here and in
+`docs/PHASE1_ACCEPTANCE.md`, which are version-controlled.
+
+## What revision 3 needs
+
+The probe's hypothesis — that a bare `<transition>` element is enough — is
+disproven. DTD validity does not imply transition semantics: `offset` and the
+`filter-video` child are both `#IMPLIED` in the DTD, and omitting them produced
+a disabled placeholder at the wrong time. A revision 3 package needs all four:
+
+1. An `<effect>` resource carrying the real Cross Dissolve UID, not a bare
+   `name` attribute.
+2. A `<filter-video ref="…">` child on the transition pointing at it, enabled.
+3. An explicit `offset` straddling the cut — for a 1s transition at an 8s cut,
+   `offset="7.5s"`, since Final Cut centres a transition on the edit point.
+4. Handles: both clips need media beyond the cut for the dissolve to run
+   through. With `duration="8s"` clips butted at 8s there is nothing to
+   dissolve. Either trim the clips shorter than their source media or extend
+   the assets.
+
+Build it as a new operation ID and run it as a separate pass. Do not modify,
+regenerate, or retry `CA7D0733-A435-498E-BD82-149CFF863FC3`.
