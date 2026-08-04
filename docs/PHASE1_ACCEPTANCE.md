@@ -64,9 +64,14 @@ precisely why: `offset` and the `filter-video` child are both `#IMPLIED` in the
 DTD, so omitting them passes validation but yields a disabled placeholder at
 time zero.
 
-Revision 3 requirements are recorded at the end of
-`docs/ROUNDTRIP_MANUAL_PASS.md`. It must be a new operation ID; revision 2 is
-not to be modified, regenerated, or retried.
+**Revision 3 has been built** as operation
+`6B8F8B1C-8171-4770-86C0-E5A859C3B32A` and awaits its manual pass. It supplies
+the real Cross Dissolve effect UID, the `filter-video` reference, an explicit
+offset centred on the cut, and one-second handles, while keeping every
+construction Final Cut already admitted. Revision 2 was not modified,
+regenerated, or retried. Nothing about revision 3's Final Cut behaviour may be
+claimed until its own pass is run — its evidence ledger records every semantic
+row as `unknown`, including asset admission.
 
 ## Workflow matrix
 

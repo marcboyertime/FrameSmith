@@ -94,5 +94,16 @@ Natural dissolve needs asset admission *and* bare dissolve; only the former was
 observed. No capability gate moved. Full results, the returned XML analysis,
 and revision 3 requirements are in `docs/ROUNDTRIP_MANUAL_PASS.md`.
 
-Revision 2 is spent evidence. Do not modify, regenerate, or retry it; a
-revision 3 probe must use a new operation ID.
+Revision 2 is spent evidence and was not modified, regenerated, or retried.
+
+**Revision 3 is built and awaiting its manual pass:**
+`/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/6B8F8B1C-8171-4770-86C0-E5A859C3B32A`
+
+It keeps everything Final Cut admitted in revision 2 and changes only the
+transition: a real `<effect>` carrying the Cross Dissolve UID
+`FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265` (derived from Final Cut's own
+`Filters.bundle` and corroborated by a real-world transition FCPXML), a
+`filter-video` reference to it, an explicit offset centred on the cut, and
+one-second handles on both clips. DTD-valid, media hashes verified,
+`Returned/` empty. Its own semantic rows are all `unknown` — including asset
+admission, which is re-checked rather than assumed.

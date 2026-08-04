@@ -75,4 +75,36 @@ answer is that the omission is fatal.
 `evidence.json` inside the package still reads `unknown` for these rows and is
 left untouched: the package is the immutable artifact under test. Recorded
 evidence lives in `docs/ROUNDTRIP_MANUAL_PASS.md` and
-`docs/PHASE1_ACCEPTANCE.md`, along with the revision 3 requirements.
+`docs/PHASE1_ACCEPTANCE.md`.
+
+## Revision 3
+
+Generated 2026-08-03 as operation `6B8F8B1C-8171-4770-86C0-E5A859C3B32A`.
+Everything Final Cut admitted in revision 2 is unchanged — assets, `asset-clip`
+construction, name-only format reference, browser clips. Only the transition
+differs:
+
+```xml
+<effect id="r4" name="Cross Dissolve" uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265"/>
+...
+<asset-clip name="clip-a.mov" ref="r2" offset="0s" start="0s" duration="21000/3000s" …/>
+<transition name="Cross Dissolve" offset="19500/3000s" duration="3000/3000s">
+  <filter-video ref="r4" name="Cross Dissolve">…</filter-video>
+</transition>
+<asset-clip name="clip-b.mov" ref="r3" offset="19500/3000s" start="3000/3000s" duration="21000/3000s" …/>
+```
+
+The UID is derived rather than guessed: `PAECrossDissolve` in
+`InternalFiltersXPC.pluginkit/…/Filters.bundle/Contents/Info.plist` declares
+protocol `FxTransition` with uuid `4731E73A-8DAC-4113-9A30-AE85B1761265`, and a
+real-world transition FCPXML references that uuid as `FxPlug:<uuid>`.
+
+The fixtures are exactly 8 s, so handles had to be made rather than found: both
+clips are trimmed to 7 s, leaving clip-a a 1 s tail handle and clip-b a 1 s head
+handle. All times are emitted as integers in the 3000-unit timescale so nothing
+is produced by floating-point division; `RoundTripSpikeTimeline` holds the
+arithmetic and is unit-tested for frame alignment and handle sufficiency.
+
+Open assumption: the centred-offset convention comes from a real-world
+transition FCPXML, not from an observed export of this project's own package.
+If revision 3 fails on placement rather than on the effect, suspect that first.

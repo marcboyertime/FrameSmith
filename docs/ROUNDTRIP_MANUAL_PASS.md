@@ -7,7 +7,46 @@ Final Cut and records what happened here.
 Read `docs/FCPXML_ROUNDTRIP_SPIKE.md` first for what the package contains and
 why it is shaped the way it is. This file is the execution sheet.
 
-Package under test (immutable — do not regenerate, edit, or retry it):
+## Current package under test — revision 3
+
+`/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/6B8F8B1C-8171-4770-86C0-E5A859C3B32A`
+
+Generated 2026-08-03 after the revision 2 pass. It keeps everything Final Cut
+already admitted in revision 2 — the assets, the `asset-clip` construction, the
+name-only format reference, the browser clips — and changes only the four
+things revision 2 proved wrong:
+
+| Revision 2 | Revision 3 |
+| --- | --- |
+| no effect resource → Final Cut synthesized `<effect uid=""/>` | `<effect id="r4" name="Cross Dissolve" uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265"/>` |
+| bare `<transition>` → returned `enabled="0"` | `<filter-video ref="r4">` with the standard Look/Amount/Ease params |
+| no `offset` → returned pinned to `0s` | `offset="19500/3000s"`, centred on the 7s cut |
+| two 8s clips butted at 8s, nothing to dissolve through | clips trimmed to 7s: clip-a keeps a 1s tail handle, clip-b starts 1s into its source |
+
+The UID was derived, not guessed: `PAECrossDissolve` in Final Cut's
+`InternalFiltersXPC.pluginkit/…/Filters.bundle/Contents/Info.plist` declares
+protocol `FxTransition` with uuid `4731E73A-8DAC-4113-9A30-AE85B1761265`, and a
+real-world transition FCPXML references it as `FxPlug:<uuid>`. Two independent
+sources, agreeing.
+
+**Open assumption:** the centred-offset convention comes from a real-world
+transition FCPXML, not from an observed export of our own package. If revision 3
+fails on placement rather than on the effect, that convention is the first thing
+to suspect.
+
+Preflight, verified at generation: `probeRevision: 3`, both media SHA-256 and
+byte counts match `manifest.json`, the FCPXML is valid against the installed
+FCPXML 1.13 DTD (checked twice — once by the generator before publishing, once
+independently afterwards), and `Returned/` is empty.
+
+Run the steps below against this package. Everything from here down describing
+`CA7D0733…` is the completed revision 2 record.
+
+---
+
+# Revision 2 — completed record
+
+Package (spent evidence; do not regenerate, edit, or retry):
 
 `/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/CA7D0733-A435-498E-BD82-149CFF863FC3`
 
@@ -67,9 +106,10 @@ the next step.
 5. Confirm the event **FCPCommandConsole Dissolve Admission Probe** was created
    with two browser clips and a project of the same name.
 6. Confirm both clips show real media, not missing-file/red placeholders.
-7. Open the project and inspect the spine: two clips with a one-second
-   transition between them. Record whether the transition exists at all, and
-   the exact name Final Cut gave it.
+7. Open the project and inspect the spine. For revision 3 the transition must be
+   **at the 7-second cut between the clips**, not at the head of the timeline.
+   Record: does it exist; where is it; what is it called; and — click it — does
+   the Inspector show an enabled Cross Dissolve rather than a blank effect.
 8. Select the project in the browser, File ▸ Export XML…, press `⇧⌘G`, and
    save into the package's `Returned/` directory. `Returned/` is the only part
    of the package that may be written to.
@@ -147,6 +187,21 @@ package. It is the immutable artifact under test and `Returned/` is the only
 part that may be written. Evidence is recorded here and in
 `docs/PHASE1_ACCEPTANCE.md`, which are version-controlled.
 
+## Reading a revision 3 result
+
+The returned XML answers it, not the timeline view. Compare against revision 2's
+failure signature:
+
+| Returned value | Meaning |
+| --- | --- |
+| `<filter-video … enabled="1">` (or no `enabled`, which defaults to 1) | the effect was accepted |
+| `enabled="0"` | still rejected — as in revision 2 |
+| effect `uid` non-empty and matching what we sent | our UID was understood |
+| effect `uid=""` | Final Cut again synthesized a placeholder |
+| transition `offset` near `19500/3000s` | placement understood |
+| transition `offset="0s"` | placement still wrong — suspect the centred-offset convention |
+| clip-b `offset` ≈ clip-a end minus half the transition | handles consumed as intended |
+
 ## What revision 3 needs
 
 The probe's hypothesis — that a bare `<transition>` element is enough — is
@@ -164,5 +219,7 @@ a disabled placeholder at the wrong time. A revision 3 package needs all four:
    dissolve. Either trim the clips shorter than their source media or extend
    the assets.
 
-Build it as a new operation ID and run it as a separate pass. Do not modify,
-regenerate, or retry `CA7D0733-A435-498E-BD82-149CFF863FC3`.
+**Built.** All four are implemented in `service/FCPXMLRoundTripSpike.swift` and
+published as operation `6B8F8B1C-8171-4770-86C0-E5A859C3B32A`, described at the
+top of this file. `CA7D0733-A435-498E-BD82-149CFF863FC3` was not modified,
+regenerated, or retried.
