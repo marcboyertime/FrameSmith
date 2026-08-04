@@ -109,6 +109,7 @@ public enum LocalPlanPackageError: Error, LocalizedError, Equatable, Sendable {
     case outputRootForbidden(URL)
     case targetExists(URL)
     case invalidAdmission
+    case inputsStale(LocalMediaPlanStaleness)
     case selectionDoesNotMatchPlan
     case sourceStale(URL)
     case sourceNotRegular(URL)
@@ -123,6 +124,7 @@ public enum LocalPlanPackageError: Error, LocalizedError, Equatable, Sendable {
         case .outputRootForbidden(let url): return "Local package output root cannot be a Final Cut path: \(url.path)"
         case .targetExists(let url): return "Local package operation target already exists: \(url.path)"
         case .invalidAdmission: return "Only a current schema 2.0 plan can be packaged"
+        case .inputsStale(let staleness): return staleness.reason
         case .selectionDoesNotMatchPlan: return "Admitted local-media slots do not exactly match the plan identities"
         case .sourceStale(let url): return "Source no longer matches its admitted hash: \(url.path)"
         case .sourceNotRegular(let url): return "Source is no longer a canonical regular local file: \(url.path)"
@@ -153,6 +155,18 @@ public struct LocalPlanPackageBuilder: Sendable {
         try build(plan: result.plan, admission: result.admission, selection: result.selection)
     }
 
+    /// Packages a plan only while it still describes the operator's current
+    /// request. Re-hashing the sources catches a source edited on disk, but a
+    /// retyped command, a moved target point, or a newly filled role slot
+    /// leaves every hash intact — so the inputs are compared directly, here,
+    /// rather than being left to whichever caller remembers to check.
+    public func build(_ result: LocalMediaPlanningResult, currentInputs: LocalMediaPlanInputs) throws -> LocalPlanPackage {
+        if let staleness = result.staleness(against: currentInputs) {
+            throw LocalPlanPackageError.inputsStale(staleness)
+        }
+        return try build(result)
+    }
+
     public func build(plan: EffectPlan, admission: EffectPlanAdmissionResult, selection: LocalMediaSelection) throws -> LocalPlanPackage {
         try Task.checkCancellation()
         guard case .current(let admittedPlan) = admission, admittedPlan == plan, plan.schemaVersion == SchemaVersion.v2_0.rawValue else {
@@ -160,38 +174,45 @@ public struct LocalPlanPackageBuilder: Sendable {
         }
         try capabilityGate.require(admission, capability: .inertPayloadNeutralPackage)
         try validate(selection: selection, matches: plan)
-        let root = try validatedOutputRoot()
-        let target = root.appendingPathComponent(plan.operationID.uuidString, isDirectory: true)
-        guard !FileManager.default.fileExists(atPath: target.path) else { throw LocalPlanPackageError.targetExists(target) }
+        let (root, rootHandle) = try validatedOutputRoot()
+        defer { rootHandle.closeHandle() }
+        let targetName = plan.operationID.uuidString
+        let target = root.appendingPathComponent(targetName, isDirectory: true)
+        guard !rootHandle.entryExists(targetName) else { throw LocalPlanPackageError.targetExists(target) }
 
-        let staging = root.appendingPathComponent(".\(plan.operationID.uuidString).staging.\(UUID().uuidString)", isDirectory: true)
+        let stagingName = ".\(targetName).staging.\(UUID().uuidString)"
+        let staging = root.appendingPathComponent(stagingName, isDirectory: true)
         var published = false
         defer {
-            if !published { try? FileManager.default.removeItem(at: staging) }
+            if !published { rootHandle.removeChildRecursively(stagingName) }
         }
         do {
-            try FileManager.default.createDirectory(at: staging.appendingPathComponent("Media", isDirectory: true), withIntermediateDirectories: true)
-            let effectData = try encoded(plan)
-            try effectData.write(to: staging.appendingPathComponent("EffectPlan.json"), options: .atomic)
+            let stagingHandle = try rootHandle.createDirectory(stagingName)
+            defer { stagingHandle.closeHandle() }
+            let mediaHandle = try stagingHandle.createDirectory("Media")
+            defer { mediaHandle.closeHandle() }
+            try stagingHandle.writeNewFile("EffectPlan.json", data: try encoded(plan))
 
             var mediaEntries: [LocalPlanPackageMedia] = []
-            var fileEntries = [try fileEntry(root: staging, relativePath: "EffectPlan.json", kind: "effect_plan")]
+            var fileEntries = [try fileEntry(in: stagingHandle, component: "EffectPlan.json", relativePath: "EffectPlan.json", kind: "effect_plan")]
             for slot in selection.slots {
                 try Task.checkCancellation()
                 let source = try currentSource(for: slot)
-                let before = try ContentHasher.sha256File(source)
+                let sourceHandle = try openedSource(source)
+                defer { sourceHandle.closeHandle() }
+                let before = try sourceHandle.sha256()
                 guard before == slot.media.sha256 else { throw LocalPlanPackageError.sourceStale(source) }
-                let relativePath = "Media/\(slot.role.rawValue)-\(sanitizedBasename(source.lastPathComponent))"
+                let component = "\(slot.role.rawValue)-\(sanitizedBasename(source.lastPathComponent))"
+                let relativePath = "Media/\(component)"
                 let destination = staging.appendingPathComponent(relativePath)
-                try FileManager.default.copyItem(at: source, to: destination)
-                let copiedHash = try ContentHasher.sha256File(destination)
+                let copiedHash = try mediaHandle.copyNewFile(component, from: sourceHandle)
                 guard copiedHash == before else { throw LocalPlanPackageError.copiedMediaHashMismatch(destination) }
                 try Task.checkCancellation()
-                let after = try ContentHasher.sha256File(source)
+                let after = try sourceHandle.sha256()
                 guard after == before else { throw LocalPlanPackageError.sourceChangedDuringCopy(source) }
-                let bytes = try byteCount(destination)
+                let bytes = try mediaHandle.regularFileByteCount(component)
                 mediaEntries.append(LocalPlanPackageMedia(role: slot.role, kind: slot.media.kind, relativePath: relativePath, sourceSHA256: before, byteCount: bytes))
-                fileEntries.append(try fileEntry(root: staging, relativePath: relativePath, kind: "media"))
+                fileEntries.append(try fileEntry(in: mediaHandle, component: component, relativePath: relativePath, kind: "media"))
             }
 
             let provenance = LocalPlanPackageProvenance(
@@ -202,16 +223,16 @@ public struct LocalPlanPackageBuilder: Sendable {
                 parameters: plan.parameters,
                 sources: selection.slots.map { LocalPlanPackageSourceProvenance(role: $0.role, canonicalPath: $0.media.canonicalPath, sha256: $0.media.sha256, kind: $0.media.kind) }
             )
-            try encoded(provenance).write(to: staging.appendingPathComponent("Provenance.json"), options: .atomic)
-            fileEntries.append(try fileEntry(root: staging, relativePath: "Provenance.json", kind: "provenance"))
+            try stagingHandle.writeNewFile("Provenance.json", data: try encoded(provenance))
+            fileEntries.append(try fileEntry(in: stagingHandle, component: "Provenance.json", relativePath: "Provenance.json", kind: "provenance"))
 
             let readme = """
             FCPCommandConsole local plan package
 
             This is an inert local plan and source-media package. It is not an importable Final Cut package, does not contain FCPXML, and does not contain an effect render. Final Cut compatibility and editability are unverified.
             """
-            try Data(readme.utf8).write(to: staging.appendingPathComponent("README.txt"), options: .atomic)
-            fileEntries.append(try fileEntry(root: staging, relativePath: "README.txt", kind: "readme"))
+            try stagingHandle.writeNewFile("README.txt", data: Data(readme.utf8))
+            fileEntries.append(try fileEntry(in: stagingHandle, component: "README.txt", relativePath: "README.txt", kind: "readme"))
 
             let manifest = LocalPlanPackageManifest(
                 schemaVersion: plan.schemaVersion,
@@ -221,13 +242,27 @@ public struct LocalPlanPackageBuilder: Sendable {
                 files: fileEntries.sorted { $0.relativePath < $1.relativePath },
                 media: mediaEntries.sorted { $0.relativePath < $1.relativePath }
             )
-            try encoded(manifest).write(to: staging.appendingPathComponent("Manifest.json"), options: .atomic)
+            try stagingHandle.writeNewFile("Manifest.json", data: try encoded(manifest))
+
+            // Commit point. This is the last moment a cancellation can discard
+            // the work: the rename either publishes the whole staged package
+            // under the operation ID or leaves nothing behind, and past it the
+            // package is a durable on-disk fact that the caller must be told
+            // about even if the operation was cancelled a moment later.
             try Task.checkCancellation()
-            try FileManager.default.moveItem(at: staging, to: target)
+            do {
+                try rootHandle.renameChildExclusively(stagingName, toChild: targetName, of: rootHandle)
+            } catch DirectoryDescriptorError.entryExists {
+                throw LocalPlanPackageError.targetExists(target)
+            }
             published = true
             return LocalPlanPackage(operationID: plan.operationID, url: target, manifest: manifest)
         } catch let error as LocalPlanPackageError {
             throw error
+        } catch is CancellationError {
+            // Cancellation must stay distinguishable from an I/O failure: it is
+            // the one outcome that guarantees nothing was published.
+            throw CancellationError()
         } catch {
             throw LocalPlanPackageError.ioFailure(error.localizedDescription)
         }
@@ -241,7 +276,14 @@ public struct LocalPlanPackageBuilder: Sendable {
         }
     }
 
-    private func validatedOutputRoot() throws -> URL {
+    /// Validates the output root by path and then pins it to a descriptor.
+    ///
+    /// The path checks stay because they express policy (no `/`, no home root,
+    /// no Final Cut library, no symlinked component). The descriptor is what
+    /// makes them hold: every later create, copy, and publish is issued
+    /// relative to this handle, so an ancestor that is renamed or replaced with
+    /// a symlink after validation cannot move the writes somewhere else.
+    private func validatedOutputRoot() throws -> (URL, DirectoryHandle) {
         let lexical = outputRoot.standardizedFileURL
         guard outputRoot.isFileURL, outputRoot.path.hasPrefix("/"), lexical.path == outputRoot.path,
               lexical.path != "/", lexical.path != FileManager.default.homeDirectoryForCurrentUser.path,
@@ -259,7 +301,21 @@ public struct LocalPlanPackageBuilder: Sendable {
         }
         let canonical = lexical.resolvingSymlinksInPath().standardizedFileURL
         guard canonical.path == lexical.path else { throw LocalPlanPackageError.outputRootSymlink(lexical) }
-        return canonical
+        do {
+            return (canonical, try DirectoryHandle.open(vettedDirectory: canonical))
+        } catch DirectoryDescriptorError.notADirectory {
+            throw LocalPlanPackageError.outputRootUnsafe(canonical)
+        } catch DirectoryDescriptorError.identityChanged {
+            throw LocalPlanPackageError.outputRootSymlink(canonical)
+        } catch let error as DirectoryDescriptorError {
+            // `O_NOFOLLOW` on a symlinked root reports ELOOP rather than a
+            // distinct error, so a failed open of a vetted directory is
+            // reported as the symlink case it almost always is.
+            if case .openFailed(_, let code) = error, code == ELOOP || code == ENOTDIR {
+                throw LocalPlanPackageError.outputRootSymlink(canonical)
+            }
+            throw LocalPlanPackageError.ioFailure(error.localizedDescription)
+        }
     }
 
     private func currentSource(for slot: LocalMediaSlot) throws -> URL {
@@ -273,16 +329,23 @@ public struct LocalPlanPackageBuilder: Sendable {
         }
     }
 
-    private func fileEntry(root: URL, relativePath: String, kind: String) throws -> LocalPlanPackageFile {
-        let url = root.appendingPathComponent(relativePath)
-        return LocalPlanPackageFile(relativePath: relativePath, sha256: try ContentHasher.sha256File(url), byteCount: try byteCount(url), kind: kind)
+    /// Holds the source open for the whole copy so the hash-before, the copied
+    /// bytes, and the hash-after all provably describe one inode.
+    private func openedSource(_ url: URL) throws -> SourceFileHandle {
+        do {
+            return try SourceFileHandle.open(vettedRegularFile: url)
+        } catch {
+            throw LocalPlanPackageError.sourceNotRegular(url)
+        }
     }
 
-    private func byteCount(_ url: URL) throws -> UInt64 {
-        guard let number = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize, number >= 0 else {
-            throw LocalPlanPackageError.ioFailure("missing file size for \(url.lastPathComponent)")
-        }
-        return UInt64(number)
+    private func fileEntry(in handle: DirectoryHandle, component: String, relativePath: String, kind: String) throws -> LocalPlanPackageFile {
+        LocalPlanPackageFile(
+            relativePath: relativePath,
+            sha256: try handle.hashRegularFile(component),
+            byteCount: try handle.regularFileByteCount(component),
+            kind: kind
+        )
     }
 
     private func encoded<T: Encodable>(_ value: T) throws -> Data {

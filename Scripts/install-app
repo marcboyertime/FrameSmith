@@ -1,22 +1,63 @@
 #!/bin/sh
 set -eu
 
-project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# Installs the locally built app into ~/Applications.
+#
+# Every path this script writes through is checked for being a symlink first.
+# A symlinked or dangling target is refused rather than followed: writing
+# through one would install the bundle wherever the link points, outside the
+# directory this script is allowed to touch.
+
+project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 app_parent="$HOME/Applications"
 target="$app_parent/FCPCommandConsole.app"
 bundle_id="com.marcboyer.FCPCommandConsole"
 
+fail() { echo "$1" >&2; exit 1; }
+
+# The parent must be a real directory. mktemp and every rename below stay
+# inside it, so a symlinked parent would relocate the whole install.
+if [ -L "$app_parent" ]; then
+  fail "Refusing to install through a symlinked directory: $app_parent"
+fi
+if [ -e "$app_parent" ] && [ ! -d "$app_parent" ]; then
+  fail "Not a directory: $app_parent"
+fi
 mkdir -p "$app_parent"
+app_parent=$(CDPATH= cd -- "$app_parent" && pwd -P)
+target="$app_parent/FCPCommandConsole.app"
+
+# A dangling symlink is invisible to `-e`; check the link itself first so it
+# cannot be silently written through.
+if [ -L "$target" ]; then
+  fail "Refusing to replace a symlinked bundle: $target"
+fi
+if [ -e "$target" ] && [ ! -d "$target" ]; then
+  fail "Refusing to replace a non-bundle path: $target"
+fi
+
 cd "$project_root"
 swift build -c release --product FCPCommandConsoleApp
 bin_dir=$(swift build -c release --show-bin-path)
 binary="$bin_dir/FCPCommandConsoleApp"
-[ -x "$binary" ]
+[ -f "$binary" ] || fail "Built product is missing: $binary"
+[ -x "$binary" ] || fail "Built product is not executable: $binary"
+if [ -L "$binary" ]; then
+  fail "Built product is a symlink: $binary"
+fi
 
 stage_root=$(mktemp -d "$app_parent/.FCPCommandConsole.app.stage.XXXXXX")
 stage_bundle="$stage_root/FCPCommandConsole.app"
 cleanup() { rm -rf "$stage_root"; }
 trap cleanup EXIT HUP INT TERM
+
+# mktemp resolves nothing; confirm the staging directory really is inside the
+# parent before anything is written into it.
+resolved_stage=$(CDPATH= cd -- "$stage_root" && pwd -P)
+case "$resolved_stage" in
+  "$app_parent"/.*) ;;
+  *) fail "Staging directory escaped $app_parent: $resolved_stage" ;;
+esac
 
 mkdir -p "$stage_bundle/Contents/MacOS" "$stage_bundle/Contents/Resources/registry"
 cp "$binary" "$stage_bundle/Contents/MacOS/FCPCommandConsoleApp"
@@ -41,30 +82,60 @@ cat > "$stage_bundle/Contents/Info.plist" <<PLIST
 PLIST
 plutil -lint "$stage_bundle/Contents/Info.plist" >/dev/null
 staged_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$stage_bundle/Contents/Info.plist")
-[ "$staged_id" = "$bundle_id" ]
+[ "$staged_id" = "$bundle_id" ] || fail "Staged bundle identifier is wrong: $staged_id"
 test -f "$stage_bundle/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json"
 test -f "$stage_bundle/Contents/Resources/schemas/effect-plan.schema.json"
 codesign --force --deep --sign - "$stage_bundle"
 codesign --verify --deep --strict "$stage_bundle"
 
-if [ -e "$target" ]; then
+# Confirms an installed bundle is the one this script just built.
+verify_installed() {
+  [ -d "$1" ] || return 1
+  if [ -L "$1" ] || [ -L "$1/Contents/Info.plist" ]; then return 1; fi
+  installed_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null || true)
+  [ "$installed_id" = "$bundle_id" ] || return 1
+  [ -f "$1/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json" ] || return 1
+  [ -f "$1/Contents/Resources/schemas/effect-plan.schema.json" ] || return 1
+  codesign --verify --deep --strict "$1" >/dev/null 2>&1 || return 1
+  return 0
+}
+
+if [ -d "$target" ]; then
+  if [ -L "$target/Contents/Info.plist" ]; then
+    fail "Refusing to read a symlinked Info.plist: $target/Contents/Info.plist"
+  fi
   existing_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$target/Contents/Info.plist" 2>/dev/null || true)
   if [ "$existing_id" != "$bundle_id" ]; then
-    echo "Refusing to replace non-owned bundle: $target" >&2
-    exit 1
+    fail "Refusing to replace non-owned bundle: $target"
   fi
   if diff -qr "$target" "$stage_bundle" >/dev/null 2>&1; then
     echo "Installed bundle is already byte-identical: $target"
     exit 0
   fi
-  backup="$app_parent/.FCPCommandConsole.app.backup.$(date +%Y%m%d%H%M%S)"
+  backup="$app_parent/.FCPCommandConsole.app.backup.$(date +%Y%m%d%H%M%S).$$"
+  if [ -e "$backup" ] || [ -L "$backup" ]; then
+    fail "Backup path already exists: $backup"
+  fi
+
+  # POSIX cannot exchange two non-empty directories in one step, so the swap is
+  # two renames within one directory. Both are individually atomic, and the
+  # window between them is a rollback point rather than a lost install.
   mv "$target" "$backup"
   if ! mv "$stage_bundle" "$target"; then
     mv "$backup" "$target"
-    exit 1
+    fail "Install failed; restored previous bundle at $target"
+  fi
+  if ! verify_installed "$target"; then
+    rm -rf "$target"
+    mv "$backup" "$target"
+    fail "Installed bundle failed verification; restored previous bundle at $target"
   fi
   echo "Installed $target (previous owned bundle preserved at $backup)"
 else
   mv "$stage_bundle" "$target"
+  if ! verify_installed "$target"; then
+    rm -rf "$target"
+    fail "Installed bundle failed verification and was removed: $target"
+  fi
   echo "Installed $target"
 fi

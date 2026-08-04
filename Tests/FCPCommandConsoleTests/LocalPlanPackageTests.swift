@@ -120,6 +120,88 @@ final class LocalPlanPackageTests: XCTestCase {
         XCTAssertFalse(names?.contains { $0.contains(".staging.") } ?? true)
     }
 
+    /// A dangling symlink is invisible to `fileExists`, so only an exclusive
+    /// rename can refuse to publish over it instead of writing through it.
+    func testPublishRefusesADanglingSymlinkAtTheOperationTarget() async throws {
+        let result = try await planningResult()
+        try FileManager.default.createDirectory(at: outputRoot, withIntermediateDirectories: true)
+        let target = outputRoot.appendingPathComponent(result.plan.operationID.uuidString, isDirectory: true)
+        let absent = root.appendingPathComponent("never-created")
+        try FileManager.default.createSymbolicLink(at: target, withDestinationURL: absent)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
+
+        XCTAssertThrowsError(try LocalPlanPackageBuilder(outputRoot: outputRoot).build(result)) { error in
+            XCTAssertEqual(error as? LocalPlanPackageError, .targetExists(target))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path))
+        let names = try FileManager.default.contentsOfDirectory(atPath: outputRoot.path)
+        XCTAssertFalse(names.contains { $0.contains(".staging.") })
+    }
+
+    /// Cancellation before the commit point must stay distinguishable from an
+    /// I/O failure, publish nothing, and leave no staging behind.
+    func testCancellationBeforeCommitPublishesNothingAndReportsCancellation() async throws {
+        let result = try await planningResult()
+        let outputRoot = self.outputRoot!
+        let task = Task.detached { () -> Result<LocalPlanPackage, Error> in
+            while !Task.isCancelled { await Task.yield() }
+            do { return .success(try LocalPlanPackageBuilder(outputRoot: outputRoot).build(result)) } catch { return .failure(error) }
+        }
+        task.cancel()
+        switch await task.value {
+        case .success: XCTFail("A cancelled build must not publish a package")
+        case .failure(let error): XCTAssertTrue(error is CancellationError, "Expected CancellationError, got \(error)")
+        }
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: outputRoot.path)) ?? []
+        XCTAssertEqual(names, [])
+    }
+
+    func testPackagingIsRefusedWhenTheInputsNoLongerMatchThePlan() async throws {
+        let result = try await planningResult()
+        let asset = try XCTUnwrap(result.selection.slots.first?.media)
+        let builder = LocalPlanPackageBuilder(outputRoot: outputRoot)
+
+        XCTAssertThrowsError(try builder.build(result, currentInputs: inputs(request: "something else", target: result.inputs.target, primary: asset))) { error in
+            XCTAssertEqual(error as? LocalPlanPackageError, .inputsStale(.commandChanged))
+        }
+        XCTAssertThrowsError(try builder.build(result, currentInputs: inputs(request: result.inputs.request, target: nil, primary: asset))) { error in
+            XCTAssertEqual(error as? LocalPlanPackageError, .inputsStale(.targetChanged))
+        }
+        XCTAssertThrowsError(try builder.build(result, currentInputs: inputs(request: result.inputs.request, target: result.inputs.target, primary: nil))) { error in
+            XCTAssertEqual(error as? LocalPlanPackageError, .inputsStale(.sourceRemoved(.primary)))
+        }
+        let other = root.appendingPathComponent("other.png")
+        try writePNG(to: other, red: 0.5)
+        let otherAsset = try await LocalMediaAdmission().admit(other)
+        XCTAssertThrowsError(try builder.build(result, currentInputs: LocalMediaPlanInputs(request: result.inputs.request, target: result.inputs.target, primary: asset, outgoing: otherAsset, incoming: nil))) { error in
+            XCTAssertEqual(error as? LocalPlanPackageError, .inputsStale(.sourceAdded(.outgoing)))
+        }
+        XCTAssertThrowsError(try builder.build(result, currentInputs: inputs(request: result.inputs.request, target: result.inputs.target, primary: otherAsset))) { error in
+            XCTAssertEqual(error as? LocalPlanPackageError, .inputsStale(.sourceChanged(.primary)))
+        }
+        // A stale plan is refused before the output root is even touched.
+        XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: outputRoot.path)) ?? [], [])
+
+        // Unchanged inputs still package normally.
+        let package = try builder.build(result, currentInputs: result.inputs)
+        XCTAssertEqual(package.url.lastPathComponent, result.plan.operationID.uuidString)
+    }
+
+    func testDriftReportsTheCommandBeforeTheTargetAndRolesInAFixedOrder() async throws {
+        let result = try await planningResult()
+        let asset = try XCTUnwrap(result.selection.slots.first?.media)
+        XCTAssertNil(result.staleness(against: result.inputs))
+        // Every field changed at once still reports the command first, so the
+        // same drift never produces a different message run to run.
+        XCTAssertEqual(result.staleness(against: inputs(request: "changed", target: nil, primary: nil)), .commandChanged)
+        XCTAssertEqual(result.staleness(against: inputs(request: result.inputs.request, target: nil, primary: nil)), .targetChanged)
+        XCTAssertEqual(result.staleness(against: inputs(request: result.inputs.request, target: result.inputs.target, primary: asset)), nil)
+    }
+
+    private func inputs(request: String, target: Target?, primary: LocalMediaAsset?) -> LocalMediaPlanInputs {
+        LocalMediaPlanInputs(request: request, target: target, primary: primary, outgoing: nil, incoming: nil)
+    }
+
     private func planningResult() async throws -> LocalMediaPlanningResult {
         let asset = try await LocalMediaAdmission().admit(source)
         let project = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

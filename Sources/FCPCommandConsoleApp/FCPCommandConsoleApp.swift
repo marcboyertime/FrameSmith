@@ -16,20 +16,38 @@ struct FCPCommandConsoleApp: App {
 
 @MainActor
 private final class AppModel: ObservableObject {
-    @Published var command = ""
-    @Published var primary: LocalMediaAsset?
-    @Published var outgoing: LocalMediaAsset?
-    @Published var incoming: LocalMediaAsset?
-    @Published var target: Target?
+    @Published var command = "" { didSet { invalidatePlanIfInputsDrifted() } }
+    @Published var primary: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted() } }
+    @Published var outgoing: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted() } }
+    @Published var incoming: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted() } }
+    @Published var target: Target? { didSet { invalidatePlanIfInputsDrifted() } }
     @Published var result: LocalMediaPlanningResult?
     @Published var package: LocalPlanPackage?
     @Published var errorMessage: String?
+    @Published var noticeMessage: String?
     @Published var loadingRole: LocalMediaRole?
     @Published var isSavingPackage = false
+    @Published var isCancellingPackage = false
     private var admissionTasks: [LocalMediaRole: Task<AdmissionOutcome, Never>] = [:]
     private var admissionGeneration = LocalMediaOperationGeneration()
     private var packageTask: Task<PackageOutcome, Never>?
-    private var packageGeneration: UInt64 = 0
+
+    /// What a plan made right now would be derived from.
+    private var currentInputs: LocalMediaPlanInputs {
+        LocalMediaPlanInputs(request: command, target: target, primary: primary, outgoing: outgoing, incoming: incoming)
+    }
+
+    /// Drops a plan the moment it stops describing what is on screen. Without
+    /// this, editing the command or moving the target leaves a stale plan
+    /// summary visible and packageable — every hash inside it still verifies,
+    /// so nothing downstream would notice.
+    private func invalidatePlanIfInputsDrifted() {
+        guard let result, let staleness = result.staleness(against: currentInputs) else { return }
+        self.result = nil
+        package = nil
+        noticeMessage = staleness.reason
+        cancelPackage()
+    }
 
     private enum AdmissionOutcome: Sendable {
         case admitted(LocalMediaAsset)
@@ -90,10 +108,12 @@ private final class AppModel: ObservableObject {
         result = nil
         package = nil
         errorMessage = nil
+        noticeMessage = nil
     }
 
     func clearAll() {
         cancelAdmission()
+        cancelPackage()
         primary = nil
         outgoing = nil
         incoming = nil
@@ -101,6 +121,7 @@ private final class AppModel: ObservableObject {
         result = nil
         package = nil
         errorMessage = nil
+        noticeMessage = nil
         command = ""
     }
 
@@ -114,6 +135,7 @@ private final class AppModel: ObservableObject {
 
     func plan() {
         errorMessage = nil
+        noticeMessage = nil
         result = nil
         package = nil
         do {
@@ -129,17 +151,26 @@ private final class AppModel: ObservableObject {
         }
     }
 
+    /// Only one package operation may be in flight. Two builds of the same plan
+    /// race for one operation-ID directory, and the loser can only report that
+    /// the target already exists — so overlap is prevented rather than reported.
     func savePackage() {
-        guard let result, result.inertPackageDecision.allowed else { return }
-        packageTask?.cancel()
-        packageGeneration &+= 1
-        let token = packageGeneration
+        guard packageTask == nil, let result, result.inertPackageDecision.allowed else { return }
+        if let staleness = result.staleness(against: currentInputs) {
+            invalidatePlanIfInputsDrifted()
+            errorMessage = staleness.reason
+            return
+        }
+        let inputs = currentInputs
         isSavingPackage = true
+        isCancellingPackage = false
         errorMessage = nil
         let task = Task.detached(priority: .userInitiated) { () -> PackageOutcome in
             do {
-                let package = try LocalPlanPackageBuilder().build(result)
-                return Task.isCancelled ? .cancelled : .built(package)
+                // A returned package has already been renamed into place. It is
+                // a durable on-disk fact, so it is never downgraded to
+                // `.cancelled` just because a cancel landed during the return.
+                return .built(try LocalPlanPackageBuilder().build(result, currentInputs: inputs))
             } catch is CancellationError {
                 return .cancelled
             } catch {
@@ -149,22 +180,39 @@ private final class AppModel: ObservableObject {
         packageTask = task
         Task { [weak self] in
             let outcome = await task.value
-            guard let self, self.packageGeneration == token else { return }
-            self.packageTask = nil
-            self.isSavingPackage = false
-            switch outcome {
-            case .built(let package): self.package = package
-            case .failed(let message): self.errorMessage = message
-            case .cancelled: break
-            }
+            self?.finishPackage(outcome)
         }
     }
 
+    /// Requests cancellation but leaves the operation owning its state. Whether
+    /// the cancel beat the builder's commit point is not known until the
+    /// builder returns, and until then no second save may start.
     func cancelPackage() {
-        packageGeneration &+= 1
+        guard packageTask != nil, !isCancellingPackage else { return }
+        isCancellingPackage = true
         packageTask?.cancel()
+    }
+
+    /// The single place a package operation resolves. `.cancelled` means the
+    /// commit point was never reached and nothing was written; `.built` means
+    /// it was, and is reported even when a cancel was already requested,
+    /// because the package exists on disk either way.
+    private func finishPackage(_ outcome: PackageOutcome) {
+        let cancelRequested = isCancellingPackage
         packageTask = nil
         isSavingPackage = false
+        isCancellingPackage = false
+        switch outcome {
+        case .built(let package):
+            self.package = package
+            if cancelRequested {
+                noticeMessage = "Cancel arrived after the package was published; it is on disk at \(package.url.path)."
+            }
+        case .failed(let message):
+            errorMessage = message
+        case .cancelled:
+            noticeMessage = "Package save cancelled before publish. Nothing was written."
+        }
     }
 
     private func appResource(named relativePath: String) throws -> URL {
@@ -215,7 +263,8 @@ private struct ContentView: View {
                     Button("Cancel") { model.cancelAdmission() }
                 }
                 if model.isSavingPackage {
-                    Button("Cancel Save") { model.cancelPackage() }
+                    Button(model.isCancellingPackage ? "Cancelling…" : "Cancel Save") { model.cancelPackage() }
+                        .disabled(model.isCancellingPackage)
                 }
                 if let result = model.result {
                     Button(model.isSavingPackage ? "Saving Local Package…" : "Save Local Plan Package") { model.savePackage() }
@@ -239,6 +288,9 @@ private struct ContentView: View {
 
             if let error = model.errorMessage {
                 Text(error).foregroundStyle(.red).textSelection(.enabled)
+            }
+            if let notice = model.noticeMessage {
+                Text(notice).foregroundStyle(.orange).textSelection(.enabled)
             }
             if let result = model.result {
                 PlanSummary(result: result)
