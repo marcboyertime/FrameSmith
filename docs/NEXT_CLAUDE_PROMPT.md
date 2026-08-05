@@ -39,10 +39,10 @@ What is established, all against Final Cut Pro **12.3 (450152)**:
 | --- | --- |
 | `assetAdmission` | admitted — `.mov` from a package `Media/` dir resolved on first import, `src` unchanged |
 | `crossDissolveTransition` | admitted — imported intact **and** duration-editable |
-| `transformKeyframes` | admitted — position + scale; **rotation unobserved** |
-| `opacityKeyframes` | admitted — `adjust-blend/amount`; blend modes not exercised |
+| `transformKeyframes` | admitted — position + scale, and editable; **rotation captured 2026-08-05 but its generated form is unimported** |
+| `opacityKeyframes` | admitted — `adjust-blend/amount`; blend modes captured, not admitted |
 | `nativeColorAdjustment` | admitted — construction only, **no language→parameter mapping** |
-| `connectedOverlayLayers` | **no evidence at all** — blocks `look.old_television` |
+| `connectedOverlayLayers` | **not admitted** — encoding captured 2026-08-05, probe generated, import not run. Blocks `look.old_television`. |
 
 The contract store is `service/FinalCutSemanticProfile.swift`. It is code, not
 data, and scoped to one build; `evidence(forInstalled:)` returns `.unknown` on
@@ -50,9 +50,13 @@ any drift. A test reads the installed Final Cut and fails if it no longer
 matches — **if that test fails, an update has silently revoked every admission
 and the manual passes must be re-run.**
 
-`standaloneFCPXMLExport` exists in `CapabilityGate` and is the route that makes
-the tool usable without ever claiming a timeline mutation. The gate is done and
-tested; **nothing acts on its authorization yet.**
+`standaloneFCPXMLExport` is the route that makes the tool usable without ever
+claiming a timeline mutation. Gate and generation path are both done
+(`service/StandaloneFCPXMLExport.swift`), with emitters for `motion.living_still`
+and `native.targeted_rotate_zoom`.
+
+**The only thing between here and a closed-out Phase 1 is running the two queued
+admission passes** — see §5.5b. Both probe packages are generated and waiting.
 
 ---
 
@@ -91,8 +95,19 @@ is strictly sequential.
 - `position` is **percent of frame height** though the inspector reads `px`
   (38.4 px → `3.55556`). Emitting the inspector's number pans 10.8× too far and
   imports cleanly.
-- Keyframe times are **absolute source time** from a `3600s` origin in a 720000
-  timescale. A keyframe at `0s` lands an hour early.
+- Keyframe times are absolute from a `3600s` origin in a 720000 timescale. A
+  keyframe at `0s` lands an hour early. **This is a property of stills, not a
+  rule** — the rotation capture showed a movie clip's keyframes starting at
+  `0s`, and the origin cannot be read off the asset either.
+
+### The rule both 2026-08-05 captures produced
+
+> **Static values are attributes on the effect element. Animated values are
+> `<param>` children.**
+
+Confirmed independently on `position`, `anchor`, `rotation`, and
+`adjust-blend/amount`. Choose a shape per property **and** per
+animated-or-not; both wrong shapes are DTD-valid.
 
 ---
 
