@@ -95,4 +95,108 @@ has to handle both.
 
 ## Results
 
-**Not yet run.**
+**Captured 2026-08-05**, driven by the agent in the isolated app under the
+GUI-automation authorization (HANDOFF §7 constraint 3). Export at
+`~/Movies/FCPCommandConsole/exports/ground-truth/rotation-ground-truth.fcpxmld`.
+
+What Final Cut wrote, complete:
+
+```xml
+<asset-clip ref="r2" offset="0s" name="clip-a.mov Browser Clip" duration="8s" tcFormat="NDF" audioRole="dialogue">
+    <adjust-transform anchor="18.5185 -9.25926">
+        <param name="rotation">
+            <keyframeAnimation>
+                <keyframe time="0s" value="0"/>
+                <keyframe time="2s" value="45"/>
+            </keyframeAnimation>
+        </param>
+    </adjust-transform>
+</asset-clip>
+```
+
+### Finding 1 — `anchor` is an attribute, not a param
+
+This is the one that would have broken an emitter written from intuition.
+`anchor` is not a `<param>` at all. It is a **space-separated pair on the
+`<adjust-transform>` element itself**.
+
+So `adjust-transform` now has **three** distinct shapes across four properties:
+
+| Property | Shape |
+| --- | --- |
+| `position` | `<param>` containing nested `X`/`Y` sub-params, each separately animated, each with a `key` attribute |
+| `scale` | one `<param>`, paired value (`"1 1"`) |
+| `rotation` | one `<param>`, scalar value, **no `key` attribute** |
+| `anchor` | **attribute on the parent element**, paired value |
+
+The earlier note that position and scale "do not share a shape" understated it.
+There is no general rule to infer here, which is precisely why each property has
+to be captured rather than guessed.
+
+### Finding 2 — anchor is percent of frame height, on *both* axes
+
+- `200` px → `18.5185` = 200 / 1080 × 100
+- `-100` px → `-9.25926` = −100 / 1080 × 100
+
+Percent of **width** would have given `10.4167` / `-5.2083`. It does not.
+
+This matches `position`: the X axis normalizes against frame *height*, not
+width. Two independent properties now confirm that convention, which makes it
+much safer to assume for the remaining ones — though still worth a check.
+
+### Finding 3 — rotation is plain degrees
+
+`45` → `value="45"`. Not radians (`0.7853982`), not normalized. The simplest
+possibility, and now observed rather than assumed.
+
+### Finding 4 — the `3600s` origin is a property of **stills**, not a rule
+
+Keyframe times here are `0s` and `2s`. Absolute, but from zero.
+
+Every prior timing finding came from the living still, which Final Cut gives
+`start="3600s"` and keyframes offset into a 720000 timescale. It was reasonable
+to read that as "keyframe times are absolute source time" in general. **It is
+not.** A movie clip carries real source time and its asset here is `start="0s"`,
+so its keyframes start at `0s`.
+
+An emitter that hardcoded the 3600s origin — which the living still work alone
+would have justified — would have placed every movie keyframe an hour early.
+This capture is the only reason that is known.
+
+Note also the timescale: `0s` and `2s`, not `/720000s` fractions. The living
+still needed fractions because its keyframes landed on frames 108 and 119; these
+land on whole seconds and Final Cut writes them plainly.
+
+### Finding 5 — defaults are omitted entirely
+
+`position` and `scale` were untouched and appear **nowhere** in the output — not
+as empty params, not as defaults. Only the two properties actually changed were
+written.
+
+The emitter should match this. Emitting explicit defaults produces a document
+Final Cut would never write, and the living still pass showed that Final Cut
+strips inherited defaults on the way back out anyway.
+
+### Finding 6 — no interpolation attribute
+
+Neither keyframe carries `curve`. The living still's `position` Y carried
+`curve="linear"`, so the attribute is written only when interpolation differs
+from the default, not on every keyframe.
+
+## Open questions this capture does *not* answer
+
+1. **Does `anchor` become a `<param>` when keyframed?** It was captured static,
+   which is when it appears as an attribute. An animated anchor may well move
+   into the param mechanism. Unobserved — capture before emitting a keyframed
+   anchor.
+2. **Does rotation wrap or accumulate past 360°?** Only 0→45 was exercised. A
+   multi-turn spin is a separate observation.
+3. **Rotation direction sign.** 45 produced a visibly clockwise result in the
+   viewer, but the mapping of sign to direction was not systematically checked.
+
+## After the capture
+
+Steps 2–4 of the plan above still stand: extend
+`NativeFCPXMLTransformChannel.swift` with rotation and anchor, build a probe,
+and run a separate admission pass. **This capture admits nothing** — it records
+what Final Cut writes, not what it accepts on the way in.
