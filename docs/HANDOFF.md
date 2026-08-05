@@ -1,6 +1,7 @@
 # FCPCommandConsole Handoff (for Claude)
 
 Date: 2026-08-04
+Last handoff refresh commit: 2026-08-04 (explicitly pushed)
 
 Goal: private local-first Final Cut command assistant.
 Current objective: finish Phase 1. **The section 5 import blocker is cleared.**
