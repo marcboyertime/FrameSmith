@@ -217,16 +217,22 @@ Saturation of 25 on this image may simply be below the threshold at which a
 change is apparent by eye, and the returned XML shows the effect instantiated
 with an intact uid and no `enabled="0"`.
 
-Two things follow, and both matter beyond this pass:
+**Colour confirmed by A/B, same session.** Toggling the Color Adjustments
+checkbox off and on made the change plainly visible. The colour channel renders.
+All three channels — transform, opacity, colour — are therefore confirmed live,
+and the render gap this pass left open is closed.
 
-1. A separate A/B is needed to settle whether the colour channel renders at all
-   — toggling the Color Adjustments checkbox off and on while parked on a frame.
-   Recorded below under Results when run.
-2. **Preview strategy for colour cannot rely on the eye.** If a human watching
-   full-motion playback cannot tell whether a colour operation applied, then any
-   preview FrameSmith offers for colour needs an explicit before/after toggle
-   rather than a single rendered frame. This is a Phase A4 requirement, not a
-   nicety — see `docs/POST_PHASE1_ROADMAP.md`.
+The interesting part is that both observations are true at once: the effect is
+applied and clearly visible under A/B, and it was *not* apparent during
+full-motion playback. That is not a contradiction, it is the normal case for a
+moderate colour move, and it carries a product consequence:
+
+**Preview strategy for colour cannot rely on the eye.** If a user watching the
+result cannot tell whether a colour operation applied, a preview that only shows
+the result has failed at its only job — and the failure is silent, which is
+worse than an obvious one. Every colour primitive needs an explicit before/after
+affordance. This is a Phase A4 requirement, not a nicety, and the same will hold
+for grain, vignette, and diffusion. See `docs/POST_PHASE1_ROADMAP.md`.
 
 No capability gate moved. `ManualFCPXMLSemanticsEvidence` still defaults to
 empty and nothing constructs a non-empty one; see HANDOFF section 6 item 3.
