@@ -241,17 +241,31 @@ What is left cannot be done in code alone.
      alter what a dissolve regeneration emits. Its export-root guard also
      refuses to write beneath `exports/ground-truth`.
 
-     Probe `3E660E97-DBD8-40EA-88F9-C926CD424FDE` is generated and waiting for a
-     manual import; procedure and read-out table in
-     `docs/LIVING_STILL_ADMISSION_PASS.md`. Its `adjust-transform`,
+     Probe `3E660E97-DBD8-40EA-88F9-C926CD424FDE`; procedure, read-out table and
+     results in `docs/LIVING_STILL_ADMISSION_PASS.md`. Its `adjust-transform`,
      `adjust-blend`, all 18 `filter-video` params, and the `effectConfig`
      payload are **byte-identical** to Final Cut's own export; the wrapper
      differs on purpose (no `<library location>`, no invented `uid`/`sig`).
      128 tests pass, core audit clean, valid against the installed 1.14 DTD and
      correctly rejected by 1.13.
 
-     Still nothing admitted. DTD validity is not acceptance — dissolve
-     revisions 1 and 3 were both valid and both were rewritten.
+     **Imported and returned intact 2026-08-04 23:05.** The `<video>` subtree
+     came back structurally identical — all 40 nodes, every keyframe, every
+     param, all three payloads. All three ground-truth findings held under
+     import, not just export: the nested-`X`/`Y`-vs-paired-`scale` asymmetry was
+     not normalised, `3.55556` was not rescaled, and the `3600s` origin was not
+     reinterpreted. Final Cut assigned the asset `uid` and `media-rep/@sig`
+     itself, vindicating the choice not to invent them.
+
+     Two gaps this pass leaves open. Asset resolution was satisfied by
+     **dedup against media already in the library** from the ground-truth
+     capture (returned `src` points at the `Living Still Ground Truth` media
+     folder; identical sha256), so first-import resolution into a clean library
+     is untested. And playback was never reported, so structural admission is
+     recorded but on-screen render is not.
+
+     The generated construction is admitted. Editability is not — that is a
+     separate pass, as the dissolve work showed.
 3. A trustworthy contract store. Semantics have now been *observed*, but
    `ManualFCPXMLSemanticsEvidence` still defaults to an empty admitted set and
    nothing constructs a non-empty one, so every FCPXML pathway fails closed.

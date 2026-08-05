@@ -136,4 +136,80 @@ This probe carries them. Dropping them is a separate, later experiment.
 
 ## Results
 
-**Not yet run.**
+**Run 2026-08-04 23:05. Admitted — the generated construction returned intact.**
+
+Imported without crash or error. Project
+`FCPCommandConsole Living Still Admission Probe`
+(uid `0C548309-62D2-4740-9C58-1A171B7C294C`) appeared with one four-second
+still. Export written to `Returned/returned.fcpxmld`.
+
+The `<video>` subtree came back **structurally identical** — all 40 nodes,
+every attribute, every keyframe, every param, and all three base64 payloads.
+Compared by parsed tree with attributes sorted, so the result is independent of
+indentation and attribute order.
+
+| Read-out row | Returned | |
+| --- | --- | --- |
+| crash during import | none | pass |
+| project and spine | present, one `<video>` | pass |
+| `adjust-transform` present | yes | pass |
+| `position` nested `X`/`Y`, `scale` paired | **preserved as sent** — not normalised | pass |
+| `X` value | `3.55556` | pass |
+| keyframe times offset from `3600s` | `2594856000/720000s` etc., unchanged | pass |
+| `adjust-blend` / `amount` | present, both keyframes | pass |
+| `effect` uid | `FxPlug:7E2022A5-…`, no `enabled="0"` | pass |
+| Saturation, param order | `25`, all 18 in order | pass |
+
+The asymmetry holds under import, not just under export. Ground-truth finding 1
+would have been the easiest of the three to dismiss as an export quirk; Final
+Cut accepted the nested-vs-paired shapes without rewriting either, so the
+asymmetry is real in both directions. Findings 2 and 3 likewise survived: the
+percent-of-height `3.55556` was not rescaled, and the absolute source-time
+origin was not reinterpreted.
+
+Both deliberate omissions were vindicated. Final Cut assigned
+`uid="63F82C3AE779A89BA8185B2A40A905E3"` to the asset and the same value as
+`media-rep/@sig` on ingest — exactly the identity the probe declined to invent.
+The bare `<event>` form imported fine; the returned `<library location>` and six
+`<smart-collection>` elements are export-side artefacts, as expected.
+
+### One caveat this pass introduces
+
+The returned `media-rep/@src` does not point at the probe's `Media/` directory.
+It points into the library, at the **ground truth** event's media folder:
+
+```
+…/FCPCommandConsole Test.fcpbundle/Living Still Ground Truth/Original Media/living-still.png
+```
+
+Both files hash `170df5348f53221de630c7d7b385e6189f53a27baa2f2246ec7df4f379ed2567`.
+Final Cut recognised identical content and reused the copy already in the
+library from the ground-truth capture rather than ingesting a second one.
+
+So asset resolution in this pass rode on media that was **already present**.
+Nothing here proves the probe's own `file://` reference resolves on a first
+import into a library that has never seen this still. That is a real gap and it
+is cheap to close later with a fresh library, but it is not closed now.
+
+The probe's `Media/living-still.png` is unchanged, hash verified after the run.
+
+### What this admits
+
+**Admission of a generated living still construction**, HANDOFF section 6 item
+2, fourth bullet — the structure our code emits is accepted by Final Cut and
+returns unmodified.
+
+It does not admit editability; that is a separate pass, and the dissolve work
+showed why the two are distinct. It does not admit the composition's numbers —
+the `colorEnrichment` → `Saturation` mapping is still unobserved and the probe
+sidestepped it by reusing the captured `25`. It does not settle whether the
+three colour payloads are required, since this probe carried them. It does not
+establish first-import asset resolution, per the caveat above.
+
+**Structural admission is not render confirmation.** Playback (step 7) was not
+reported, so nothing here records that the push-in, drift, enrichment, and fade
+were actually seen on screen. The absence of `enabled="0"` and the intact effect
+uid make instantiation likely but do not substitute for looking at it.
+
+No capability gate moved. `ManualFCPXMLSemanticsEvidence` still defaults to
+empty and nothing constructs a non-empty one; see HANDOFF section 6 item 3.
