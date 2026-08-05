@@ -207,11 +207,12 @@ survived:
 surviving a full import/export round trip.** This is the first Final Cut
 semantic acceptance in the project.
 
-It does **not** admit the `bare_dissolve_transition` contract as currently
-named — revision 2 disproved the bare form outright. The contract taxonomy
-needs correcting to name what the evidence actually supports before any gate
-can move. Nothing here admits transform, opacity, color, or connected-overlay
-semantics, and nothing advances the other three workflows.
+The `bare_dissolve_transition` contract has since been renamed
+`cross_dissolve_transition` to name what is actually achievable; revision 2
+disproved the bare form outright. Renaming is not admitting: no gate has moved,
+and a test asserts that a passing probe never admits a contract implicitly.
+Nothing here admits transform, opacity, color, or connected-overlay semantics,
+and nothing advances the other three workflows.
 
 `evidence.json` inside the package still reads `unknown` and is left untouched;
 the package is the immutable artifact under test.

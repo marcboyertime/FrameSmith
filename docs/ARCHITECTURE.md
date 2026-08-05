@@ -51,11 +51,19 @@ The only emitted plan schema is `2.0`. Canonical representation classes are
 and old representations are quarantine results, never silent upgrades.
 
 FCPXML evidence is granular, not a global flag. Required contracts vary by
-effect: bare dissolve requires asset admission plus bare-dissolve transition;
-targeted transform requires asset admission plus transform keyframes; Living
-Still also needs opacity and native color; Old Television needs opacity, native
-color, and connected overlays. A successful reduced v2 manual probe may admit
-only asset admission and bare dissolve.
+effect: natural dissolve requires asset admission plus cross-dissolve
+transition; targeted transform requires asset admission plus transform
+keyframes; Living Still also needs opacity and native color; Old Television
+needs opacity, native color, and connected overlays. A successful dissolve
+probe may admit only asset admission and cross dissolve.
+
+`cross_dissolve_transition` was `bare_dissolve_transition` until the round-trip
+probes disproved the bare form. It covers four conditions that must hold
+together — a real `<effect>` resource, a `<filter-video>` referencing it, the
+transition offset at `cut − duration/2`, and butt-joined adjacent clips with
+source beyond the joint. Two of the four failure modes produce DTD-valid
+documents that Final Cut silently rewrites, which is the concrete reason
+validity is not evidence.
 
 ## Package layout and safety
 

@@ -129,25 +129,41 @@ and both clips need unused source beyond the joint.
 Revisions 2, 3, and 4 are spent evidence and were not modified, regenerated, or
 retried.
 
-### Why no gate moved on this evidence alone
+### The contract taxonomy has been corrected
 
-`ManualFCPXMLSemanticsEvidence.requiredContracts(for: .naturalDissolve)` is
-`[.assetAdmission, .bareDissolveTransition]`. Asset admission is established.
-`bare_dissolve_transition` is **not**, and cannot be: revision 2 tested exactly
-that construct and Final Cut returned it disabled. The contract as named
-describes something that does not work.
+`requiredContracts(for: .naturalDissolve)` was
+`[.assetAdmission, .bareDissolveTransition]`. The second named something the
+probes disproved: revision 2 sent exactly a bare `<transition>` and Final Cut
+returned it disabled at `offset="0s"` against a synthesized empty-UID effect.
+That contract could never have been admitted by any evidence.
 
-The taxonomy must therefore be corrected to name the construct the evidence
-supports — a fully specified cross dissolve — before natural dissolve can be
-assessed against it. Renaming a contract is not the same as admitting one, and
-neither is done implicitly by a passing probe.
+It is now `cross_dissolve_transition`, documented against the four conditions
+revisions 2–4 established: a real `<effect>` resource, a `<filter-video>`
+referencing it, the transition offset at `cut − duration/2`, and butt-joined
+adjacent clips with source beyond the joint. The wire values of all six
+contracts are pinned by a test, because they are the persisted form of manual
+evidence that cost four probe revisions to obtain.
+
+### Why no gate has moved
+
+Renaming a contract is not admitting one, and a passing probe does not admit
+one implicitly — a test now asserts that. `ManualFCPXMLSemanticsEvidence`
+defaults to an empty admitted set and nothing in the app constructs a non-empty
+one, so every FCPXML pathway still fails closed.
+
+Admission needs a trustworthy way to record that a manual pass happened. The
+gate's existing design is explicit that a JSON claim must not be convertible
+into capability evidence — `VerifiedFinalCutSelectionEvidence` has an internal
+initializer for exactly that reason — so a contract store cannot simply be a
+file the app reads and believes. That mechanism is the next Phase 1 decision
+and is not yet designed.
 
 ## Workflow matrix
 
 | Workflow | Offline/local status | Final Cut acceptance |
 | --- | --- | --- |
 | Targeted rotate/zoom | planner/math/local point selection implemented | not accepted |
-| Natural dissolve | registry + syntax packages through revision 4 | **Final Cut semantics observed to pass** — asset admission, native cross dissolve, correct timing, and a faithful round trip. Not yet an accepted workflow: the contract taxonomy names a construct (`bare_dissolve_transition`) that revision 2 disproved, and no gate has been moved. |
+| Natural dissolve | registry + syntax packages through revision 4 | **Final Cut semantics observed to pass** — asset admission, native cross dissolve, correct timing, and a faithful round trip. Not yet an accepted workflow: no capability gate has been moved, because no trustworthy contract store exists to admit one. |
 | Old Television | layered-media plan/composition/local package only | not accepted |
 | Living Still | native-fallback plan/local package only | not accepted |
 

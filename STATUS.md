@@ -43,8 +43,10 @@ schema 2.0. Unknown schema versions fail closed.
 preview and inert payload-neutral packaging. FCPXML preview/export remains
 blocked without granular manual semantic contracts, and local-media tokens also
 never establish Final Cut selection/spine/adjacency evidence. Contract evidence
-is effect-scoped: asset admission, bare dissolve, transform keyframes, opacity
-keyframes, native color adjustment, and connected overlay layers are separate.
+is effect-scoped: asset admission, cross dissolve transition, transform
+keyframes, opacity keyframes, native color adjustment, and connected overlay
+layers are separate. Their raw values are the persisted form of manual evidence
+and are pinned by a test.
 
 ## Inert package fact
 
@@ -89,10 +91,8 @@ so the v1 crash did not recur. The bare transition was **rejected**: Final Cut
 returned it at `offset="0s"` with `enabled="0"` against a synthesized
 `<effect uid=""/>`, and the two clips butt-cut at 8s with no overlap or handles.
 
-Phase 1 therefore remains **incomplete: 0/4 Final Cut workflows accepted**.
-Natural dissolve needs asset admission *and* bare dissolve; only the former was
-observed. No capability gate moved. Full results, the returned XML analysis,
-and revision 3 requirements are in `docs/ROUNDTRIP_MANUAL_PASS.md`.
+That result stood as of revision 2. Full results and the returned XML analysis
+for every revision are in `docs/ROUNDTRIP_MANUAL_PASS.md`.
 
 Revision 2 is spent evidence and was not modified, regenerated, or retried.
 

@@ -38,7 +38,7 @@ final class CapabilityGateTests: XCTestCase {
     }
 
     func testDissolveOnlyEvidenceDoesNotUnlockOtherWorkflows() throws {
-        let gate = CapabilityGate(manualSemanticsEvidence: .init(admittedContracts: [.assetAdmission, .bareDissolveTransition]))
+        let gate = CapabilityGate(manualSemanticsEvidence: .init(admittedContracts: [.assetAdmission, .crossDissolveTransition]))
         for capability in [FCPCommandConsoleCapability.fcpxmlPreview, .fcpxmlExport] {
             XCTAssertFalse(gate.decision(for: try plan(for: .naturalDissolve), capability: capability).allowed, capability.rawValue)
             XCTAssertFalse(gate.decision(for: try plan(for: .targetedRotateZoom), capability: capability).allowed, capability.rawValue)
@@ -103,7 +103,7 @@ final class CapabilityGateTests: XCTestCase {
     func testEachEffectHasExactRequiredSemanticContracts() {
         XCTAssertEqual(
             ManualFCPXMLSemanticsEvidence.requiredContracts(for: .naturalDissolve),
-            [.assetAdmission, .bareDissolveTransition]
+            [.assetAdmission, .crossDissolveTransition]
         )
         XCTAssertEqual(
             ManualFCPXMLSemanticsEvidence.requiredContracts(for: .targetedRotateZoom),
@@ -117,6 +117,48 @@ final class CapabilityGateTests: XCTestCase {
             ManualFCPXMLSemanticsEvidence.requiredContracts(for: .oldTelevision),
             [.assetAdmission, .opacityKeyframes, .nativeColorAdjustment, .connectedOverlayLayers]
         )
+    }
+
+    /// Contract raw values are the persisted form of manual Final Cut evidence
+    /// that took four probe revisions to obtain. Renaming one silently
+    /// invalidates that evidence, so the wire values are pinned here.
+    ///
+    /// `bare_dissolve_transition` is absent deliberately: revision 2 sent
+    /// exactly that construct and Final Cut returned it disabled at offset 0
+    /// against a synthesized empty-UID effect. It named something unachievable
+    /// and could never have been admitted.
+    func testSemanticContractWireValuesArePinnedAndTheDisprovenFormIsGone() {
+        XCTAssertEqual(
+            Set(FCPXMLSemanticContract.allCases.map(\.rawValue)),
+            [
+                "asset_admission",
+                "cross_dissolve_transition",
+                "transform_keyframes",
+                "opacity_keyframes",
+                "native_color_adjustment",
+                "connected_overlay_layers"
+            ]
+        )
+        XCTAssertFalse(FCPXMLSemanticContract.allCases.contains { $0.rawValue.contains("bare") })
+    }
+
+    /// The probes proved the semantics; they did not admit them. Admission is a
+    /// separate, deliberate act, and the default profile stays empty so every
+    /// FCPXML pathway fails closed until one happens.
+    func testPassingProbeEvidenceDoesNotImplicitlyAdmitAnyContract() {
+        XCTAssertTrue(ManualFCPXMLSemanticsEvidence.unknown.admittedContracts.isEmpty)
+        XCTAssertTrue(ManualFCPXMLSemanticsEvidence().admittedContracts.isEmpty)
+        XCTAssertEqual(
+            ManualFCPXMLSemanticsEvidence.unknown.missingContracts(for: .naturalDissolve),
+            [.assetAdmission, .crossDissolveTransition]
+        )
+        for effect in EffectID.allCases {
+            XCTAssertEqual(
+                ManualFCPXMLSemanticsEvidence.unknown.missingContracts(for: effect),
+                ManualFCPXMLSemanticsEvidence.requiredContracts(for: effect),
+                "an empty profile must be missing every contract \(effect.rawValue) requires"
+            )
+        }
     }
 
     func testLegacySchemaIsQuarantinedAndNeverBecomesCurrentOrCapabilityEligible() throws {

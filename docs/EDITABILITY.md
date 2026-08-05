@@ -20,11 +20,13 @@ Legacy values (`fcp_native`, `generated_asset_plus_fcp_native`, and
 quarantined with optional suggested migration only; it must be replanned as
 schema 2.0 before local preview or packaging.
 
-Editability needs evidence per semantic contract. A future successful bare
-dissolve import/export may establish asset admission and bare dissolve only. It
-does not establish transform keyframes, opacity keyframes, native color
-adjustment, connected overlay layers, reusable template behavior, or any
-workflow-wide editability claim.
+Editability needs evidence per semantic contract. The dissolve import/export
+pass of 2026-08-04 observed asset admission and a natively instantiated cross
+dissolve at correct timing, and nothing else. It does not establish transform
+keyframes, opacity keyframes, native color adjustment, connected overlay
+layers, reusable template behavior, or any workflow-wide editability claim —
+and observing a semantic is not the same as admitting its contract, which
+remains a separate deliberate act.
 
 The standalone app's source preview and inert package are not editability
 evidence. FCPXML export remains disabled through CapabilityGate.

@@ -16,7 +16,25 @@ public enum FCPCommandConsoleCapability: String, Codable, CaseIterable, Sendable
 /// semantics.
 public enum FCPXMLSemanticContract: String, Codable, CaseIterable, Hashable, Sendable {
     case assetAdmission = "asset_admission"
-    case bareDissolveTransition = "bare_dissolve_transition"
+
+    /// A cross dissolve that Final Cut instantiates natively at the timing it
+    /// was given.
+    ///
+    /// This case was named `bare_dissolve_transition` until the round-trip
+    /// probes disproved the bare form. Revision 2 sent a `<transition>` with no
+    /// effect resource and no offset; it is DTD-valid, and Final Cut imported it
+    /// disabled at `offset="0s"` against a synthesized `<effect uid=""/>`. There
+    /// is no construct the old name could ever describe, so admitting it was
+    /// unreachable by design.
+    ///
+    /// Four things must hold together, and revisions 2–4 each isolated one:
+    /// a real `<effect>` resource carrying the transition's UID; a
+    /// `<filter-video>` on the transition referencing it; the transition offset
+    /// at `cut − duration/2`; and the adjacent clips **butt-joined** at the cut
+    /// with unused source beyond it. Overlapping the clips is also DTD-valid and
+    /// is also silently rewritten — a `<spine>` is strictly sequential.
+    case crossDissolveTransition = "cross_dissolve_transition"
+
     case transformKeyframes = "transform_keyframes"
     case opacityKeyframes = "opacity_keyframes"
     case nativeColorAdjustment = "native_color_adjustment"
@@ -37,7 +55,7 @@ public struct ManualFCPXMLSemanticsEvidence: Codable, Equatable, Sendable {
     public static func requiredContracts(for effectID: EffectID) -> Set<FCPXMLSemanticContract> {
         switch effectID {
         case .naturalDissolve:
-            return [.assetAdmission, .bareDissolveTransition]
+            return [.assetAdmission, .crossDissolveTransition]
         case .targetedRotateZoom:
             return [.assetAdmission, .transformKeyframes]
         case .livingStill:
