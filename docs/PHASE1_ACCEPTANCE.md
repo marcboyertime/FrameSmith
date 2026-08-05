@@ -104,6 +104,15 @@ taxonomy names, and revision 2 disproved the bare form outright.
 Revisions 2 and 3 are spent evidence and were not modified, regenerated, or
 retried.
 
+**Revision 4 has been built** as operation
+`27EA1706-E765-4AC8-9487-54192E5F8DF3` and awaits its manual pass. It preserves
+revision 3's entire effect construction and changes one value — the incoming
+clip's offset from `19500/3000s` to `21000/3000s` — so the spine clips
+butt-join at the cut instead of overlapping. Nothing about revision 4's Final
+Cut behaviour may be claimed until its own pass is run; its evidence ledger
+records all four semantic rows as `unknown`, including the two that
+predecessors passed.
+
 ## Workflow matrix
 
 | Workflow | Offline/local status | Final Cut acceptance |

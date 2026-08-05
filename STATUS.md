@@ -131,3 +131,14 @@ dissolve" the taxonomy names.
 Revisions 2 and 3 are spent evidence and were not modified, regenerated, or
 retried. Full results and the returned XML analysis are in
 `docs/ROUNDTRIP_MANUAL_PASS.md`.
+
+**Revision 4 is built and awaiting its manual pass:**
+`/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/27EA1706-E765-4AC8-9487-54192E5F8DF3`
+
+It keeps everything Final Cut has admitted — including revision 3's entire
+effect construction — and changes exactly one value: the incoming clip's offset
+becomes `21000/3000s` (the cut) instead of `19500/3000s` (the transition's
+offset), so the two spine clips butt-join rather than overlap. A `diff` of the
+revision 3 and revision 4 FCPXMLs with operation IDs normalized is that single
+line and nothing else. DTD-valid, media hashes verified, `Returned/` empty, all
+four semantic rows `unknown`.

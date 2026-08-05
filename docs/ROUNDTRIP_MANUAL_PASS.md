@@ -7,16 +7,160 @@ Final Cut and records what happened here.
 Read `docs/FCPXML_ROUNDTRIP_SPIKE.md` first for what the package contains and
 why it is shaped the way it is. This file is the execution sheet.
 
-## Revision 3 — pass executed 2026-08-04, spent evidence
+## Current package under test — revision 4
+
+`/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/27EA1706-E765-4AC8-9487-54192E5F8DF3`
+
+Generated 2026-08-04 after the revision 3 pass. It keeps **everything** Final
+Cut has admitted so far — the assets, the `asset-clip` construction, the
+name-only format reference, the browser clips, and revision 3's whole effect
+construction — and changes exactly one value:
+
+```diff
+- <asset-clip name="clip-b.mov" … offset="19500/3000s" start="3000/3000s" duration="21000/3000s"/>
++ <asset-clip name="clip-b.mov" … offset="21000/3000s" start="3000/3000s" duration="21000/3000s"/>
+```
+
+A `diff` of the two generated FCPXMLs, with operation IDs normalized, is that
+one line and nothing else. The incoming clip now butt-joins the outgoing clip
+at the 7 s cut instead of overlapping it by half a transition, which is what a
+strictly sequential `<spine>` requires. Only the transition stays centred on
+the joint, drawing its overlap from the handles either side.
+
+**Expected if it works:** a 14 s sequence, `clip-a` 0→7 s, `clip-b` 7→14 s,
+transition 6.5→7.5 s, exactly two spine `asset-clip`s, and the effect returning
+with our UID and no `enabled="0"` as it already did in revision 3.
+
+Preflight, verified at generation: `probeRevision: 4`, both media SHA-256 and
+byte counts match `manifest.json`, DTD-valid against the installed FCPXML 1.13
+DTD (checked twice — by the generator before publishing and independently
+after), and `Returned/` is empty. `swift build` clean, `swift test` 95 tests /
+0 failures, core audit passed.
+
+### Library state before this pass
+
+The disposable library now holds three spent items. Step 4 of the procedure
+renames the **revision 3 project** to `REV3 spent 2026-08-04` for the same
+reason it renamed revision 2's last time: revision 4 imports under the same
+event and project name, and a merged, identically-named project is the one way
+this pass could silently record the wrong result.
+
+Media dedupe is expected and is not a failure: earlier imports copied these same
+bytes into the library, so the returned `src` may point at media already
+present. Asset admission stays observable because `uid`/`sig` derive from the
+media itself.
+
+---
+
+# Procedure
+
+This section is revision-independent. Only the package path changes between
+passes; for revision 4 it is the path at the top of this file.
+
+## Which Final Cut to launch
+
+**Never the stock `/Applications/Final Cut Pro.app`, and never by
+double-clicking anything.** The pass runs the reviewed copy at
+`~/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app`
+through `Scripts/launch-isolated-fcpcommandconsole`, which is the only launch
+path that verifies the copy's identity, forces an isolated `HOME`, and applies
+`config/fcpcommandconsole-isolation.sb`. That profile denies every `.fcpbundle`
+except the disposable library, so a production library cannot be opened even by
+accident.
+
+## Steps
+
+Stop at the **first** failure. Do not retry, do not regenerate, do not move to
+the next step.
+
+1. Confirm no Final Cut is running: `pgrep -lf "Final Cut"` prints nothing.
+   The launcher refuses to start otherwise.
+2. Launch, from the repo root, in a terminal you can leave open — the command
+   blocks until Final Cut quits:
+
+   ```sh
+   Scripts/launch-isolated-fcpcommandconsole --launch
+   ```
+
+   It prints `preflight=pass` and a provenance directory before launching.
+   If it prints anything else and exits, stop and record that output; the
+   pass has not started.
+3. Confirm the open library is **`FCPCommandConsole Test`** and nothing else.
+   If no library opens, File ▸ Open Library ▸ Other… and choose
+   `~/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle`. An error when
+   any *other* library is offered is the sandbox working correctly, not a
+   probe failure — record it and carry on with the disposable library.
+4. **Rename the previous revision's project** in the browser sidebar — for
+   revision 4, rename `FCPCommandConsole Dissolve Admission Probe` (the
+   revision 3 project, inside the event of the same name) to
+   `REV3 spent 2026-08-04`. Click the name, type, Return. Every revision
+   imports under the same event and project name and Final Cut merges them, so
+   without this rename there is a live risk of inspecting or exporting the
+   previous revision and recording its result as this one's.
+5. File ▸ Import ▸ XML…, press `⇧⌘G`, paste the absolute path of
+   `FCPCommandConsole-RoundTrip-Spike.fcpxml` from the current package, and
+   import. **Stop and record on any error, alert, beachball, or crash.**
+6. Confirm a **new** project named `FCPCommandConsole Dissolve Admission Probe`
+   appeared alongside the renamed one, with two browser clips. If the only
+   project with that name is the one you renamed, stop — the rename did not
+   take and the pass is contaminated.
+7. Confirm both clips show real media, not missing-file/red placeholders.
+8. Open the new project and inspect the spine, then click the transition and
+   read the Inspector. Record what you see; the expectations for the current
+   revision are at the top of this file.
+9. Select the project in the browser, File ▸ Export XML…, press `⇧⌘G`, and
+   save into the current package's `Returned/` directory. `Returned/` is the
+   only part of a package that may ever be written to.
+10. Quit Final Cut. The launcher exits and writes its after-snapshots.
+11. Compare the returned FCPXML against the source using the table below.
+
+## Reading the result
+
+The returned XML answers it, not the timeline view.
+
+| Returned value | Meaning |
+| --- | --- |
+| `<filter-video … enabled="1">`, or no `enabled` at all, which defaults to 1 | the effect was accepted |
+| `enabled="0"` | rejected — the revision 2 signature |
+| effect `uid` non-empty and matching what we sent | our UID was understood |
+| effect `uid=""` | Final Cut synthesized a placeholder |
+| a `<filter-audio … uid="FFAudioTransition"/>` we never sent | Final Cut genuinely instantiated the transition — it only enriches real ones |
+| transition `offset="19500/3000s"` | placement understood |
+| transition `offset="0s"` | placement rejected |
+| exactly two spine `asset-clip`s, `clip-a` 0→7 s and `clip-b` 7→14 s | geometry accepted — the revision 4 question |
+| a third spine `asset-clip`, or `clip-a` shorter than 7 s | the spine was re-flowed — the revision 3 signature |
+
+## On crash or alert
+
+1. Note the exact step and the on-screen text verbatim.
+2. Capture the new crash report from
+   `~/Library/Logs/DiagnosticReports/` and record its incident id.
+3. Stop touching the package. Record before any retry or regeneration.
+
+The known crash, for comparison: revision 1
+(`A78B1B9D-60D7-4CD8-960B-FA9104C301E7`) died inside
+`FFXMLImporter AssetClipImport addAssetClip:toObject:parentFormatID:`,
+incident `42DFFCF1-9E45-41DA-992F-ADB212422B07`.
+
+## Results — revision 4
+
+**Not yet run.** All four semantic rows remain `unknown`. Nothing about
+revision 4's Final Cut behaviour may be claimed until this section records an
+executed pass.
+
+---
+
+Everything below is a completed record.
+
+---
+
+# Revision 3 — completed record
+
+Package (spent evidence; do not regenerate, edit, or retry):
 
 `/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/6B8F8B1C-8171-4770-86C0-E5A859C3B32A`
 
 **Outcome: the Cross Dissolve was admitted; the spine geometry was rejected.**
-Full results and the returned XML analysis are in
-[Results — pass executed 2026-08-04](#results--pass-executed-2026-08-04-21212128)
-below, and the one-number fix in *What revision 4 needs*. The steps and the
-"which Final Cut to launch" rules in this section stand unchanged for the next
-revision; only the package path changes.
 
 Generated 2026-08-03 after the revision 2 pass. It keeps everything Final Cut
 already admitted in revision 2 — the assets, the `asset-clip` construction, the
@@ -62,107 +206,11 @@ Note for anyone re-running the DTD check by hand: `xmllint --dtdvalid` takes a
 because it contains spaces. Copy the DTD to a space-free path first; this is a
 quoting artifact, not a validation failure.
 
-## Known state of the disposable library
-
-The library already holds two spent events from earlier passes:
-
-- `FCPCommandConsole Round-Trip Spike — Manual Import Only` (revision 1)
-- `FCPCommandConsole Dissolve Admission Probe` (revision 2)
-
-Revision 3 imports under **the same event name as revision 2**, and Final Cut
-merges same-named events on XML import. Step 4 below renames the revision 2
-event first so the revision 3 import lands in an unambiguously new event.
-Without that rename there is a live risk of inspecting — or exporting — the
-revision 2 project and recording its result as revision 3's.
-
-Media dedupe is expected and is not a failure: revision 2's import copied these
-same bytes into the library, so revision 3's returned `src` may point at media
-already present. Asset admission is still observable, because `uid`/`sig` derive
-from the media itself.
-
-## Which Final Cut to launch
-
-**Never the stock `/Applications/Final Cut Pro.app`, and never by
-double-clicking anything.** The pass runs the reviewed copy at
-`~/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app`
-through `Scripts/launch-isolated-fcpcommandconsole`, which is the only launch
-path that verifies the copy's identity, forces an isolated `HOME`, and applies
-`config/fcpcommandconsole-isolation.sb`. That profile denies every `.fcpbundle`
-except the disposable library, so a production library cannot be opened even by
-accident.
-
-## Steps — revision 3
-
-Stop at the **first** failure. Do not retry, do not regenerate, do not move to
-the next step.
-
-1. Confirm no Final Cut is running: `pgrep -lf "Final Cut"` prints nothing.
-   The launcher refuses to start otherwise.
-2. Launch, from the repo root, in a terminal you can leave open — the command
-   blocks until Final Cut quits:
-
-   ```sh
-   Scripts/launch-isolated-fcpcommandconsole --launch
-   ```
-
-   It prints `preflight=pass` and a provenance directory before launching.
-   If it prints anything else and exits, stop and record that output; the
-   pass has not started.
-3. Confirm the open library is **`FCPCommandConsole Test`** and nothing else.
-   If no library opens, File ▸ Open Library ▸ Other… and choose
-   `~/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle`. An error when
-   any *other* library is offered is the sandbox working correctly, not a
-   probe failure — record it and carry on with the disposable library.
-4. In the browser sidebar, rename the existing event
-   **`FCPCommandConsole Dissolve Admission Probe`** to
-   **`REV2 spent 2026-08-03`** (click the name, type, Return). This is the
-   revision 2 event and it must not absorb the revision 3 import.
-5. File ▸ Import ▸ XML…, press `⇧⌘G`, paste the absolute path of
-   `FCPCommandConsole-RoundTrip-Spike.fcpxml` from the revision 3 package, and
-   import. **Stop and record on any error, alert, beachball, or crash.**
-6. Confirm a **new** event named `FCPCommandConsole Dissolve Admission Probe`
-   was created, with two browser clips and a project of the same name. If the
-   import instead landed in `REV2 spent 2026-08-03`, stop — the rename did not
-   take and the pass is contaminated.
-7. Confirm both clips show real media, not missing-file/red placeholders.
-8. Open the new project and inspect the spine. Expected shape, if revision 3
-   works: a timeline about **13.5 s** long, `clip-a` from 0 s to 7 s, the
-   transition straddling the cut from **6.5 s to 7.5 s**, and `clip-b` running
-   from 6.5 s to 13.5 s. Record: does the transition exist; where is it; what is
-   it called; and — click it — does the Inspector show an enabled **Cross
-   Dissolve** rather than a blank effect.
-9. Select the project in the browser, File ▸ Export XML…, press `⇧⌘G`, and
-   save into the revision 3 package's `Returned/` directory. `Returned/` is the
-   only part of the package that may be written to.
-10. Quit Final Cut. The launcher exits and writes its after-snapshots.
-11. Compare the returned FCPXML against the source using the table below.
-
-## Reading a revision 3 result
-
-The returned XML answers it, not the timeline view. Compare against revision 2's
-failure signature:
-
-| Returned value | Meaning |
-| --- | --- |
-| `<filter-video … enabled="1">` (or no `enabled`, which defaults to 1) | the effect was accepted |
-| `enabled="0"` | still rejected — as in revision 2 |
-| effect `uid` non-empty and matching what we sent | our UID was understood |
-| effect `uid=""` | Final Cut again synthesized a placeholder |
-| transition `offset` near `19500/3000s` | placement understood |
-| transition `offset="0s"` | placement still wrong — suspect the centred-offset convention |
-| clip-b `offset` ≈ clip-a end minus half the transition | handles consumed as intended |
-
-## On crash or alert
-
-1. Note the exact step and the on-screen text verbatim.
-2. Capture the new crash report from
-   `~/Library/Logs/DiagnosticReports/` and record its incident id.
-3. Stop touching the package. Record before any retry or regeneration.
-
-The known predecessor failure, for comparison: revision 1
-(`A78B1B9D-60D7-4CD8-960B-FA9104C301E7`) crashed inside
-`FFXMLImporter AssetClipImport addAssetClip:toObject:parentFormatID:`,
-incident `42DFFCF1-9E45-41DA-992F-ADB212422B07`.
+The pass followed the shared *Procedure* above. At the time it was run the
+library held two spent events — `FCPCommandConsole Round-Trip Spike — Manual
+Import Only` (revision 1) and `FCPCommandConsole Dissolve Admission Probe`
+(revision 2) — and step 4 renamed the revision 2 item to `REV2 spent
+2026-08-03`.
 
 ## Results — pass executed 2026-08-04 21:21–21:28
 
@@ -288,7 +336,10 @@ Do not change anything else. Revision 3 isolated the effect question and
 answered it; revision 4 must isolate the geometry question the same way, so
 that a failure has exactly one possible cause.
 
-Revision 3 is spent evidence. Do not modify, regenerate, or retry it.
+**Built** as operation `27EA1706-E765-4AC8-9487-54192E5F8DF3`, described at the
+top of this file. A `diff` of the two generated FCPXMLs with operation IDs
+normalized is exactly the one line above and nothing else. Revision 3 was not
+modified, regenerated, or retried.
 
 ---
 

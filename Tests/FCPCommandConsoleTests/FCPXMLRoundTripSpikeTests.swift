@@ -67,13 +67,17 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
         // Cut admitted; only the spine construction differs.
         XCTAssertTrue(xml.contains("Browser Clip\" ref=\"r2\" format=\"r1\" start=\"0s\" duration=\"8s\" audioRole=\"dialogue\""))
 
-        // Revision 3 supplies each of the four things revision 2 was returned
-        // disabled for lacking.
+        // The effect construction revision 3 proved Final Cut admits, kept
+        // verbatim.
         XCTAssertTrue(xml.contains("<effect id=\"r4\" name=\"Cross Dissolve\" uid=\"FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265\"/>"))
         XCTAssertTrue(xml.contains("<filter-video ref=\"r4\" name=\"Cross Dissolve\">"))
         XCTAssertTrue(xml.contains("<transition name=\"Cross Dissolve\" offset=\"19500/3000s\" duration=\"3000/3000s\">"))
         XCTAssertTrue(xml.contains("offset=\"0s\" start=\"0s\" duration=\"21000/3000s\""), "clip-a must be trimmed to leave a tail handle")
-        XCTAssertTrue(xml.contains("offset=\"19500/3000s\" start=\"3000/3000s\" duration=\"21000/3000s\""), "clip-b must start into its source to leave a head handle")
+        // Revision 4's one change: the incoming clip joins at the cut (7s), not
+        // at the transition's offset (6.5s). Overlapping spine siblings are what
+        // made Final Cut truncate clip-a and orphan its tail in revision 3.
+        XCTAssertTrue(xml.contains("offset=\"21000/3000s\" start=\"3000/3000s\" duration=\"21000/3000s\""), "clip-b must butt-join at the cut while still starting into its source for a head handle")
+        XCTAssertFalse(xml.contains("offset=\"19500/3000s\" start="), "the incoming clip must not share the transition's offset — that is the revision-3 overlap")
         XCTAssertFalse(xml.contains("Bare 1-second transition hypothesis"), "the disproven revision-2 construct must not reappear")
         XCTAssertFalse(xml.contains("uid=\"\""), "an empty effect UID is what Final Cut synthesized when revision 2 supplied none")
 
@@ -87,10 +91,12 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
         try validateDTD(package.fcpxmlURL, dtd: try dtdURL())
     }
 
-    /// The timeline arithmetic must stay exactly frame-aligned at 30 fps and
-    /// must leave real handles; a transition with nothing to dissolve through
-    /// is what revision 2's 8s-butted clips produced.
-    func testRevisionThreeTimelineIsFrameAlignedAndLeavesHandles() {
+    /// The timeline arithmetic must stay exactly frame-aligned at 30 fps, must
+    /// leave real handles, and must not overlap the two spine clips. A
+    /// transition with nothing to dissolve through is what revision 2's
+    /// 8s-butted clips produced; overlapping siblings are what re-flowed
+    /// revision 3's spine.
+    func testRevisionFourTimelineIsFrameAlignedLeavesHandlesAndDoesNotOverlap() {
         let sourceUnits = 8 * RoundTripSpikeTimeline.secondUnits
         let frameUnits = RoundTripSpikeTimeline.timescale / 30
         for units in [RoundTripSpikeTimeline.clipDurationUnits, RoundTripSpikeTimeline.transitionUnits, RoundTripSpikeTimeline.transitionOffsetUnits, RoundTripSpikeTimeline.incomingOffsetUnits, RoundTripSpikeTimeline.incomingStartUnits] {
@@ -101,14 +107,29 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
         XCTAssertEqual(RoundTripSpikeTimeline.incomingStartUnits, RoundTripSpikeTimeline.handleUnits)
         // Both handles must cover at least the half-transition each side consumes.
         XCTAssertGreaterThanOrEqual(RoundTripSpikeTimeline.handleUnits, RoundTripSpikeTimeline.transitionUnits / 2)
-        // The transition is centred on the cut, and the incoming clip joins it there.
+        // Only the transition is centred on the cut. Confirmed by revision 3:
+        // Final Cut returned exactly this relation to the joint it settled on.
         XCTAssertEqual(RoundTripSpikeTimeline.transitionOffsetUnits, RoundTripSpikeTimeline.cutUnits - RoundTripSpikeTimeline.transitionUnits / 2)
-        XCTAssertEqual(RoundTripSpikeTimeline.incomingOffsetUnits, RoundTripSpikeTimeline.transitionOffsetUnits)
         XCTAssertNotEqual(RoundTripSpikeTimeline.transitionOffsetUnits, 0, "offset 0 is the revision-2 failure")
+
+        // The incoming clip joins at the cut. Sharing the transition's offset is
+        // the revision-3 failure: it overlaps the outgoing clip by half a
+        // transition, which a strictly sequential spine cannot represent.
+        XCTAssertEqual(RoundTripSpikeTimeline.incomingOffsetUnits, RoundTripSpikeTimeline.cutUnits)
+        XCTAssertNotEqual(RoundTripSpikeTimeline.incomingOffsetUnits, RoundTripSpikeTimeline.transitionOffsetUnits)
+        // Stated as the invariant that actually matters: the outgoing clip ends
+        // exactly where the incoming clip begins — no overlap, and no gap.
+        let outgoingEndUnits = 0 + RoundTripSpikeTimeline.clipDurationUnits
+        XCTAssertEqual(outgoingEndUnits, RoundTripSpikeTimeline.incomingOffsetUnits, "spine siblings must butt-join")
+        // The transition still straddles that joint, drawing on both handles.
+        XCTAssertLessThan(RoundTripSpikeTimeline.transitionOffsetUnits, outgoingEndUnits)
+        XCTAssertGreaterThan(RoundTripSpikeTimeline.transitionOffsetUnits + RoundTripSpikeTimeline.transitionUnits, outgoingEndUnits)
+
         XCTAssertEqual(RoundTripSpikeTimeline.time(19500), "19500/3000s")
+        XCTAssertEqual(RoundTripSpikeTimeline.time(21000), "21000/3000s")
     }
 
-    func testRevisionThreeEvidenceAndProvenanceRecordBothPredecessorsAndPendingSemantics() throws {
+    func testRevisionFourEvidenceAndProvenanceRecordEveryPredecessorAndPendingSemantics() throws {
         let package = try builder().build(operationID: UUID())
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -117,24 +138,27 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
         let plan = try decoder.decode(FCPXMLRoundTripSpikePlan.self, from: Data(contentsOf: package.packageRoot.appendingPathComponent("plan.json")))
 
         XCTAssertEqual(evidence.schemaVersion, "1.1")
-        XCTAssertEqual(evidence.probeRevision, 3)
+        XCTAssertEqual(evidence.probeRevision, 4)
         XCTAssertEqual(provenance.schemaVersion, "1.1")
-        XCTAssertEqual(provenance.probeRevision, 3)
+        XCTAssertEqual(provenance.probeRevision, 4)
         XCTAssertEqual(provenance.semanticAcceptance, .unknown)
         XCTAssertFalse(provenance.finalCutAutomationPerformed)
         XCTAssertFalse(provenance.paidCallPerformed)
         XCTAssertFalse(provenance.mediaUploadPerformed)
         XCTAssertTrue(provenance.manualImportExportPending)
         XCTAssertEqual(plan.probes.count, 1)
-        XCTAssertEqual(plan.probeRevision, 3)
+        XCTAssertEqual(plan.probeRevision, 4)
         XCTAssertTrue(plan.probes.flatMap(\.assumptions).contains { $0.localizedCaseInsensitiveContains("unverified") })
         XCTAssertEqual(evidence.checks.first(where: { $0.name == "DTD syntax validation" })?.status, .pass)
-        // Both predecessors are recorded with the outcome each actually had.
+        // Every predecessor is recorded with the outcome it actually had, wins
+        // and losses alike.
         XCTAssertEqual(evidence.checks.first(where: { $0.name == "predecessor import (revision 1)" })?.status, .fail)
-        XCTAssertEqual(evidence.checks.first(where: { $0.name == "predecessor asset admission (revision 2)" })?.status, .pass)
+        XCTAssertEqual(evidence.checks.first(where: { $0.name == "predecessor asset admission (revisions 2 and 3)" })?.status, .pass)
         XCTAssertEqual(evidence.checks.first(where: { $0.name == "predecessor bare transition (revision 2)" })?.status, .fail)
+        XCTAssertEqual(evidence.checks.first(where: { $0.name == "predecessor cross dissolve semantics (revision 3)" })?.status, .pass)
+        XCTAssertEqual(evidence.checks.first(where: { $0.name == "predecessor spine geometry (revision 3)" })?.status, .fail)
         // Nothing about this revision's own Final Cut behaviour may be claimed
-        // before a manual pass, including the row revision 2 already passed.
+        // before a manual pass, including the two rows predecessors passed.
         for name in ["asset admission", "cross dissolve native semantics", "transition timing and handles", "returned FCPXML round trip"] {
             XCTAssertEqual(evidence.checks.first(where: { $0.name == name })?.status, .unknown)
         }

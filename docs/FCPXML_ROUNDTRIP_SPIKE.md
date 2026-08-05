@@ -158,7 +158,29 @@ overlapping form (`Clip_A 0→10`, `transition 9.5→10.5`, `Clip_B 9.5→19.5`)
 It is OTIO writer output rather than a Final Cut export, and Final Cut does not
 accept it as written. Treat it as untrusted for spine geometry.
 
-Revision 4 is a single change — `clip-b` `offset` `19500/3000s` →
-`21000/3000s` — keeping everything revision 3 proved. As with revision 2, the
-spent package's `evidence.json` is left reading `unknown`; recorded evidence
-lives in `docs/ROUNDTRIP_MANUAL_PASS.md` and `docs/PHASE1_ACCEPTANCE.md`.
+As with revision 2, the spent package's `evidence.json` is left reading
+`unknown`; recorded evidence lives in `docs/ROUNDTRIP_MANUAL_PASS.md` and
+`docs/PHASE1_ACCEPTANCE.md`.
+
+## Revision 4
+
+Generated 2026-08-04 as operation `27EA1706-E765-4AC8-9487-54192E5F8DF3`. A
+single change from revision 3, keeping every construction Final Cut has
+admitted — the assets, the `asset-clip` form, the name-only format reference,
+the browser clips, and revision 3's `<effect>` resource, `filter-video`
+reference, params, and centred transition offset:
+
+```diff
+- <asset-clip name="clip-b.mov" … offset="19500/3000s" start="3000/3000s" duration="21000/3000s"/>
++ <asset-clip name="clip-b.mov" … offset="21000/3000s" start="3000/3000s" duration="21000/3000s"/>
+```
+
+A `diff` of the two generated FCPXMLs with operation IDs normalized is that one
+line and nothing else, so a revision 4 failure has exactly one possible cause.
+
+The spine now butt-joins: `clip-a` 0→7 s, `clip-b` 7→14 s, with the transition
+alone straddling the joint at 6.5→7.5 s and drawing its overlap from the
+handles — `clip-a` holds 7–8 s of its source in reserve and `clip-b` holds
+0–1 s. `RoundTripSpikeTimeline.incomingOffsetUnits` is now `cutUnits`, and a
+unit test asserts the outgoing clip ends exactly where the incoming clip begins
+while the transition still straddles that point.
