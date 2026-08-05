@@ -137,7 +137,9 @@ public enum FinalCutSemanticProfileStore {
                 admittedOn: "2026-08-04",
                 limitations: [
                     "Covers position (nested X/Y sub-params) and scale (one param, paired values) only. Rotation encoding is unobserved and native.targeted_rotate_zoom must capture it before emitting one.",
-                    "position is percent of frame height, not pixels; keyframe times are absolute from the 3600s source origin."
+                    "position is percent of frame height, not pixels; keyframe times are absolute from the 3600s source origin.",
+                    "Editability confirmed 2026-08-05 (docs/LIVING_STILL_EDITABILITY_PASS.md, returned 1f32d6da03ef531449c42aab2da9d7b0081ccb6e3c0c22e6d3cebf49fa9085c0). Typing 54 px produced exactly 5, so the percent-of-height conversion holds in both directions.",
+                    "Editing one position axis writes a keyframe on BOTH axes at that time. A strict tree comparison of a user-edited position will report a false difference."
                 ]
             ),
             AdmittedContractRecord(
@@ -146,7 +148,8 @@ public enum FinalCutSemanticProfileStore {
                 returnedArtifactSHA256: "8a3ecd236cc9c87459ef425f04951bafa29a68c84be937c36041d0a59c8f2ab9",
                 admittedOn: "2026-08-04",
                 limitations: [
-                    "adjust-blend/amount keyframes only. Blend modes were not exercised."
+                    "adjust-blend/amount keyframes only. Blend modes were not exercised.",
+                    "Editability confirmed 2026-08-05 (docs/LIVING_STILL_EDITABILITY_PASS.md): an opacity keyframe edited from 0 to 25% returned as 0.25."
                 ]
             ),
             AdmittedContractRecord(

@@ -129,4 +129,69 @@ capability gate on its own; `look.old_television` stays blocked on
 
 ## Results
 
-**Not yet run.**
+**Run 2026-08-05. Pass — all three edits took, plus one unpredicted finding.**
+
+Export `Returned/after-keyframe-edits.fcpxmld`, sha256
+`1f32d6da03ef531449c42aab2da9d7b0081ccb6e3c0c22e6d3cebf49fa9085c0`.
+
+| Edit | Predicted | Returned | |
+| --- | --- | --- | --- |
+| `scale` frame 119 | `1.2 1.2` | `1.2 1.2` | pass |
+| `position` X frame 119 | `5` | `5` | pass |
+| `adjust-blend` amount frame 119 | `0.25` | `0.25` | pass |
+| keyframe times | unchanged | unchanged | pass |
+| effect uid / `enabled` | untouched | untouched | pass |
+
+**The generated living still is natively editable.** Its keyframes are real
+keyframes, not inert data that survived an import.
+
+### The unit conversion is confirmed in both directions
+
+Typing `54` px into the inspector produced exactly `5` in the XML — 54 / 1080 ×
+100. The admission pass could only show that our emitted `3.55556` survived a
+round trip, which is consistent with Final Cut simply not touching a value it
+never interpreted. This shows Final Cut *computing* the same conversion from a
+fresh human-entered number.
+
+`position` is percent of frame **height**, on a 1920×1080 frame, in both
+directions. It was the finding most likely to be an artefact of the capture, and
+it is not.
+
+### Unpredicted: editing one position axis writes a keyframe on both
+
+The document gained one node — 39 → 40. `position` Y, which had a single
+keyframe at `3600s`, came back with a second at `2594856000/720000s`, value `0`.
+
+Nothing else moved, and the value is `0`, so there is **no visual change**. But
+it is a real structural finding, and it was not predicted:
+
+> Final Cut treats Position as one editable unit in the inspector even though it
+> encodes as two independently animated sub-params. Editing either axis at a
+> given time writes a keyframe on **both** axes at that time.
+
+Three consequences worth carrying forward:
+
+1. **Round-trip comparisons must expect it.** A strict node-count or
+   tree-equality check on a user-edited position will report a false difference.
+   The admission pass could compare 40 nodes to 40; this one cannot.
+2. **The emitter should probably match it.** Emitting a lone X keyframe produces
+   a document Final Cut would never have written itself. It imported fine here,
+   so this is a consistency preference rather than a requirement — but the
+   asymmetry is now a known place where our output and Final Cut's diverge.
+3. **The X/Y split is an encoding detail, not a user-facing one.** For Phase B,
+   `position` is one primitive with two components, not two primitives. The
+   inspector already treats it that way and so should FrameSmith.
+
+### What this admits
+
+**Manual keyframe editability of a generated living still** — transform
+(position, scale) and opacity, at the values tested. Combined with the admission
+pass and the render confirmation, `motion.living_still` is now observed
+end-to-end for the channels it uses: emitted, imported intact, rendering, and
+editable.
+
+It admits nothing about rotation (unobserved, absent from this probe), blend
+modes (never exercised), the colour effect's *parameters* (only its construction
+was tested; no parameter was edited), or the `colorEnrichment` → `Saturation`
+mapping. It moves no capability gate on its own, and `look.old_television`
+remains blocked on `connectedOverlayLayers`.
