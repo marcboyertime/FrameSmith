@@ -266,14 +266,42 @@ What is left cannot be done in code alone.
 
      The generated construction is admitted. Editability is not — that is a
      separate pass, as the dissolve work showed.
-3. A trustworthy contract store. Semantics have now been *observed*, but
-   `ManualFCPXMLSemanticsEvidence` still defaults to an empty admitted set and
-   nothing constructs a non-empty one, so every FCPXML pathway fails closed.
-   The gate's design deliberately prevents a JSON claim from becoming
-   capability evidence (`VerifiedFinalCutSelectionEvidence` has an internal
-   initializer for that reason), so admission cannot be a file the app reads
-   and believes. This mechanism is undesigned and is the gating decision for
-   turning observed semantics into an accepted workflow.
+3. ~~A trustworthy contract store.~~ **Done 2026-08-05** (`551f96b`),
+   `service/FinalCutSemanticProfile.swift`. Admission could not be a file the
+   app reads and believes, because the gate deliberately prevents a JSON claim
+   from becoming capability evidence. So the store is **code, not data**: the
+   memberwise initializer is internal and `Codable` is not conformed, which puts
+   adding an admission behind a source edit and review — the same bar
+   `VerifiedFinalCutSelectionEvidence` sets.
+
+   It is scoped to Final Cut **12.3 (450152)**, the only build any pass has run
+   against; `evidence(forInstalled:)` returns `.unknown` on any drift, so an
+   update silently revokes every admission until the passes are re-run. A test
+   reads the installed application and fails on mismatch. Each record binds its
+   contract to the worksheet and the sha256 of the returned XML that admitted
+   it, and carries that pass's limitations, so a caveat cannot be lost by living
+   somewhere else.
+
+   Five of six contracts are admitted: `assetAdmission`,
+   `crossDissolveTransition`, `transformKeyframes`, `opacityKeyframes`,
+   `nativeColorAdjustment`. `connectedOverlayLayers` is absent — no probe has
+   exercised a connected layer — so `look.old_television` stays blocked, which
+   is correct rather than unfortunate.
+4. The standalone export route. `standaloneFCPXMLExport` was added to
+   `CapabilityGate` in the same pass and is **not** a weaker `fcpxmlExport`.
+   `fcpxmlExport` asserts that an existing timeline may be modified, which is
+   why it demands `VerifiedFinalCutSelectionEvidence` and can never be satisfied
+   by local media. Standalone export asserts only that a new project was written
+   to disk, so it requires `AdmittedLocalMediaEvidence` — every plan source
+   matched on both canonical path and digest — and refuses a timeline selection
+   outright as a category error. Semantic contracts still apply in full.
+
+   **The gate is done and tested; nothing acts on its authorization yet.**
+   Wiring it to a real generation path is the remaining Phase 1 code item.
+5. Planning for what follows Phase 1 is written up in
+   `docs/POST_PHASE1_ROADMAP.md`, and the ordered work list for finishing this
+   phase is in `docs/NEXT_CLAUDE_PROMPT.md`. No post-Phase-1 implementation may
+   begin until the items in that list are complete.
 
 ## 7) Evidence and safety constraints to preserve
 
