@@ -1,18 +1,18 @@
 # FCPCommandConsole Handoff (for Claude)
 
-Date: 2026-08-03
+Date: 2026-08-04
 
 Goal: private local-first Final Cut command assistant.
-Current objective: finish Phase 1 after current blocker is resolved.
+Current objective: finish Phase 1. **The section 5 import blocker is cleared.**
 
 ## 0) Current checkpoint
 
 - Repository: `/Users/marcboyer/Developer/FCPCommandConsole`
 - Branch: `standalone-app`
-- HEAD: `c282b0f` (`Anchor local package writes and invalidate stale plans`)
+- HEAD: `6695230` (`Rename the dissolve contract to name what Final Cut actually admits`)
 - Worktree: clean
 - Build/test evidence at this checkpoint: `swift build` passed;
-  `swift test` passed **94 tests, 0 failures**; `make test` core audit passed.
+  `swift test` passed **97 tests, 0 failures**; `make test` core audit passed.
 - App bundle: `/Users/marcboyer/Applications/FCPCommandConsole.app`
   (reinstalled from the working tree, `codesign --verify --deep --strict`
   passed, bundle ID and bundled schema/registry resources verified)
@@ -130,55 +130,79 @@ directory, not one atomic exchange — POSIX has no shell-reachable way to swap
 two non-empty directories. The window between them is a rollback point, and
 the result is verified, but it is not a single atomic operation.
 
-## 5) Known high-value blocker (must clear before saying Phase 1 is done)
+## 5) The import/export blocker — CLEARED 2026-08-04
 
-There is still a one-pass manual roundtrip importer blocker in Final Cut.
+Four probe revisions, each changing one thing so each failure had one cause.
+Full analysis in `docs/ROUNDTRIP_MANUAL_PASS.md`; summary in
+`docs/PHASE1_ACCEPTANCE.md`.
 
-Immutable reduced v2 spike package:
+| Rev | Operation | Construct | Outcome |
+| --- | --- | --- | --- |
+| 1 | `A78B1B9D-…` | `asset-clip` import | crash in `addAssetClip:` |
+| 2 | `CA7D0733-…` | bare `<transition>`, no effect, no offset | imported disabled at `offset="0s"` |
+| 3 | `6B8F8B1C-…` | full effect + centred offset + overlapping clips | effect admitted, spine re-flowed |
+| 4 | `27EA1706-…` | full effect + centred offset + butt-joined clips | **admitted intact — all rows pass** |
 
-`/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/CA7D0733-A435-498E-BD82-149CFF863FC3`
-
-Includes:
-
-- `FCPCommandConsole-RoundTrip-Spike.fcpxml`
-- `manifest.json`
-- `evidence.json`
-- `provenance.json`
-- `plan.json`
-- `README.md`
-- `Media/`
-- `Returned/` folder
-
-Known crash history to preserve:
+Crash history to preserve:
 
 - crash report `/Users/marcboyer/Library/Logs/DiagnosticReports/Final Cut Pro-2026-08-03-082455.ips`
 - incident id `42DFFCF1-9E45-41DA-992F-ADB212422B07`
 - FCP version/build: 12.3 / 450152
 
-Preflight re-verified read-only on 2026-08-03: media SHA-256 and byte counts
-still match `manifest.json`, the FCPXML is still DTD-valid against the
-installed 1.13 DTD, `Returned/` is empty, and the disposable
-`FCPCommandConsole Test` library exists. Execution sheet:
-`docs/ROUNDTRIP_MANUAL_PASS.md`.
+### The construction rules this bought
 
-Manual rule for the next agent:
+1. A `<transition>` needs a real `<effect>` resource carrying the transition's
+   UID and a `<filter-video>` referencing it. Omitting either is DTD-valid and
+   semantically inert.
+2. The transition's `offset` is `cut − duration/2`.
+3. The adjacent clips **butt-join** at the cut. They must not overlap; a
+   `<spine>` is strictly sequential and Final Cut silently re-flows it.
+4. Both clips need unused source beyond the joint for the dissolve to consume.
 
-- Perform exactly one manual import/export sanity pass with that package.
-- Stop at first crash, alert, missing transition, missing media, or export mismatch.
-- Record results before any mutation/retry.
+Rules 1 and 3 each produce perfectly valid documents that Final Cut rewrites
+without complaint. This is the concrete case for constraint 7 in section 7.
+
+The Cross Dissolve UID `FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265` is derived
+from Final Cut's own `Filters.bundle` `Info.plist` (`PAECrossDissolve`,
+protocol `FxTransition`), not guessed.
+
+**Do not trust `reference/…/upstream_otio_fcpxml/fcpx_transitions.fcpxml` for
+spine geometry.** It encodes the overlapping form that revision 3 proved Final
+Cut rejects. It is OTIO writer output, never validated against Final Cut.
+
+All four packages are spent evidence: do not modify, regenerate, or retry them.
+
+Standing manual rules, unchanged:
+
+- Perform exactly one manual pass per package.
+- Stop at the first crash, alert, missing transition, missing media, or export mismatch.
+- Record results before any mutation or retry.
 - Only admit contracts that match observed behavior.
 
 ## 6) Remaining technical work before all four workflows can be claimed
 
-Items 1–4 of this list are done in the working tree; see section 4b. What is
-left is the part that cannot be done in code:
+Items 1–4 of the code list are done; see section 4b. Item 1 below is done.
+What is left cannot be done in code alone.
 
-1. One successful import/export roundtrip for minimal contract (dissolve pathway only), then build other contracts only with manual evidence.
-2. Workflow validations:
+1. ~~One successful import/export roundtrip for the minimal dissolve contract.~~
+   **Done 2026-08-04** (revision 4). Other contracts still require their own
+   manual evidence — nothing about transform, opacity, color, or overlays
+   follows from this.
+2. Workflow validations, each needing its own manual pass:
+   - **natural dissolve manual duration/edge edits** — the next one to run, and
+     the cheapest: the revision 4 project is already in the disposable library.
+     Procedure in `docs/DISSOLVE_EDITABILITY_PASS.md`.
    - targeted rotate/zoom keyframe editability
-   - natural dissolve manual duration/edge edits
    - old TV overlays/controls are native-editable in Final Cut
    - living still movement/fade/color editability
+3. A trustworthy contract store. Semantics have now been *observed*, but
+   `ManualFCPXMLSemanticsEvidence` still defaults to an empty admitted set and
+   nothing constructs a non-empty one, so every FCPXML pathway fails closed.
+   The gate's design deliberately prevents a JSON claim from becoming
+   capability evidence (`VerifiedFinalCutSelectionEvidence` has an internal
+   initializer for that reason), so admission cannot be a file the app reads
+   and believes. This mechanism is undesigned and is the gating decision for
+   turning observed semantics into an accepted workflow.
 
 ## 7) Evidence and safety constraints to preserve
 
