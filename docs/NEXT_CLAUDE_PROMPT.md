@@ -105,9 +105,19 @@ From `docs/HANDOFF.md` §7, unchanged:
    reviewed copy via `Scripts/launch-isolated-fcpcommandconsole --launch`; use
    the disposable library at
    `~/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle`.
-3. **Never use AppleScript, Accessibility, keyboard/mouse simulation, or
-   coordinate automation.** Manual passes are driven by the user, by hand. Write
-   the worksheet, hand it over, read the returned XML.
+3. **GUI automation of the isolated Final Cut copy is permitted** (authorized
+   2026-08-05; see HANDOFF §7 for the reasoning). Drive it yourself rather than
+   handing worksheets to the user.
+
+   Still write the worksheet **before** the run with predicted values — that
+   discipline was never about who clicks, it is about not rationalizing a result
+   after seeing it.
+
+   The one rule automation adds: **never record a refusal as a finding without a
+   screenshot of the UI state that refused.** A missed click and a greyed-out
+   control both produce "the value didn't change", and only an image tells them
+   apart. Measure perceptual questions by differencing screenshots instead of
+   judging them by eye.
 4. Keep generated output local and canonical under the runtime directories.
 5. Preserve hashes and provenance.
 6. **No remote Git actions.** Commit locally; do not push.

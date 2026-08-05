@@ -307,7 +307,44 @@ What is left cannot be done in code alone.
 
 1. Never edit source media.
 2. Never use stock Final Cut app or production libraries.
-3. Never use AppleScript, Accessibility, keyboard/mouse simulation, or coordinate automation.
+3. **GUI automation of the isolated Final Cut copy is permitted — authorized by
+   the user 2026-08-05.** This replaces the previous blanket prohibition on
+   AppleScript, Accessibility, keyboard/mouse simulation, and coordinate
+   automation.
+
+   The prohibition was protecting two different things, and only one of them
+   ever needed a human:
+
+   - *Not damaging real work.* Still protected, but by constraint 2, not by
+     this one. The isolated launcher's separate `HOME` and the disposable
+     library are what make automation safe; who drives the mouse is irrelevant
+     to that.
+   - *Evidence integrity.* Never depended on this at all. The returned FCPXML
+     is the evidence, and it is exactly as authoritative whether a human or a
+     script clicked Export. "The returned file is the evidence" was always the
+     rule, and automation does not touch it.
+
+   What automation genuinely does introduce is a **third** risk the old rule
+   never had to name: a missed click and a refused control are
+   indistinguishable from their absence of effect. A human has continuous
+   visual feedback; a script has none unless forced. So:
+
+   **A refusal may never be recorded as a finding without a screenshot showing
+   the UI state that refused it.** A greyed-out field is a finding. A click
+   that landed three pixels off is not. Only an image separates them, and
+   "the value didn't change" separates them not at all.
+
+   Two further rules:
+
+   - A screenshot is evidence of *what the UI did*, never of a semantic. It
+     does not substitute for the returned XML and cannot admit a contract.
+   - Automation is scoped to the isolated Final Cut copy and the reviewed
+     `FCPCommandConsole.app`. Nothing else on the machine is in scope.
+
+   Where automation is *better* than a human: perceptual questions get
+   **measured rather than judged**. "Does it look richer?" was answered by eye
+   during the living still pass and produced a genuinely ambiguous result; the
+   same question answered by differencing two screenshots is a number.
 4. Keep generated output local and canonical under runtime directories only.
 5. Preserve hashes and provenance for provenance and rollback confidence.
 6. No remote Git actions.
