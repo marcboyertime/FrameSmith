@@ -164,7 +164,8 @@ public struct TargetedRotateZoomStandaloneEmitter: StandaloneEffectEmitter {
             rate: rate,
             origin: origin,
             width: width,
-            height: height
+            height: height,
+            clipDurationFrames: durationFrames
         )
         let duration = rate.time(frames: durationFrames)
         let name = StandaloneFCPXMLExportBuilder.projectName(for: plan)

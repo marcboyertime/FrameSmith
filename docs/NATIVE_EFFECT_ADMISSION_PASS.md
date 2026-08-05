@@ -323,3 +323,37 @@ form and the static form is export-only.
 ## Results
 
 **Not yet run.**
+
+---
+
+# Emitter defect found while setting up the editability pass
+
+**The rotate/zoom probe's final keyframe was one frame outside the clip.**
+
+A 120-frame clip addresses frames 0…119. `recipe.end.timeSeconds` is `4.0`,
+which is frame **120**. Final Cut accepted it — the document is valid, and the
+animation looks correct because frame 119 is 99.2% of the way through — so
+nothing in the admission pass caught it.
+
+It surfaced only when trying to *edit* the keyframe: parking the playhead at
+`00:00:04:00` puts it past the clip's last frame, the Inspector reads base
+values (`0 / 0 / 100%`) while the viewer renders the animated frame, and the
+keyframe-navigation arrows cannot reach the final keyframe at all.
+
+So the user cannot select or edit the end of the animation. That is a real
+defect and it is exactly the class this project keeps finding: **valid,
+plausible-looking, and wrong in a way only an interaction reveals.**
+
+`LivingStillProbeTimeline` avoided it by construction with
+`durationFrames - 1`. `NativeFCPXMLTransformChannel.targetedRotateZoom` now
+takes `clipDurationFrames` and clamps, so a recipe expressed in seconds cannot
+produce an unreachable keyframe. The end keyframe moves from `4s` to
+`2856000/720000s` (frame 119), and a test pins it.
+
+**Consequence for the record:** the admitted rotate/zoom evidence
+(`cc9affa1…`) was produced by the *unclamped* emitter. What it admits — that
+rotation, scale, and a compensating position track are accepted with values
+intact — is unaffected, because the keyframe times themselves round-tripped
+fine. But a regenerated probe is a different document, and the rotate/zoom
+**editability pass has not been run** and needs the corrected package
+(`5C6F7426-5DCC-490B-8AE3-EBB786764A09`).

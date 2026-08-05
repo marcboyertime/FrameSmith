@@ -200,10 +200,26 @@ final class RotationAndConnectedLayerTests: XCTestCase {
     /// down — both emitted values negative.
     func testTargetedRotateZoomEmitsTheHandComputedCompensation() throws {
         let xml = try probeXML(.targetedRotateZoom)
-        XCTAssertTrue(xml.contains(#"<keyframe time="4s" value="-60.48434"/>"#), "X compensation")
-        XCTAssertTrue(xml.contains(#"<keyframe time="4s" value="-15.77097"/>"#), "Y compensation, sign flipped")
-        XCTAssertTrue(xml.contains(#"<keyframe time="4s" value="1.5 1.5"/>"#), "scale")
-        XCTAssertTrue(xml.contains(#"<keyframe time="4s" value="12"/>"#), "rotation in degrees")
+        // Frame 119, not 120 - see testFinalKeyframeStaysInsideTheClip.
+        XCTAssertTrue(xml.contains("value=\"-60.48434\""), "X compensation")
+        XCTAssertTrue(xml.contains("value=\"-15.77097\""), "Y compensation, sign flipped")
+        XCTAssertTrue(xml.contains("value=\"1.5 1.5\""), "scale")
+        XCTAssertTrue(xml.contains("value=\"12\""), "rotation in degrees")
+        XCTAssertTrue(xml.contains("time=\"2856000/720000s\""), "end keyframe on frame 119")
+    }
+
+    /// A 120-frame clip addresses frames 0...119. A keyframe at `4s` is frame
+    /// 120 - one past the end.
+    ///
+    /// The first rotate/zoom probe emitted exactly that and Final Cut accepted
+    /// it: valid document, correct-looking animation, but the playhead cannot
+    /// park on the final keyframe, so the user cannot select or edit it and the
+    /// Inspector reads base values there. Observed in the isolated app
+    /// 2026-08-05.
+    func testFinalKeyframeStaysInsideTheClip() throws {
+        let xml = try probeXML(.targetedRotateZoom)
+        XCTAssertFalse(xml.contains("<keyframe time=\"4s\""), "frame 120 is outside a 120-frame clip")
+        XCTAssertTrue(xml.contains("time=\"2856000/720000s\""), "final keyframe should land on frame 119")
     }
 
     /// A movie probe must not carry the stills' one-hour origin.

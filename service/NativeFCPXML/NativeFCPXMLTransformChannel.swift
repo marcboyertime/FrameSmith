@@ -194,15 +194,32 @@ public struct NativeFCPXMLTransformChannel: Equatable, Sendable {
     /// `recipe.translation` is a normalized frame offset (x against width, y
     /// against height, positive-down). Both axes convert to percent of frame
     /// height, and Y additionally flips — see `NativeFCPXMLTransformUnits`.
+    /// `clipDurationFrames` exists to keep the final keyframe **inside** the
+    /// clip.
+    ///
+    /// A 120-frame clip addresses frames 0…119; a keyframe at 4 s is frame 120,
+    /// one past the end. The first rotate/zoom probe emitted exactly that, and
+    /// Final Cut accepted it — the document is valid and the animation looks
+    /// right, because frame 119 is 99.2% of the way through. But the playhead
+    /// cannot park on that keyframe, so the user cannot select or edit it, and
+    /// the Inspector shows base values instead of the animated ones there.
+    ///
+    /// `LivingStillProbeTimeline` avoids this by construction with
+    /// `durationFrames - 1`. Clamping here makes the same guarantee for a
+    /// recipe whose duration is expressed in seconds.
     public static func targetedRotateZoom(
         recipe: TargetedTransformKeyframeRecipe,
         rate: NativeFCPXMLFrameRate,
         origin: NativeFCPXMLTimingOrigin,
         width: Int,
-        height: Int
+        height: Int,
+        clipDurationFrames: Int? = nil
     ) -> NativeFCPXMLTransformChannel {
+        let lastAddressableFrame = clipDurationFrames.map { $0 - 1 }
         func time(_ seconds: Double) -> NativeFCPXMLTime {
-            origin.keyframeTime(frame: rate.frames(seconds: seconds), rate: rate)
+            var frame = rate.frames(seconds: seconds)
+            if let lastAddressableFrame { frame = min(frame, lastAddressableFrame) }
+            return origin.keyframeTime(frame: frame, rate: rate)
         }
 
         let startTime = time(recipe.start.timeSeconds)

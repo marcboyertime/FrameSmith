@@ -245,7 +245,8 @@ public struct NativeEffectProbeBuilder: Sendable {
             rate: timeline.rate,
             origin: .movieFromZero,
             width: timeline.width,
-            height: timeline.height
+            height: timeline.height,
+            clipDurationFrames: timeline.durationFrames
         )
 
         var intrinsics: [NativeFCPXMLNode] = []
