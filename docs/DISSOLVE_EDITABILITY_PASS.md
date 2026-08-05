@@ -112,4 +112,38 @@ It admits nothing about transform, opacity, color, or connected overlays.
 
 ## Results
 
-**Not yet run.**
+**Run 2026-08-04 22:00. Pass — every predicted row.**
+
+Edit applied in the isolated app via `⌃D` → `120` → Return. Export
+`after-duration-edit.fcpxmld/Info.fcpxml` written alongside the untouched
+before-state export.
+
+| Row | Before | Predicted | Returned | |
+| --- | --- | --- | --- | --- |
+| transition `duration` | `1s` (30f) | 50f | `5000/3000s` (50f) | pass |
+| transition `offset` | `19500/3000s` (195f) | 185f | `18500/3000s` (185f) | pass |
+| cut position | `7s` | unchanged | `7s` | pass |
+| spine `asset-clip` count | 2 | 2 | 2 | pass |
+| effect `uid` | `FxPlug:4731E73A-…` | unchanged | `FxPlug:4731E73A-…` | pass |
+| `enabled="0"` | absent | absent | absent | pass |
+
+The transition stayed centred on the cut: it spans 6.1667 s → 7.8333 s, midpoint
+exactly 7 s. Final Cut recomputed the offset itself — the edit set duration
+only. All four `filter-video` params and the `FFAudioTransition` companion
+survived byte-identical.
+
+The whole-document diff is three lines: `modDate`, and the transition's
+`offset` and `duration` (same line). Nothing else in the export moved.
+
+### What this admits
+
+Manual duration editability of an imported cross dissolve — HANDOFF section 6
+item 2, first bullet. The dissolve is a **native, editable** transition, not an
+inert object that merely survives a round trip. That distinction is what
+separates this from revision 2, whose disabled placeholder also round-tripped.
+
+Two things it does **not** admit. Edge-dragging was not exercised — the duration
+field was used because it is exact — so "duration editability" is proven and
+"edge editability" is not. And the natural dissolve workflow still requires a
+capability gate to move, which needs the contract store in HANDOFF section 6
+item 3. Observing a semantic and admitting its contract remain separate acts.

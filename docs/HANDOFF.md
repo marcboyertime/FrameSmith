@@ -9,10 +9,11 @@ Current objective: finish Phase 1. **The section 5 import blocker is cleared.**
 
 - Repository: `/Users/marcboyer/Developer/FCPCommandConsole`
 - Branch: `standalone-app`
-- HEAD: `6695230` (`Rename the dissolve contract to name what Final Cut actually admits`)
+- HEAD: `4f5732b` (`Record the dissolve duration-editability pass`)
 - Worktree: clean
-- Build/test evidence at this checkpoint: `swift build` passed;
-  `swift test` passed **97 tests, 0 failures**; `make test` core audit passed.
+- Build/test evidence: `swift build` passed; `swift test` passed **97 tests,
+  0 failures**; `make test` core audit passed — measured at `6695230`, the last
+  commit touching code. `749ab9e` and `4f5732b` are documentation only.
 - App bundle: `/Users/marcboyer/Applications/FCPCommandConsole.app`
   (reinstalled from the working tree, `codesign --verify --deep --strict`
   passed, bundle ID and bundled schema/registry resources verified)
@@ -189,9 +190,14 @@ What is left cannot be done in code alone.
    manual evidence — nothing about transform, opacity, color, or overlays
    follows from this.
 2. Workflow validations, each needing its own manual pass:
-   - **natural dissolve manual duration/edge edits** — the next one to run, and
-     the cheapest: the revision 4 project is already in the disposable library.
-     Procedure in `docs/DISSOLVE_EDITABILITY_PASS.md`.
+   - natural dissolve manual duration edits — **passed 2026-08-04**. `⌃D` →
+     `120` on the revision 4 project moved the transition from 30f to 50f and
+     Final Cut recomputed `offset` to 185f on its own, keeping the dissolve
+     centred on the unmoved 7 s cut. Same effect UID, no re-flow, three-line
+     whole-document diff. The dissolve is native and editable, not merely
+     round-trippable. Evidence: `docs/DISSOLVE_EDITABILITY_PASS.md` and
+     `…/27EA1706-…/Returned/after-duration-edit.fcpxmld`.
+     **Edge-dragging was not exercised** and is still unproven.
    - targeted rotate/zoom keyframe editability
    - old TV overlays/controls are native-editable in Final Cut
    - living still movement/fade/color editability
