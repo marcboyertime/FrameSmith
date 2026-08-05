@@ -104,6 +104,56 @@ public enum NativeFCPXMLStillTiming {
     }
 }
 
+/// Where a clip's keyframe times are measured from.
+///
+/// This distinction was **not** visible from the living still work alone. That
+/// capture showed keyframes offset from a one-hour origin and it was reasonable
+/// to read the rule as "keyframe times are absolute source time". The rotation
+/// capture (`docs/ROTATION_GROUND_TRUTH.md`) disproved the general form: a movie
+/// clip whose asset is `start="0s"` got keyframes at `0s` and `2s`.
+///
+/// So the origin is a property of the **media kind**, and an emitter that
+/// hardcoded the still form would place every movie keyframe an hour early —
+/// in a document that imports without complaint.
+///
+/// The origin is also *not derivable from the asset*: the connected-layer
+/// capture showed a still whose asset declared `start="0s"` while its clip
+/// referenced `3602.9s`. Final Cut applies the convention; it does not store it.
+public enum NativeFCPXMLTimingOrigin: Equatable, Sendable {
+    /// Stills get a nominal one-hour source start.
+    case still
+    /// Movies carry real source time. The captured clip's asset was `start="0s"`.
+    case movie(startSeconds: Int)
+
+    public static let movieFromZero = NativeFCPXMLTimingOrigin.movie(startSeconds: 0)
+
+    public var sourceStartSeconds: Int {
+        switch self {
+        case .still: return NativeFCPXMLStillTiming.sourceStartSeconds
+        case .movie(let seconds): return seconds
+        }
+    }
+
+    public var sourceStart: NativeFCPXMLTime {
+        .seconds(sourceStartSeconds)
+    }
+
+    /// Absolute keyframe time for a frame index measured from the clip's first
+    /// frame.
+    ///
+    /// Both cases use the 720000 keyframe timescale. For the still that is
+    /// observed directly. For the movie it is a *choice*: the capture's
+    /// keyframes landed on whole seconds (`0s`, `2s`), which render identically
+    /// from any timescale, so the underlying one was not observable. A movie
+    /// keyframe on a fractional frame will therefore be emitted as
+    /// `n/720000s`, which is well-formed rational time but not a reproduction
+    /// of anything captured. Recorded as a limitation rather than hidden.
+    public func keyframeTime(frame: Int, rate: NativeFCPXMLFrameRate) -> NativeFCPXMLTime {
+        NativeFCPXMLTime.seconds(sourceStartSeconds, timescale: NativeFCPXMLTimescale.keyframe)
+            + rate.time(frames: frame, timescale: NativeFCPXMLTimescale.keyframe)
+    }
+}
+
 /// Number formatting that matches the capture's precision.
 public enum NativeFCPXMLNumber {
     /// `3.5555555…` → `"3.55556"`, `1.08` → `"1.08"`, `1.0` → `"1"`.

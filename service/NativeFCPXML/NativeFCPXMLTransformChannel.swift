@@ -47,6 +47,20 @@ public enum NativeFCPXMLTransformUnits {
     public static func position(fromWidthFraction fraction: Double, width: Int, height: Int) -> Double {
         position(fromPixels: fraction * Double(width), frameHeight: height)
     }
+
+    /// Vertical offset, with the axis flip.
+    ///
+    /// Final Cut's `position` Y is **positive-up**: entering `+200 px` moved the
+    /// image up and left black along the bottom of the frame (observed, see
+    /// `docs/ROTATION_GROUND_TRUTH.md`). Normalized image coordinates are
+    /// positive-down, so a plan that wants the framing to move *down* must emit
+    /// a *negative* Y.
+    ///
+    /// Getting this backwards produces valid FCPXML that pans the wrong way, so
+    /// the flip lives here rather than at each call site.
+    public static func positionY(fromHeightFraction fraction: Double, height: Int) -> Double {
+        -position(fromPixels: fraction * Double(height), frameHeight: height)
+    }
 }
 
 /// `<adjust-transform>` — position and scale.
@@ -59,24 +73,75 @@ public enum NativeFCPXMLTransformUnits {
 /// - `scale` stays a single param whose keyframe values are space-separated
 ///   pairs, `"1 1"` → `"1.08 1.08"`.
 ///
-/// Rotation is deliberately absent. Its encoding has not been observed, and
-/// `native.targeted_rotate_zoom` must capture it the same way this was
-/// captured before emitting one. Guessing it would produce the confound this
-/// whole approach exists to avoid.
+/// - `rotation` is a single param like `scale`, but with a **scalar** value and
+///   **no `key` attribute**, in plain degrees.
+/// - `anchor` is not a param at all. When static it is a space-separated pair
+///   **attribute on `<adjust-transform>` itself**, in percent of frame height
+///   like `position`.
+///
+/// Four properties, three shapes. There is no rule to infer here, which is the
+/// argument for capturing each rather than generalising from the last one.
+///
+/// ## Static versus animated
+///
+/// Two independent captures agree:
+///
+/// > **Static → attribute on the effect element. Animated → `<param>` child.**
+///
+/// Only the observed halves are representable here. `rotation` is offered
+/// animated only, `anchor` static only — those are the forms Final Cut wrote.
+/// A static rotation attribute and an animated anchor param are both *likely*
+/// to follow the rule, but neither has been seen, and this project does not
+/// emit constructions it has not observed.
 public struct NativeFCPXMLTransformChannel: Equatable, Sendable {
     public var positionX: [NativeFCPXMLKeyframe]
     public var positionY: [NativeFCPXMLKeyframe]
     public var scale: [NativeFCPXMLKeyframe]
+    /// Animated rotation, in degrees. Observed form.
+    public var rotation: [NativeFCPXMLKeyframe]
+    /// Static anchor as (x, y) in percent of frame height. Observed form.
+    public var anchor: (x: Double, y: Double)?
+    /// Static position as (x, y) in percent of frame height — the paired
+    /// attribute form. Mutually exclusive with `positionX`/`positionY`.
+    public var staticPosition: (x: Double, y: Double)?
 
-    public init(positionX: [NativeFCPXMLKeyframe] = [], positionY: [NativeFCPXMLKeyframe] = [], scale: [NativeFCPXMLKeyframe] = []) {
+    public init(
+        positionX: [NativeFCPXMLKeyframe] = [],
+        positionY: [NativeFCPXMLKeyframe] = [],
+        scale: [NativeFCPXMLKeyframe] = [],
+        rotation: [NativeFCPXMLKeyframe] = [],
+        anchor: (x: Double, y: Double)? = nil,
+        staticPosition: (x: Double, y: Double)? = nil
+    ) {
+        precondition(
+            staticPosition == nil || (positionX.isEmpty && positionY.isEmpty),
+            "position is either static (attribute) or animated (param), never both"
+        )
         self.positionX = positionX
         self.positionY = positionY
         self.scale = scale
+        self.rotation = rotation
+        self.anchor = anchor
+        self.staticPosition = staticPosition
     }
 
-    public var isEmpty: Bool { positionX.isEmpty && positionY.isEmpty && scale.isEmpty }
+    public static func == (lhs: NativeFCPXMLTransformChannel, rhs: NativeFCPXMLTransformChannel) -> Bool {
+        lhs.positionX == rhs.positionX
+            && lhs.positionY == rhs.positionY
+            && lhs.scale == rhs.scale
+            && lhs.rotation == rhs.rotation
+            && lhs.anchor?.x == rhs.anchor?.x
+            && lhs.anchor?.y == rhs.anchor?.y
+            && lhs.staticPosition?.x == rhs.staticPosition?.x
+            && lhs.staticPosition?.y == rhs.staticPosition?.y
+    }
 
-    /// `nil` when nothing is animated, so a caller composing channels does not
+    public var isEmpty: Bool {
+        positionX.isEmpty && positionY.isEmpty && scale.isEmpty && rotation.isEmpty
+            && anchor == nil && staticPosition == nil
+    }
+
+    /// `nil` when nothing is set, so a caller composing channels does not
     /// emit an empty intrinsic that Final Cut never wrote.
     public var node: NativeFCPXMLNode? {
         guard !isEmpty else { return nil }
@@ -97,7 +162,79 @@ public struct NativeFCPXMLTransformChannel: Equatable, Sendable {
             children.append(NativeFCPXMLNode("param", attributes: [("name", "scale")], children: [.keyframeAnimation(scale)]))
         }
 
-        return NativeFCPXMLNode("adjust-transform", children: children)
+        // No `key` attribute: the capture wrote `<param name="rotation">` bare,
+        // unlike position's keyed X/Y sub-params.
+        if !rotation.isEmpty {
+            children.append(NativeFCPXMLNode("param", attributes: [("name", "rotation")], children: [.keyframeAnimation(rotation)]))
+        }
+
+        // Attribute order follows the capture: Final Cut wrote `position`
+        // before `anchor` on the one element carrying both concepts.
+        var attributes: [(name: String, value: String)] = []
+        if let staticPosition {
+            attributes.append(("position", NativeFCPXMLNumber.pair(staticPosition.x, staticPosition.y)))
+        }
+        if let anchor {
+            attributes.append(("anchor", NativeFCPXMLNumber.pair(anchor.x, anchor.y)))
+        }
+
+        return NativeFCPXMLNode("adjust-transform", attributes: attributes, children: children)
+    }
+
+    /// The targeted rotate/zoom channel: an animated rotation and scale with a
+    /// position track that keeps the chosen point converging toward centre.
+    ///
+    /// Targeting is done by **position compensation**, not by moving the
+    /// anchor — `SpatialTransformMath.targetedCompensation` already solves for
+    /// the translation that places the source point at its desired position
+    /// after scale and rotation. That keeps the emitter inside observed
+    /// territory: an animated anchor has never been captured, whereas animated
+    /// position, scale, and rotation all have.
+    ///
+    /// `recipe.translation` is a normalized frame offset (x against width, y
+    /// against height, positive-down). Both axes convert to percent of frame
+    /// height, and Y additionally flips — see `NativeFCPXMLTransformUnits`.
+    public static func targetedRotateZoom(
+        recipe: TargetedTransformKeyframeRecipe,
+        rate: NativeFCPXMLFrameRate,
+        origin: NativeFCPXMLTimingOrigin,
+        width: Int,
+        height: Int
+    ) -> NativeFCPXMLTransformChannel {
+        func time(_ seconds: Double) -> NativeFCPXMLTime {
+            origin.keyframeTime(frame: rate.frames(seconds: seconds), rate: rate)
+        }
+
+        let startTime = time(recipe.start.timeSeconds)
+        let endTime = time(recipe.end.timeSeconds)
+
+        let positionX = [
+            NativeFCPXMLKeyframe(time: startTime, value: NativeFCPXMLNumber.string(
+                NativeFCPXMLTransformUnits.position(fromWidthFraction: recipe.start.translation.x, width: width, height: height))),
+            NativeFCPXMLKeyframe(time: endTime, value: NativeFCPXMLNumber.string(
+                NativeFCPXMLTransformUnits.position(fromWidthFraction: recipe.end.translation.x, width: width, height: height)))
+        ]
+        let positionY = [
+            NativeFCPXMLKeyframe(time: startTime, value: NativeFCPXMLNumber.string(
+                NativeFCPXMLTransformUnits.positionY(fromHeightFraction: recipe.start.translation.y, height: height))),
+            NativeFCPXMLKeyframe(time: endTime, value: NativeFCPXMLNumber.string(
+                NativeFCPXMLTransformUnits.positionY(fromHeightFraction: recipe.end.translation.y, height: height)))
+        ]
+        let scale = [
+            NativeFCPXMLKeyframe(time: startTime, value: NativeFCPXMLNumber.pair(recipe.start.scale, recipe.start.scale)),
+            NativeFCPXMLKeyframe(time: endTime, value: NativeFCPXMLNumber.pair(recipe.end.scale, recipe.end.scale))
+        ]
+        let rotation = [
+            NativeFCPXMLKeyframe(time: startTime, value: NativeFCPXMLNumber.string(recipe.start.rotationDegrees)),
+            NativeFCPXMLKeyframe(time: endTime, value: NativeFCPXMLNumber.string(recipe.end.rotationDegrees))
+        ]
+
+        return NativeFCPXMLTransformChannel(
+            positionX: positionX,
+            positionY: positionY,
+            scale: scale,
+            rotation: rotation
+        )
     }
 
     /// The push-in/pan of a living still: a two-keyframe pan on X, a held Y,

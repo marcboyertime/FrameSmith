@@ -183,6 +183,59 @@ Neither keyframe carries `curve`. The living still's `position` Y carried
 `curve="linear"`, so the attribute is written only when interpolation differs
 from the default, not on every keyframe.
 
+## Follow-up capture — position sign convention and static form
+
+Captured the same session as `position-sign-convention.fcpxmld`, because the
+emitter needed the **sign** of `position` Y and no pass had ever observed it.
+Normalized image coordinates run y-down; if Final Cut's y runs up, every
+vertical pan an emitter produces goes the wrong way — silently, in valid XML.
+
+Setting `Position Y = 200 px` on a clip and reading back:
+
+```xml
+<asset-clip ref="r2" offset="0s" name="clip-a.mov Browser Clip" duration="8s" …>
+    <adjust-transform position="0 18.5185"/>
+</asset-clip>
+```
+
+### Finding A — Final Cut's +Y is **up**
+
+The viewer was screenshotted before and after. With `Y = +200` the image moved
+**up**, leaving black filling the bottom of the frame.
+
+Normalized image coordinates increase downward, so:
+
+> **XML `position` Y = −(normalized Y offset), expressed as percent of frame
+> height.**
+
+The X axis needs no flip; both run positive-right.
+
+This was measured, not judged. The two viewer captures differ unambiguously —
+the diagonal test line leaves the top of the frame and a black band appears
+along the bottom.
+
+### Finding B — static `position` is an attribute, and a **pair**
+
+`position="0 18.5185"`.
+
+This is the third independent confirmation of the static/animated rule, and by
+far the most dramatic, because the two forms of the *same property* barely
+resemble each other:
+
+| `position` | Shape |
+| --- | --- |
+| static | `position="0 18.5185"` — one paired attribute |
+| animated | `<param name="position">` containing nested `X` (`key="1"`) and `Y` (`key="2"`) sub-params, each with its own `keyframeAnimation` |
+
+An emitter written from the animated capture alone would emit a param tree for
+a value that never moves — a construction Final Cut does not produce. The rule
+is now confirmed on `position`, `anchor`, `rotation`, and `adjust-blend/amount`.
+
+### Finding C — Y is percent of frame height too
+
+`200` px → `18.5185` = 200 / 1080 × 100. Same normalization as X and as
+`anchor`. Both axes of both properties divide by **height**.
+
 ## Open questions this capture does *not* answer
 
 1. **Does `anchor` become a `<param>` when keyframed?** It was captured static,
