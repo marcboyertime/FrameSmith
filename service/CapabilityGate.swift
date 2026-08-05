@@ -8,6 +8,21 @@ public enum FCPCommandConsoleCapability: String, Codable, CaseIterable, Sendable
     case inertPayloadNeutralPackage = "inert_payload_neutral_package"
     case fcpxmlPreview = "fcpxml_preview"
     case fcpxmlExport = "fcpxml_export"
+
+    /// Generate a **new** FCPXML project from admitted local media and import it
+    /// by hand. This is not a weaker `fcpxmlExport`; it is a different and
+    /// smaller claim.
+    ///
+    /// `fcpxmlExport` asserts that a specific existing timeline may be modified,
+    /// which is why it demands `VerifiedFinalCutSelectionEvidence` and can never
+    /// be satisfied by local media. Standalone export asserts only that a new
+    /// project was written to disk. Nothing is opened, nothing is mutated, and
+    /// no existing timeline is named — so no selection evidence is required, and
+    /// offering one is a category error.
+    ///
+    /// The semantic contracts still apply in full. Writing a file Final Cut will
+    /// silently rewrite is exactly as wrong here as anywhere else.
+    case standaloneFCPXMLExport = "standalone_fcpxml_export"
 }
 
 /// Each contract is admitted only after manual evidence establishes that Final
@@ -133,6 +148,41 @@ public struct VerifiedFinalCutSelectionEvidence: Equatable, Sendable {
     }
 }
 
+/// Proof that every source a plan names came through `LocalMediaAdmission`.
+///
+/// Like `VerifiedFinalCutSelectionEvidence`, the initializer is internal so a
+/// decoded value cannot become evidence. Unlike it, this proves something about
+/// *our* inputs rather than about Final Cut's state, which is why standalone
+/// export can require it without ever inspecting a timeline.
+public struct AdmittedLocalMediaEvidence: Equatable, Sendable {
+    private struct Admitted: Hashable, Sendable {
+        let canonicalPath: String
+        let sha256: String
+    }
+
+    private let admitted: Set<Admitted>
+
+    internal init?(admittedAssets: [LocalMediaAsset]) {
+        guard !admittedAssets.isEmpty else { return nil }
+        var seen: Set<Admitted> = []
+        for asset in admittedAssets {
+            guard !asset.canonicalPath.isEmpty, !asset.sha256.isEmpty else { return nil }
+            seen.insert(Admitted(canonicalPath: asset.canonicalPath, sha256: asset.sha256))
+        }
+        admitted = seen
+    }
+
+    /// True when every identity the token carries was admitted, matched on both
+    /// canonical path and digest. Matching on either alone would let a file
+    /// swapped after admission, or an identical file at an unvetted path, pass.
+    fileprivate func covers(_ token: SelectionToken) -> Bool {
+        guard !token.sourceIdentities.isEmpty else { return false }
+        return token.sourceIdentities.allSatisfy {
+            admitted.contains(Admitted(canonicalPath: $0.canonicalPath, sha256: $0.sha256))
+        }
+    }
+}
+
 public enum CapabilityGateError: Error, LocalizedError, Equatable, Sendable {
     case migrationRequired(LegacyEffectPlanQuarantine)
     case invalidCurrentPlanSchema(String)
@@ -145,6 +195,9 @@ public enum CapabilityGateError: Error, LocalizedError, Equatable, Sendable {
         effectID: EffectID,
         missing: Set<FCPXMLSemanticContract>
     )
+    case standaloneExportRequiresLocalMediaOrigin(SelectionOrigin)
+    case standaloneExportMediaNotAdmitted
+    case standaloneExportRejectsTimelineSelection
 
     public var errorDescription: String? {
         switch self {
@@ -157,6 +210,12 @@ public enum CapabilityGateError: Error, LocalizedError, Equatable, Sendable {
         case .missingManualFCPXMLSemanticsEvidence(let capability, let effectID, let missing):
             let requirements = missing.map(\.rawValue).sorted().joined(separator: ", ")
             return "\(capability.rawValue) for \(effectID.rawValue) is blocked until manual FCPXML semantics evidence admits: \(requirements)"
+        case .standaloneExportRequiresLocalMediaOrigin(let origin):
+            return "standalone_fcpxml_export generates a new project from admitted local media; \(origin.rawValue) is not that"
+        case .standaloneExportMediaNotAdmitted:
+            return "standalone_fcpxml_export requires every plan source to be canonical admitted local media"
+        case .standaloneExportRejectsTimelineSelection:
+            return "standalone_fcpxml_export cannot be issued against a Final Cut timeline selection because it does not modify an existing timeline"
         }
     }
 }
@@ -198,6 +257,8 @@ public struct CapabilityGate: Sendable {
                 return CapabilityDecision(capability: capability, allowed: false, reason: "Local media selection does not establish Final Cut selection or adjacency evidence")
             }
             return CapabilityDecision(capability: capability, allowed: false, reason: "Externally verified Final Cut selection evidence is required")
+        case .standaloneFCPXMLExport:
+            return CapabilityDecision(capability: capability, allowed: false, reason: "Standalone FCPXML export requires admitted local media evidence")
         }
     }
 
@@ -221,7 +282,102 @@ public struct CapabilityGate: Sendable {
                 return CapabilityDecision(capability: capability, allowed: false, reason: "Manual FCPXML semantics evidence is incomplete: \(requirements)")
             }
             return CapabilityDecision(capability: capability, allowed: true, reason: "Verified Final Cut selection and manual FCPXML semantics evidence admit all required contracts")
+        case .standaloneFCPXMLExport:
+            return CapabilityDecision(capability: capability, allowed: false, reason: "Standalone FCPXML export does not modify an existing timeline; a Final Cut selection cannot authorize it")
         }
+    }
+
+    // MARK: - Standalone export
+
+    /// Decide standalone export, which needs admitted local media instead of a
+    /// Final Cut selection. The semantic contracts are unchanged — only the
+    /// question of *what is being claimed* differs.
+    public func decision(
+        for plan: EffectPlan,
+        capability: FCPCommandConsoleCapability,
+        mediaEvidence: AdmittedLocalMediaEvidence
+    ) -> CapabilityDecision {
+        guard plan.schemaVersion == SchemaVersion.v2_0.rawValue else {
+            return CapabilityDecision(capability: capability, allowed: false, reason: "Current capability admission requires schema 2.0")
+        }
+        switch capability {
+        case .localOnlyPreview, .inertPayloadNeutralPackage:
+            return CapabilityDecision(capability: capability, allowed: true, reason: "Current v2 plan is eligible for local-only, payload-neutral work")
+        case .fcpxmlPreview, .fcpxmlExport:
+            return CapabilityDecision(capability: capability, allowed: false, reason: "Admitted local media is not Final Cut selection evidence and cannot authorize modifying an existing timeline")
+        case .standaloneFCPXMLExport:
+            guard plan.selectionToken.origin != .finalCutTimelineClaim else {
+                return CapabilityDecision(capability: capability, allowed: false, reason: "Standalone export cannot be issued against a Final Cut timeline selection")
+            }
+            guard plan.selectionToken.origin == .localMedia else {
+                return CapabilityDecision(capability: capability, allowed: false, reason: "Standalone export requires a local media selection, got \(plan.selectionToken.origin.rawValue)")
+            }
+            guard mediaEvidence.covers(plan.selectionToken) else {
+                return CapabilityDecision(capability: capability, allowed: false, reason: "Every plan source must be canonical admitted local media matched on path and digest")
+            }
+            let missing = manualSemanticsEvidence.missingContracts(for: plan.effectID)
+            guard missing.isEmpty else {
+                let requirements = missing.map(\.rawValue).sorted().joined(separator: ", ")
+                return CapabilityDecision(capability: capability, allowed: false, reason: "Manual FCPXML semantics evidence is incomplete: \(requirements)")
+            }
+            return CapabilityDecision(capability: capability, allowed: true, reason: "Admitted local media and manual FCPXML semantics evidence admit generating a new project")
+        }
+    }
+
+    public func decision(
+        for admission: EffectPlanAdmissionResult,
+        capability: FCPCommandConsoleCapability,
+        mediaEvidence: AdmittedLocalMediaEvidence
+    ) -> CapabilityDecision {
+        switch admission {
+        case .migrationRequired:
+            return CapabilityDecision(capability: capability, allowed: false, reason: "Legacy plan is quarantined; replan and validate schema 2.0")
+        case .current(let plan):
+            return decision(for: plan, capability: capability, mediaEvidence: mediaEvidence)
+        }
+    }
+
+    public func require(
+        _ plan: EffectPlan,
+        capability: FCPCommandConsoleCapability,
+        mediaEvidence: AdmittedLocalMediaEvidence
+    ) throws {
+        guard plan.schemaVersion == SchemaVersion.v2_0.rawValue else {
+            throw CapabilityGateError.invalidCurrentPlanSchema(plan.schemaVersion)
+        }
+        switch capability {
+        case .localOnlyPreview, .inertPayloadNeutralPackage:
+            return
+        case .fcpxmlPreview, .fcpxmlExport:
+            throw CapabilityGateError.missingVerifiedFinalCutSelectionEvidence(capability)
+        case .standaloneFCPXMLExport:
+            guard plan.selectionToken.origin != .finalCutTimelineClaim else {
+                throw CapabilityGateError.standaloneExportRejectsTimelineSelection
+            }
+            guard plan.selectionToken.origin == .localMedia else {
+                throw CapabilityGateError.standaloneExportRequiresLocalMediaOrigin(plan.selectionToken.origin)
+            }
+            guard mediaEvidence.covers(plan.selectionToken) else {
+                throw CapabilityGateError.standaloneExportMediaNotAdmitted
+            }
+            let missing = manualSemanticsEvidence.missingContracts(for: plan.effectID)
+            guard missing.isEmpty else {
+                throw CapabilityGateError.missingManualFCPXMLSemanticsEvidence(
+                    capability: capability,
+                    effectID: plan.effectID,
+                    missing: missing
+                )
+            }
+        }
+    }
+
+    public func require(
+        _ admission: EffectPlanAdmissionResult,
+        capability: FCPCommandConsoleCapability,
+        mediaEvidence: AdmittedLocalMediaEvidence
+    ) throws {
+        if case .migrationRequired(let legacy) = admission { throw CapabilityGateError.migrationRequired(legacy) }
+        if case .current(let plan) = admission { try require(plan, capability: capability, mediaEvidence: mediaEvidence) }
     }
 
     public func require(_ admission: EffectPlanAdmissionResult, capability: FCPCommandConsoleCapability) throws {
@@ -246,6 +402,8 @@ public struct CapabilityGate: Sendable {
                 throw CapabilityGateError.localMediaSelectionIsNotFinalCutEvidence(capability)
             }
             throw CapabilityGateError.missingVerifiedFinalCutSelectionEvidence(capability)
+        case .standaloneFCPXMLExport:
+            throw CapabilityGateError.standaloneExportMediaNotAdmitted
         }
     }
 
@@ -271,6 +429,8 @@ public struct CapabilityGate: Sendable {
                     missing: missing
                 )
             }
+        case .standaloneFCPXMLExport:
+            throw CapabilityGateError.standaloneExportRejectsTimelineSelection
         }
     }
 }
