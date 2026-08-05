@@ -206,10 +206,27 @@ sidestepped it by reusing the captured `25`. It does not settle whether the
 three colour payloads are required, since this probe carried them. It does not
 establish first-import asset resolution, per the caveat above.
 
-**Structural admission is not render confirmation.** Playback (step 7) was not
-reported, so nothing here records that the push-in, drift, enrichment, and fade
-were actually seen on screen. The absence of `enabled="0"` and the intact effect
-uid make instantiation likely but do not substitute for looking at it.
+**Render partially confirmed 2026-08-05.** Playback was watched in the isolated
+app. The push-in, the rightward drift, and the fade to black were all visible,
+so `adjust-transform` and `adjust-blend` are not merely present in the document
+— Final Cut is rendering them.
+
+The colour change was **not** visually confirmable: the viewer did not read as
+obviously richer. That is an observation about legibility, not a failure. A
+Saturation of 25 on this image may simply be below the threshold at which a
+change is apparent by eye, and the returned XML shows the effect instantiated
+with an intact uid and no `enabled="0"`.
+
+Two things follow, and both matter beyond this pass:
+
+1. A separate A/B is needed to settle whether the colour channel renders at all
+   — toggling the Color Adjustments checkbox off and on while parked on a frame.
+   Recorded below under Results when run.
+2. **Preview strategy for colour cannot rely on the eye.** If a human watching
+   full-motion playback cannot tell whether a colour operation applied, then any
+   preview FrameSmith offers for colour needs an explicit before/after toggle
+   rather than a single rendered frame. This is a Phase A4 requirement, not a
+   nicety — see `docs/POST_PHASE1_ROADMAP.md`.
 
 No capability gate moved. `ManualFCPXMLSemanticsEvidence` still defaults to
 empty and nothing constructs a non-empty one; see HANDOFF section 6 item 3.

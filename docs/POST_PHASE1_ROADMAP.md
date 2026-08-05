@@ -175,6 +175,15 @@ will not be uniform. Expect three tiers:
 A preview that silently misrepresents the result is worse than no preview.
 Tier 3 must be visually distinct from tiers 1 and 2.
 
+**Colour needs a before/after toggle, not a rendered frame.** During the living
+still playback check the motion and the fade were immediately visible, but the
+colour change was not confirmable by eye — a Saturation of 25 on that image sat
+below the threshold where a human watching full-motion playback could tell it
+had applied. If the user cannot tell whether an operation happened, a preview
+that just shows the result has failed at its only job. Every colour primitive
+therefore needs an explicit A/B affordance. Expect the same to be true of
+subtle grain, vignette, and diffusion in Phases B and C.
+
 ### A5. Visible, editable parameter controls
 
 Every parameter in the plan gets a control. This is where "adjustable" stops
