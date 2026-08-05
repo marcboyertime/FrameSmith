@@ -84,18 +84,55 @@ final class StandaloneExportAndProfileTests: XCTestCase {
         XCTAssertEqual(profile.admittedContracts, Set(FCPXMLSemanticContract.allCases))
     }
 
-    /// All six contracts admitted is a claim about semantics accepted on
-    /// import. It is not a claim that the workflows are finished, and the
-    /// records must keep saying so.
-    func testAdmissionDoesNotImplyEditability() {
+    /// Admission and editability are separate claims, so every contract must
+    /// state which of the two it has — never leave it unsaid.
+    ///
+    /// This started life asserting that editability was unproven everywhere,
+    /// and failed on 2026-08-05 when the rotate/zoom and old television
+    /// editability passes landed. That is the assertion working: the claim
+    /// changed, so the pin had to be re-examined against evidence rather than
+    /// drifting quietly.
+    func testEveryContractStatesItsEditabilityPosition() {
         let profile = FinalCutSemanticProfileStore.finalCut12_3_450152
-        for contract in [FCPXMLSemanticContract.connectedOverlayLayers, .transformKeyframes] {
-            let record = profile.record(for: contract)
+        for contract in FCPXMLSemanticContract.allCases {
+            let limitations = profile.record(for: contract)?.limitations ?? []
+            let confirmed = limitations.contains { $0.lowercased().contains("editability confirmed") }
+            let denied = limitations.contains { $0.contains("Editability is NOT established") }
             XCTAssertTrue(
-                record?.limitations.contains { $0.contains("Editability is NOT established") } ?? false,
-                "\(contract.rawValue) must record that editability is unproven"
+                confirmed || denied,
+                "\(contract.rawValue) must record editability as confirmed or explicitly not established"
+            )
+            XCTAssertFalse(
+                confirmed && denied,
+                "\(contract.rawValue) cannot claim editability both ways"
             )
         }
+    }
+
+    /// Editability that *is* claimed must cite the artifact that established
+    /// it, so the claim stays auditable rather than becoming folklore.
+    func testConfirmedEditabilityCitesAReturnedDigest() {
+        let profile = FinalCutSemanticProfileStore.finalCut12_3_450152
+        for record in profile.records {
+            for limitation in record.limitations where limitation.lowercased().contains("editability confirmed") {
+                let hexRun = limitation.split(whereSeparator: { !$0.isHexDigit }).contains { $0.count == 64 }
+                XCTAssertTrue(
+                    hexRun,
+                    "\(record.contract.rawValue) claims editability without citing a 64-character returned digest"
+                )
+            }
+        }
+    }
+
+    /// The one contract with no editability evidence at all. Admission proved
+    /// Final Cut instantiates the Color Adjustments construction; nothing has
+    /// ever edited one of its parameters.
+    func testColorAdjustmentEditabilityRemainsUnproven() {
+        let record = FinalCutSemanticProfileStore.finalCut12_3_450152.record(for: .nativeColorAdjustment)
+        XCTAssertFalse(
+            record?.limitations.contains { $0.lowercased().contains("editability confirmed") } ?? true,
+            "no pass has edited a Color Adjustments parameter"
+        )
     }
 
     func testEveryAdmittedContractCitesADocumentADigestAndItsLimitations() {

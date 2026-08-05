@@ -208,13 +208,34 @@ What is left cannot be done in code alone.
      keyframes start at `0s` rather than the stills' `3600s`. A follow-up
      capture settled the `position` sign convention (Final Cut's +Y is up,
      measured from viewer screenshots) and showed static `position` is also a
-     paired attribute. Emitter and probe built; **the admission pass has not
-     been run.**
+     paired attribute. Emitter and probe built, and the **admission pass passed
+     2026-08-05** — see `docs/NATIVE_EFFECT_ADMISSION_PASS.md`. Rotation, scale,
+     and the compensating position track all returned with their values intact.
+
+     One normalisation: the nested `X`/`Y` sub-param form we emitted came back
+     collapsed into a single paired-value `position` param. Both axes shared
+     keyframe times, and the paired form is canonical when they do. Final Cut
+     accepted our form and rewrote it, so this is a construction difference
+     rather than a rejection — but the emitter should match it.
+
+     **Editability has not been run.** Predictions are locked in the same
+     document.
    - old TV overlays/controls are native-editable in Final Cut — **encoding
      captured 2026-08-05** (`docs/CONNECTED_LAYERS_GROUND_TRUTH.md`): a
      connected clip is a *child* of the spine `asset-clip` with `lane="1"`,
      blend mode is `mode="14 (Overlay)"`, and its `offset` is **parent-relative**.
-     Emitter and probe built; **the admission pass has not been run.**
+     Emitter and probe built, and the **admission pass passed 2026-08-05** — see
+     `docs/NATIVE_EFFECT_ADMISSION_PASS.md`. The connected `<video>` returned
+     with `lane="1"`, `offset="1s"`, `start="3600s"`, and
+     `<adjust-blend amount="0.5" mode="14 (Overlay)"/>` all intact, alongside an
+     animated flicker and the Color Adjustments filter on the spine clip.
+
+     That closes `connectedOverlayLayers`, which had been the only contract of
+     the six with no evidence of any kind.
+
+     **Editability has not been run.** Its predictions are locked in the same
+     document, and edit 2 tests something no pass has tried: editing a *static
+     attribute* rather than a keyframed param.
 
    Both captures produced one general rule, confirmed independently on four
    properties: **static values are attributes on the effect element, animated

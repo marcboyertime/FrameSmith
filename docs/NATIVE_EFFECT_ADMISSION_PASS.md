@@ -322,7 +322,94 @@ form and the static form is export-only.
 
 ## Results
 
-**Not yet run.**
+**Run 2026-08-05. Both passed on every predicted row.** Driven by the agent in
+the isolated app.
+
+### Edit 1 — targeted rotate/zoom: rotation 12° → 30°
+
+Required a **regenerated package**. The originally imported project carried its
+final keyframe at `4s`, which the boundary finding above showed is not
+addressable: the keyframe navigation moves the playhead to `4:00`, but the
+Inspector keeps reading the last real frame's interpolated values (11.9°,
+149.55%) because there is no frame there. The value cannot be selected, so it
+cannot be edited.
+
+Regenerating with the clamped emitter put the keyframe on frame 119. The
+difference is immediate and total:
+
+| At the final keyframe | Original probe (`4s`) | Clamped probe (frame 119) |
+| --- | --- | --- |
+| playhead lands | `4:00`, past the clip | `3:29`, on the frame |
+| Inspector rotation | `11.9°` (interpolated) | **`12.0°`** (the keyframe) |
+| Inspector scale | `149.55%` | **`150%`** |
+| keyframe diamonds | hollow | **filled** |
+
+That is the clamp fix validated end to end in the UI, not just in a unit test.
+
+The edit itself then behaved exactly as predicted. Returned
+`after-rotation-edit.fcpxmld`, sha256
+`5c7f74df72bfd69f0e86e2e94f32b4494d3de4bd244bf83fc0feef02a204e6de`:
+
+| Row | Before | Predicted | Returned | |
+| --- | --- | --- | --- | --- |
+| `rotation` @ frame 119 | `12` | `30` | `30` | pass |
+| `rotation` @ `0s` | `0` | unchanged | `0` | pass |
+| `scale` | `1 1` → `1.5 1.5` | unchanged | unchanged | pass |
+| `position` | unchanged | unchanged | unchanged | pass |
+| keyframe count | 2 | 2 | 2 | pass |
+
+The import raised a name collision with the original probe project. **Keep Both**
+was chosen rather than Replace — the original is the admission evidence, and
+overwriting it to run a later test would destroy the thing the later test builds
+on.
+
+### Edit 2 — old television: overlay opacity 50% → 75%
+
+Ran against the existing project; no regeneration needed. Returned
+`after-opacity-edit.fcpxmld`, sha256
+`a81da13f7b3a7f7acae819634b3dfb2781e6259abfe76de15a4571c72ea675bc`:
+
+```xml
+<video ref="r3" lane="1" offset="1s" name="living-still" start="3600s" duration="2s">
+    <adjust-blend amount="0.75" mode="14 (Overlay)"/>
+</video>
+```
+
+| Row | Before | Predicted | Returned | |
+| --- | --- | --- | --- | --- |
+| overlay `@amount` | `0.5` | `0.75` | `0.75` | pass |
+| overlay `@mode` | `14 (Overlay)` | unchanged | unchanged | pass |
+| `lane`, `offset`, `start` | `1`, `1s`, `3600s` | unchanged | unchanged | pass |
+| spine animated `adjust-blend` | 3 keyframes | unchanged | 3 keyframes | pass |
+
+#### The finding worth keeping: static stays static
+
+`amount` **remained an attribute**. It was not promoted into a `<param>`.
+
+This was flagged in advance as a possible outcome that would have been a
+finding rather than a failure — that the editor always writes the animated form
+and the static form is export-only. It does not. The static/animated split
+survives a round trip *through an edit*, which means:
+
+- an emitter may safely emit the static form for values that do not move,
+  without expecting Final Cut to rewrite it on first touch;
+- the two forms are genuinely two encodings of the same property rather than
+  one canonical form and one export artefact.
+
+Editing a keyframed param (edit 1) and editing a static attribute (edit 2) are
+therefore both supported, and neither converts into the other.
+
+### What these admit
+
+**Manual editability of both generated constructions** — a rotation keyframe and
+a connected overlay's static opacity, at the values tested.
+
+They do not admit editability of anything untested: the blend *mode* dropdown
+was not changed, the overlay was not moved or retimed, and the Color Adjustments
+parameters were not edited. They admit no mapping from creative language to
+parameter values. And per the boundary finding, they say nothing about keyframes
+placed outside a clip's addressable range beyond the fact that such keyframes
+should not be emitted.
 
 ---
 

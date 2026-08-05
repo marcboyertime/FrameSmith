@@ -119,7 +119,8 @@ public enum FinalCutSemanticProfileStore {
                 admittedOn: "2026-08-04",
                 limitations: [
                     "Established with .mov media referenced from a package Media/ directory; the returned src was unchanged, so Final Cut left the files in place rather than copying them into the library.",
-                    "The living still pass did not independently establish this: its .png resolved by dedup against media already in the library, so that run proves nothing about first-import resolution."
+                    "The living still pass did not independently establish this: its .png resolved by dedup against media already in the library, so that run proves nothing about first-import resolution.",
+                    "Editability is NOT established, and for this contract that means relinking: no pass has moved, renamed, or replaced the referenced media after import to see whether Final Cut relinks or reports it offline."
                 ]
             ),
             AdmittedContractRecord(
@@ -143,7 +144,8 @@ public enum FinalCutSemanticProfileStore {
                     "Editability confirmed 2026-08-05 (docs/LIVING_STILL_EDITABILITY_PASS.md, returned 1f32d6da03ef531449c42aab2da9d7b0081ccb6e3c0c22e6d3cebf49fa9085c0). Typing 54 px produced exactly 5, so the percent-of-height conversion holds in both directions.",
                     "Rotation admitted 2026-08-05 (docs/NATIVE_EFFECT_ADMISSION_PASS.md, returned cc9affa18d4c73eac723c75ec4fb9e8c08801142922ab4428879ced0c28f3099): a generated rotation, scale, and compensating position track returned with values intact. Rotation is plain degrees; anchor is a paired attribute; a movie clip's keyframes start at 0s, not the stills' 3600s.",
                     "That pass also normalised our output: co-timed position axes were collapsed from nested X/Y sub-params into one paired-value param, param order was canonicalised, and precision was reduced to about six significant figures. The nested form is required only when the axes are independently timed. Semantics survived; shape did not.",
-                    "Editability is NOT established for rotation. Only the dissolve and the living still have had editability passes.",
+                    "Rotation editability confirmed 2026-08-05 (docs/NATIVE_EFFECT_ADMISSION_PASS.md, returned 5c7f74df72bfd69f0e86e2e94f32b4494d3de4bd244bf83fc0feef02a204e6de): a rotation keyframe edited 12 to 30 degrees returned as 30, with scale, position, and keyframe count unchanged.",
+                    "That pass required a REGENERATED package. A keyframe emitted at a clip's end boundary (4s on a 4s clip) renders correctly but cannot be selected: the playhead lands past the last frame and the Inspector reads interpolated values, so the user cannot edit it. Emit the final keyframe inside the clip.",
                     "Editing one position axis writes a keyframe on BOTH axes at that time. A strict tree comparison of a user-edited position will report a false difference."
                 ]
             ),
@@ -154,7 +156,8 @@ public enum FinalCutSemanticProfileStore {
                 admittedOn: "2026-08-04",
                 limitations: [
                     "adjust-blend/amount keyframes only. Blend modes were not exercised.",
-                    "Editability confirmed 2026-08-05 (docs/LIVING_STILL_EDITABILITY_PASS.md): an opacity keyframe edited from 0 to 25% returned as 0.25."
+                    "Editability confirmed 2026-08-05 (docs/LIVING_STILL_EDITABILITY_PASS.md, returned 1f32d6da03ef531449c42aab2da9d7b0081ccb6e3c0c22e6d3cebf49fa9085c0): an animated opacity keyframe edited from 0 to 25% returned as 0.25.",
+                    "The static attribute form was edited separately on a connected overlay (docs/NATIVE_EFFECT_ADMISSION_PASS.md, returned a81da13f7b3a7f7acae819634b3dfb2781e6259abfe76de15a4571c72ea675bc) and stayed an attribute rather than being promoted to a param."
                 ]
             ),
             AdmittedContractRecord(
@@ -164,7 +167,8 @@ public enum FinalCutSemanticProfileStore {
                 admittedOn: "2026-08-04",
                 limitations: [
                     "Admits the Color Adjustments construction carrying all 18 params and all three opaque payloads verbatim. Whether the payloads are required is untested.",
-                    "Admits the construction, not a mapping: the probe reused the captured Saturation value of 25. No creative-language-to-parameter mapping is observed."
+                    "Admits the construction, not a mapping: the probe reused the captured Saturation value of 25. No creative-language-to-parameter mapping is observed.",
+                    "Editability is NOT established. Every pass has imported and exported this filter without touching one of its parameters, so whether an edited Saturation survives - and whether editing one rewrites the three opaque payloads - is unknown."
                 ]
             ),
             AdmittedContractRecord(
@@ -177,7 +181,8 @@ public enum FinalCutSemanticProfileStore {
                     "Only lane 1 was exercised. Lanes below the spine, and more than one connected layer at once, are unobserved.",
                     "The overlay used the static blend form (amount and mode as attributes). Whether a mode attribute may coexist with an animated amount param is unobserved and was deliberately avoided.",
                     "Only the Overlay blend mode is observed. Other modes' indices are derivable from the menu ordering but a derived index that is wrong applies the wrong mode in a valid document.",
-                    "Editability is NOT established. The overlay was imported and exported without being touched."
+                    "Editability confirmed 2026-08-05 (docs/NATIVE_EFFECT_ADMISSION_PASS.md, returned a81da13f7b3a7f7acae819634b3dfb2781e6259abfe76de15a4571c72ea675bc). The overlay's opacity was edited 50% to 75% and returned as amount=0.75 with lane, offset, start, and mode all unchanged. The value stayed an ATTRIBUTE rather than being promoted to a param, so the static form survives an edit and is not merely an export artefact.",
+                    "The blend mode dropdown was not changed, and the overlay was not moved or retimed. Editability of opacity does not extend to those."
                 ]
             )
         ]
