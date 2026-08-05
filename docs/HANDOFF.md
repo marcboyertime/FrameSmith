@@ -202,7 +202,14 @@ What is left cannot be done in code alone.
      **Edge-dragging was not exercised** and is still unproven.
    - targeted rotate/zoom keyframe editability
    - old TV overlays/controls are native-editable in Final Cut
-   - living still movement/fade/color editability
+   - living still movement/fade/color editability — **in progress.** Unlike the
+     dissolve there is no emitter and no prior revision: nothing in the tree
+     emits `adjust-transform`, `adjust-blend`, or `keyframeAnimation`, and the
+     param names, `position` units, fade encoding, and colour effect identity
+     are all unknown. Guessing any of them yields a confounded result, so the
+     order is inverted — Final Cut writes the encoding first and we read it.
+     Procedure in `docs/LIVING_STILL_GROUND_TRUTH.md`; the emitter and the
+     admission probe are written against that return, not before it.
 3. A trustworthy contract store. Semantics have now been *observed*, but
    `ManualFCPXMLSemanticsEvidence` still defaults to an empty admitted set and
    nothing constructs a non-empty one, so every FCPXML pathway fails closed.
