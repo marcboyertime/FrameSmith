@@ -132,13 +132,28 @@ Revisions 2 and 3 are spent evidence and were not modified, regenerated, or
 retried. Full results and the returned XML analysis are in
 `docs/ROUNDTRIP_MANUAL_PASS.md`.
 
-**Revision 4 is built and awaiting its manual pass:**
+**The revision 4 pass was executed on 2026-08-04 21:42–21:46** against
 `/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/27EA1706-E765-4AC8-9487-54192E5F8DF3`
 
-It keeps everything Final Cut has admitted — including revision 3's entire
-effect construction — and changes exactly one value: the incoming clip's offset
-becomes `21000/3000s` (the cut) instead of `19500/3000s` (the transition's
-offset), so the two spine clips butt-join rather than overlap. A `diff` of the
-revision 3 and revision 4 FCPXMLs with operation IDs normalized is that single
-line and nothing else. DTD-valid, media hashes verified, `Returned/` empty, all
-four semantic rows `unknown`.
+Revision 4 changed exactly one value from revision 3 — the incoming clip's
+offset from `19500/3000s` to `21000/3000s`, so the spine clips butt-join at the
+cut instead of overlapping.
+
+**All four semantic rows passed.** The returned spine holds exactly two
+`asset-clip`s, `clip-a` 0→7s at full duration and `clip-b` `offset="7s"
+start="1s" duration="7s"`, with the transition at `offset="19500/3000s"` —
+the value sent, unchanged — inside a 14s sequence. The effect came back with
+our exact UID, no `enabled="0"`, all four params verbatim, and the
+`FFAudioTransition` companion Final Cut adds only to transitions it genuinely
+instantiated. No markers, no placeholders, no orphaned elements. Every
+remaining difference is a lossless normalization (`21000/3000s` → `7s`,
+defaults dropped, `tcFormat` added, 1.13 → 1.14).
+
+This is the project's first Final Cut semantic acceptance. The construction
+rules it establishes: a transition needs a real `<effect>` resource and a
+`<filter-video>` referencing it; the transition offset is `cut − duration/2`;
+the adjacent clips butt-join at the cut rather than overlapping; and both need
+unused source beyond the joint.
+
+Revisions 2, 3, and 4 are spent evidence and were not modified, regenerated, or
+retried. Full results are in `docs/ROUNDTRIP_MANUAL_PASS.md`.

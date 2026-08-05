@@ -7,9 +7,12 @@ Final Cut and records what happened here.
 Read `docs/FCPXML_ROUNDTRIP_SPIKE.md` first for what the package contains and
 why it is shaped the way it is. This file is the execution sheet.
 
-## Current package under test — revision 4
+## Revision 4 — pass executed 2026-08-04, **all rows pass**
 
 `/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/27EA1706-E765-4AC8-9487-54192E5F8DF3`
+
+Spent evidence; do not regenerate, edit, or retry. Results are in
+*Results — pass executed 2026-08-04 21:42–21:46* below.
 
 Generated 2026-08-04 after the revision 3 pass. It keeps **everything** Final
 Cut has admitted so far — the assets, the `asset-clip` construction, the
@@ -142,11 +145,76 @@ The known crash, for comparison: revision 1
 `FFXMLImporter AssetClipImport addAssetClip:toObject:parentFormatID:`,
 incident `42DFFCF1-9E45-41DA-992F-ADB212422B07`.
 
-## Results — revision 4
+## Results — pass executed 2026-08-04 21:42–21:46
 
-**Not yet run.** All four semantic rows remain `unknown`. Nothing about
-revision 4's Final Cut behaviour may be claimed until this section records an
-executed pass.
+Final Cut Pro 12.3 / 450152, reviewed copy, launched via
+`Scripts/launch-isolated-fcpcommandconsole --launch`
+(provenance `isolated-launch-preflight.dOr4WG`). Returned export written
+21:46:03 to
+`Returned/FCPCommandConsole Dissolve Admission Probe.fcpxmld/Info.fcpxml`.
+
+**All four rows pass. The dissolve round-trips intact.**
+
+| Row | Status | Evidence |
+| --- | --- | --- |
+| Import completed without error/crash | **pass** | No alert, error, or crash. |
+| Asset admission | **pass** | Both assets returned with real `uid`/`sig`, `videoSources="1" audioSources="1"`, 8s durations, Apple ProRes 422 LT + Linear PCM detected. |
+| Cross dissolve native semantics | **pass** | `<effect uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265"/>` — our exact UID. No `enabled="0"` anywhere in the file. All four params verbatim. `FFAudioTransition` companion added again. |
+| Transition timing and handles | **pass** | Exactly two spine `asset-clip`s. `clip-a` 0→7s at full duration, `clip-b` `offset="7s" start="1s" duration="7s"`, transition `offset="19500/3000s"` — the value we sent, unchanged. Sequence `duration="14s"`. No orphaned third element. |
+| Returned FCPXML round trip | **pass** | Every timing value we sent came back with the same numeric value. |
+
+### Sent versus returned
+
+```
+sent      clip-a  0 → 7      transition 6.5 → 7.5    clip-b  7 → 14
+returned  clip-a  0 → 7      transition 6.5 → 7.5    clip-b  7 → 14
+```
+
+The butt-join rule derived from revision 3's returned file is correct. Every
+remaining difference is a lossless normalization:
+
+- `21000/3000s` → `7s` and `3000/3000s` → `1s` — same rational values, reduced.
+- `start="0s"` dropped from `clip-a` and `format="r1"` dropped from both spine
+  clips, both being defaults inherited from the sequence.
+- `tcFormat="NDF"` added; resource ids renumbered; document version 1.13 → 1.14;
+  the name-only format resolved to full attributes.
+
+No markers, no disabled filters, no empty UIDs, no synthesized placeholder
+effects, no extra spine elements. Nothing in the file needs explaining away.
+
+### What the four revisions establish
+
+| | Construct | Outcome |
+| --- | --- | --- |
+| 1 | `asset-clip` import | crash during `addAssetClip:` |
+| 2 | bare `<transition>`, no effect, no offset | imported disabled at `offset="0s"` |
+| 3 | full effect + centred offset + overlapping clips | effect admitted, spine re-flowed |
+| 4 | full effect + centred offset + butt-joined clips | **admitted intact** |
+
+Each revision changed one thing and each failure had one cause. The rules that
+survived:
+
+1. A `<transition>` needs a real `<effect>` resource and a `<filter-video>`
+   referencing it. Omitting either is DTD-valid and semantically inert.
+2. The transition's `offset` is `cut − duration/2`.
+3. The adjacent clips **butt-join at the cut**. They must not overlap; a
+   `<spine>` is strictly sequential.
+4. Both clips need unused source beyond the joint for the dissolve to consume.
+
+### What this pass admits
+
+**Asset admission and a fully specified Cross Dissolve, at correct timing,
+surviving a full import/export round trip.** This is the first Final Cut
+semantic acceptance in the project.
+
+It does **not** admit the `bare_dissolve_transition` contract as currently
+named — revision 2 disproved the bare form outright. The contract taxonomy
+needs correcting to name what the evidence actually supports before any gate
+can move. Nothing here admits transform, opacity, color, or connected-overlay
+semantics, and nothing advances the other three workflows.
+
+`evidence.json` inside the package still reads `unknown` and is left untouched;
+the package is the immutable artifact under test.
 
 ---
 

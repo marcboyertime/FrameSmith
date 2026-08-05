@@ -184,3 +184,46 @@ handles — `clip-a` holds 7–8 s of its source in reserve and `clip-b` holds
 0–1 s. `RoundTripSpikeTimeline.incomingOffsetUnits` is now `cutUnits`, and a
 unit test asserts the outgoing clip ends exactly where the incoming clip begins
 while the transition still straddles that point.
+
+## Outcome of the revision 4 pass (2026-08-04) — accepted
+
+Executed once. **All four semantic rows pass.** The returned spine is what was
+sent:
+
+```
+sent      clip-a  0 → 7      transition 6.5 → 7.5    clip-b  7 → 14
+returned  clip-a  0 → 7      transition 6.5 → 7.5    clip-b  7 → 14
+```
+
+Exactly two spine `asset-clip`s, transition at `offset="19500/3000s"` with our
+exact UID and no `enabled="0"`, all four params verbatim, a 14 s sequence, and
+the `FFAudioTransition` companion again. No markers, no placeholders, no
+orphaned elements. Every remaining difference is a lossless normalization:
+`21000/3000s` → `7s`, inherited defaults dropped, `tcFormat="NDF"` added,
+resource ids renumbered, document version 1.13 → 1.14.
+
+### The construction rules, as established by four revisions
+
+Each revision changed one thing, so each failure had exactly one cause.
+
+| | Construct | Outcome |
+| --- | --- | --- |
+| 1 | `asset-clip` import | crash during `addAssetClip:` |
+| 2 | bare `<transition>`, no effect, no offset | imported disabled at `offset="0s"` |
+| 3 | full effect + centred offset + overlapping clips | effect admitted, spine re-flowed |
+| 4 | full effect + centred offset + butt-joined clips | **admitted intact** |
+
+1. A `<transition>` needs a real `<effect>` resource and a `<filter-video>`
+   referencing it. Omitting either is DTD-valid and semantically inert.
+2. The transition's `offset` is `cut − duration/2`.
+3. The adjacent clips butt-join at the cut. They must not overlap — a `<spine>`
+   is strictly sequential.
+4. Both clips need unused source beyond the joint for the dissolve to consume.
+
+DTD validity proves none of this. Rules 1 and 3 both produce perfectly valid
+documents that Final Cut then silently rewrites.
+
+This is the project's first Final Cut semantic acceptance. It does not admit
+transform, opacity, color, or connected-overlay semantics, and it does not by
+itself move a capability gate — see `docs/PHASE1_ACCEPTANCE.md` for why the
+contract taxonomy has to be corrected first.

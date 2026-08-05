@@ -104,21 +104,50 @@ taxonomy names, and revision 2 disproved the bare form outright.
 Revisions 2 and 3 are spent evidence and were not modified, regenerated, or
 retried.
 
-**Revision 4 has been built** as operation
-`27EA1706-E765-4AC8-9487-54192E5F8DF3` and awaits its manual pass. It preserves
-revision 3's entire effect construction and changes one value — the incoming
-clip's offset from `19500/3000s` to `21000/3000s` — so the spine clips
-butt-join at the cut instead of overlapping. Nothing about revision 4's Final
-Cut behaviour may be claimed until its own pass is run; its evidence ledger
-records all four semantic rows as `unknown`, including the two that
-predecessors passed.
+### The revision 4 pass was executed on 2026-08-04 (21:42–21:46)
+
+Operation `27EA1706-E765-4AC8-9487-54192E5F8DF3`, same guarded isolated
+launcher and disposable library (provenance `isolated-launch-preflight.dOr4WG`).
+It preserved revision 3's entire effect construction and changed one value —
+the incoming clip's offset from `19500/3000s` to `21000/3000s`.
+
+| Contract | Result |
+| --- | --- |
+| Import completed without error or crash | pass |
+| asset admission | **pass** |
+| cross dissolve native semantics | **pass** — exact UID, no `enabled="0"`, params verbatim, `FFAudioTransition` companion added |
+| transition timing and handles | **pass** — two spine clips only, `clip-a` 0→7s, `clip-b` 7→14s, transition at `19500/3000s`, 14s sequence |
+| returned FCPXML round trip | **pass** — every timing value returned with the same numeric value |
+
+**This is the project's first Final Cut semantic acceptance.** Four revisions,
+each changing one thing, established the construction rules: a `<transition>`
+needs a real `<effect>` resource and a `<filter-video>` referencing it; the
+transition offset is `cut − duration/2`; the adjacent clips **butt-join** at
+the cut rather than overlapping, because a `<spine>` is strictly sequential;
+and both clips need unused source beyond the joint.
+
+Revisions 2, 3, and 4 are spent evidence and were not modified, regenerated, or
+retried.
+
+### Why no gate moved on this evidence alone
+
+`ManualFCPXMLSemanticsEvidence.requiredContracts(for: .naturalDissolve)` is
+`[.assetAdmission, .bareDissolveTransition]`. Asset admission is established.
+`bare_dissolve_transition` is **not**, and cannot be: revision 2 tested exactly
+that construct and Final Cut returned it disabled. The contract as named
+describes something that does not work.
+
+The taxonomy must therefore be corrected to name the construct the evidence
+supports — a fully specified cross dissolve — before natural dissolve can be
+assessed against it. Renaming a contract is not the same as admitting one, and
+neither is done implicitly by a passing probe.
 
 ## Workflow matrix
 
 | Workflow | Offline/local status | Final Cut acceptance |
 | --- | --- | --- |
 | Targeted rotate/zoom | planner/math/local point selection implemented | not accepted |
-| Natural dissolve | registry + syntax packages through revision 3 | not accepted — asset admission and native cross dissolve observed; transition geometry failed |
+| Natural dissolve | registry + syntax packages through revision 4 | **Final Cut semantics observed to pass** — asset admission, native cross dissolve, correct timing, and a faithful round trip. Not yet an accepted workflow: the contract taxonomy names a construct (`bare_dissolve_transition`) that revision 2 disproved, and no gate has been moved. |
 | Old Television | layered-media plan/composition/local package only | not accepted |
 | Living Still | native-fallback plan/local package only | not accepted |
 
