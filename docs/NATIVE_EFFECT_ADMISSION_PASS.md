@@ -266,3 +266,60 @@ floor are all still unmapped from creative language.
 2. **Editability passes** for both effects.
 3. The blend-mode-alongside-animated-amount question remains deliberately
    unexercised.
+
+---
+
+# Editability passes
+
+Admission proved the constructions are accepted. This asks the separate
+question the dissolve work showed is genuinely distinct: are they **editable**
+once imported, or inert objects that survived a round trip?
+
+Both projects are already in the disposable library from the admission passes.
+No new packages.
+
+## Edit 1 — targeted rotate/zoom: rotation 12° → 30°
+
+One value, chosen because rotation is the property this effect exists for and
+the one never before edited.
+
+| | Before | Predicted after |
+| --- | --- | --- |
+| `rotation` keyframe at `4s` | `12` | **`30`** |
+| `rotation` keyframe at `0s` | `0` | unchanged |
+| `scale`, `position` | unchanged | unchanged |
+| keyframe count | 2 | 2 |
+
+A third keyframe means the playhead was not on the existing one — re-run rather
+than record a failure.
+
+## Edit 2 — old television: overlay opacity 50% → 75%
+
+This edits a **static attribute**, not a keyframed param, which no pass has
+tried. The static/animated split is a real encoding difference, so editability
+of one does not imply the other.
+
+| | Before | Predicted after |
+| --- | --- | --- |
+| overlay `adjust-blend/@amount` | `0.5` | **`0.75`** |
+| overlay `@mode` | `14 (Overlay)` | unchanged |
+| overlay `lane`, `offset`, `start` | `1`, `1s`, `3600s` | unchanged |
+| spine animated `adjust-blend` | 3 keyframes | unchanged |
+
+If `amount` converts from an attribute into a `<param>` on edit, that is a
+finding, not a failure — it would mean the editor always writes the animated
+form and the static form is export-only.
+
+## Reading the result
+
+| Returned state | Meaning |
+| --- | --- |
+| both values changed as predicted | **editable** |
+| value unchanged | the edit did not apply; check the UI state in a screenshot before recording it |
+| overlay `amount` becomes a `<param>` | static values are promoted to animated on edit |
+| `mode` emptied | editing opacity tore down the blend mode |
+| the overlay moves or its `offset` changes | editing re-flowed the connected layer |
+
+## Results
+
+**Not yet run.**
