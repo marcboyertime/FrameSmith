@@ -431,24 +431,33 @@ Run these after code changes:
 
 ## 10) Completion language (avoid overclaim)
 
+**Phase 1 closed out 2026-08-05.** Full statement in `docs/PHASE1_ACCEPTANCE.md`.
+
 Current state is best described as:
 
-- Local planning and packaging architecture are implemented.
-- Hardening on local/FCP-origin claims has improved.
-- The contract store and the standalone export route are implemented, and five
-  of six semantic contracts are admitted for Final Cut 12.3 (450152).
-- **Manual Final Cut acceptance for the four target workflows is not complete.**
-  Two of four have every required contract admitted (`transition.natural_dissolve`,
-  `motion.living_still`); `native.targeted_rotate_zoom` has its contracts but
-  its generated construction has never been imported; `look.old_television` is
-  blocked on `connectedOverlayLayers`, which no pass has admitted.
+- All four target workflows have **admission and editability evidence** against
+  Final Cut 12.3 (450152), each backed by a returned FCPXML cited by digest in
+  `service/FinalCutSemanticProfile.swift`.
+- All six semantic contracts are admitted, and every one records an explicit
+  editability position — confirmed with a digest, or explicitly not established.
+- The standalone export route is **proven end to end**: real media through
+  admission, the gate, an emitter, a package, a hand import, and a structurally
+  identical return.
 
-Until the two queued admission passes are run with preserved evidence, do not
-claim:
+What may now be claimed, precisely: *the generated constructions for these four
+effects are accepted and editable in this Final Cut build.*
 
-- "all workflows are working"
-- "editable Final Cut transitions and transforms are in production behavior"
-- "Phase 1 accepted"
-- "rotation and connected layers work" — their **encodings are captured** and
-  their probes are generated, which is a different and weaker statement than
-  their generated constructions being admitted.
+Still do **not** claim:
+
+- "FrameSmith can make these effects from a description" — no
+  creative-language-to-parameter mapping is observed for any effect. Every probe
+  reused a captured value.
+- "the app does these workflows" — the emitters and the route are reachable from
+  CLIs and tests only. App integration is Phase A.
+- "these effects work" unqualified — each contract is narrow. Lane 1 only,
+  Overlay only, Saturation only, no keyframed anchor, no retiming, no masks.
+- "this will keep working" — every admission is scoped to build 450152 and is
+  revoked on drift by design. A test fails when the installed build stops
+  matching.
+- editability of anything untested: Color Adjustments parameters, dissolve
+  edge-dragging, blend-mode changes, and media relinking all remain unproven.

@@ -1,172 +1,127 @@
 # Phase 1 acceptance
 
-Refreshed 2026-08-03 from checkpoint `c282b0f`. Phase 1 remains **incomplete:
-0/4 Final Cut workflows accepted**.
+Closed out **2026-08-05** against Final Cut Pro **12.3 (450152)**.
 
-## Verified offline and local-app facts
+**All four workflows have admission and editability evidence. Phase 1 is
+complete as scoped.** What that does and does not mean is the rest of this
+document — the scope was always narrower than "these effects are finished".
 
-- `swift build` succeeded.
-- `swift test` passed 94 tests with 0 failures.
-- Schema v2 models, registry, deterministic parser/planner, validator, legacy
-  quarantine, granular capability gate, local admission, role tokens,
-  aspect-fit mapping, source preview, and inert package builder are implemented
-  and tested.
-- The standalone app has been installed at
-  `/Users/marcboyer/Applications/FCPCommandConsole.app` with bundle identifier
-  `com.marcboyer.FCPCommandConsole`; signature/resource checks passed.
-- Local packages preserve source bytes and refuse stale/nonregular/symlinked
-  sources, unsafe roots, operation collisions, and identity mismatch.
-- Package writes are anchored to a descriptor on the vetted output root and
-  published with `renameatx_np(RENAME_EXCL)`; a plan whose command, target, or
-  role sources have drifted is refused before the output root is touched.
-- The installer refuses symlinked, dangling, and non-bundle install targets and
-  verifies the installed bundle after the swap.
+The earlier revision of this file, dated 2026-08-03, read *"Phase 1 remains
+incomplete: 0/4"*. Everything below replaces it.
 
-None of these are Final Cut workflow acceptance.
+## The four workflows
 
-## Final Cut evidence and manual gate
+| Workflow | Generated | Imported intact | Renders | Editable |
+| --- | --- | --- | --- | --- |
+| `transition.natural_dissolve` | ✅ rev 4 | ✅ | ⚠️ not A/B'd | ✅ duration |
+| `motion.living_still` | ✅ | ✅ 40/40 nodes | ✅ playback + A/B | ✅ transform, opacity |
+| `native.targeted_rotate_zoom` | ✅ | ✅ values intact | ✅ seen in viewer | ✅ rotation |
+| `look.old_television` | ✅ | ✅ overlay intact | ⚠️ not A/B'd | ✅ overlay opacity |
 
-The installed environment is Final Cut Pro 12.3 build 450152. The v1 predecessor
-crashed while importing `asset-clip`; crash report
-`/Users/marcboyer/Library/Logs/DiagnosticReports/Final Cut Pro-2026-08-03-082455.ips`,
-incident `42DFFCF1-9E45-41DA-992F-ADB212422B07`, operation
-`A78B1B9D-60D7-4CD8-960B-FA9104C301E7`.
+Every row above is backed by a returned FCPXML on disk, cited with its sha256 in
+`service/FinalCutSemanticProfile.swift`. Nothing here rests on a passing test.
 
-The immutable reduced v2 package at
-`/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/CA7D0733-A435-498E-BD82-149CFF863FC3`
-passed syntax/DTD checks only. All Final Cut manual semantic rows are unknown.
+The two ⚠️ rows are honest gaps, not oversights: a dissolve and an overlay
+composite were visible in the viewer during their passes, but neither was
+measured by toggling the effect off and on the way the living still's colour was.
+Given that a moderate colour change turned out to be *invisible* during
+full-motion playback until it was A/B'd, "it looked right" is not evidence this
+project accepts.
 
-### The manual pass was executed on 2026-08-03 (23:19–23:28)
+## The six semantic contracts
 
-One pass, through the guarded isolated launcher against the reviewed copied
-app, into the disposable library. Full results and the returned XML analysis
-are in `docs/ROUNDTRIP_MANUAL_PASS.md`.
+All six are admitted. Each record in the profile carries the worksheet, the
+returned artifact's digest, and — enforced by test — an explicit editability
+position.
 
-| Contract | Result |
-| --- | --- |
-| Import completed without error or crash | pass — the v1 `addAssetClip:` crash did not recur |
-| asset admission | **pass** — both assets resolved with real uid/sig, correct durations, codecs detected |
-| bare dissolve transition | **fail** — returned at `offset="0s"` with `enabled="0"` and a synthesized `<effect uid=""/>` |
-| transition timing and handles | **fail** — 8s + 8s butt cut, no overlap, no handles |
-| returned FCPXML round trip | partial — export works; the transition did not round-trip faithfully |
-
-**Natural dissolve is not accepted.** It requires asset admission *and* bare
-dissolve; bare dissolve failed. No capability gate moved: `SemanticProfile`
-has no persisted contract store and defaults to an empty admitted set, so every
-FCPXML pathway remains closed.
-
-The result is nonetheless real progress. The v1 predecessor crashed during
-`asset-clip` import and never reached semantics; the reduced v2 package
-imported cleanly, which localises the remaining problem to transition
-construction rather than asset handling. The probe's hypothesis — that a bare
-`<transition>` element suffices — is disproven, and the returned XML says
-precisely why: `offset` and the `filter-video` child are both `#IMPLIED` in the
-DTD, so omitting them passes validation but yields a disabled placeholder at
-time zero.
-
-### The revision 3 pass was executed on 2026-08-04 (21:21–21:28)
-
-Operation `6B8F8B1C-8171-4770-86C0-E5A859C3B32A`, same guarded isolated
-launcher and disposable library (provenance `isolated-launch-preflight.JsuyVQ`).
-
-| Contract | Result |
-| --- | --- |
-| Import completed without error or crash | pass |
-| asset admission | **pass** — re-checked, not inherited: real uid/sig, correct durations, codecs detected |
-| cross dissolve native semantics | **pass** — returned with our exact UID `FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265`, no `enabled="0"`, all four params verbatim, and Final Cut *added* an `FFAudioTransition` Audio Crossfade companion |
-| transition timing and handles | **fail** — overlapping spine siblings; Final Cut truncated `clip-a` 7s → 6.5s and re-appended its 0.5s remainder as a third element |
-| returned FCPXML round trip | partial — the effect round-tripped faithfully, the spine layout did not |
-
-**The effect question is answered.** A `<transition>` carrying a real
-`<effect>` resource and a `<filter-video>` reference is admitted as a native
-Cross Dissolve. The unprompted Audio Crossfade companion is the proof: Final
-Cut synthesizes one only for a transition it actually instantiated.
-
-**The geometry question is not.** The incoming clip's offset was set to the
-transition's offset, which made the two spine clips overlap by half the
-transition duration. A spine is strictly sequential and cannot represent that.
-The correct rule, read off the returned file: the transition offset is
-`cut − T/2` (confirmed right), but the incoming clip's offset is `cut` — the
-clips butt-join and the transition straddles the joint. That is a one-number
-fix for revision 4.
-
-The bad convention came from an OTIO-written fixture in `reference/`, not from
-a Final Cut export. It was flagged in advance as the prime suspect for a
-placement failure and it was the cause; that fixture is now untrusted for spine
-geometry.
-
-**Natural dissolve is still not accepted** — correct transition timing is part
-of the workflow and it failed. No capability gate has been moved. The
-effect-scoped contract taxonomy needs revisiting before one can be: what was
-proven is a *fully specified* cross dissolve, not the "bare dissolve" the
-taxonomy names, and revision 2 disproved the bare form outright.
-
-Revisions 2 and 3 are spent evidence and were not modified, regenerated, or
-retried.
-
-### The revision 4 pass was executed on 2026-08-04 (21:42–21:46)
-
-Operation `27EA1706-E765-4AC8-9487-54192E5F8DF3`, same guarded isolated
-launcher and disposable library (provenance `isolated-launch-preflight.dOr4WG`).
-It preserved revision 3's entire effect construction and changed one value —
-the incoming clip's offset from `19500/3000s` to `21000/3000s`.
-
-| Contract | Result |
-| --- | --- |
-| Import completed without error or crash | pass |
-| asset admission | **pass** |
-| cross dissolve native semantics | **pass** — exact UID, no `enabled="0"`, params verbatim, `FFAudioTransition` companion added |
-| transition timing and handles | **pass** — two spine clips only, `clip-a` 0→7s, `clip-b` 7→14s, transition at `19500/3000s`, 14s sequence |
-| returned FCPXML round trip | **pass** — every timing value returned with the same numeric value |
-
-**This is the project's first Final Cut semantic acceptance.** Four revisions,
-each changing one thing, established the construction rules: a `<transition>`
-needs a real `<effect>` resource and a `<filter-video>` referencing it; the
-transition offset is `cut − duration/2`; the adjacent clips **butt-join** at
-the cut rather than overlapping, because a `<spine>` is strictly sequential;
-and both clips need unused source beyond the joint.
-
-Revisions 2, 3, and 4 are spent evidence and were not modified, regenerated, or
-retried.
-
-### The contract taxonomy has been corrected
-
-`requiredContracts(for: .naturalDissolve)` was
-`[.assetAdmission, .bareDissolveTransition]`. The second named something the
-probes disproved: revision 2 sent exactly a bare `<transition>` and Final Cut
-returned it disabled at `offset="0s"` against a synthesized empty-UID effect.
-That contract could never have been admitted by any evidence.
-
-It is now `cross_dissolve_transition`, documented against the four conditions
-revisions 2–4 established: a real `<effect>` resource, a `<filter-video>`
-referencing it, the transition offset at `cut − duration/2`, and butt-joined
-adjacent clips with source beyond the joint. The wire values of all six
-contracts are pinned by a test, because they are the persisted form of manual
-evidence that cost four probe revisions to obtain.
-
-### Why no gate has moved
-
-Renaming a contract is not admitting one, and a passing probe does not admit
-one implicitly — a test now asserts that. `ManualFCPXMLSemanticsEvidence`
-defaults to an empty admitted set and nothing in the app constructs a non-empty
-one, so every FCPXML pathway still fails closed.
-
-Admission needs a trustworthy way to record that a manual pass happened. The
-gate's existing design is explicit that a JSON claim must not be convertible
-into capability evidence — `VerifiedFinalCutSelectionEvidence` has an internal
-initializer for exactly that reason — so a contract store cannot simply be a
-file the app reads and believes. That mechanism is the next Phase 1 decision
-and is not yet designed.
-
-## Workflow matrix
-
-| Workflow | Offline/local status | Final Cut acceptance |
+| Contract | Admitted | Editability |
 | --- | --- | --- |
-| Targeted rotate/zoom | planner/math/local point selection implemented | not accepted |
-| Natural dissolve | registry + syntax packages through revision 4 | **Final Cut semantics observed to pass** — asset admission, native cross dissolve, correct timing, and a faithful round trip. Not yet an accepted workflow: no capability gate has been moved, because no trustworthy contract store exists to admit one. |
-| Old Television | layered-media plan/composition/local package only | not accepted |
-| Living Still | native-fallback plan/local package only | not accepted |
+| `assetAdmission` | ✅ | not established (relinking untested) |
+| `crossDissolveTransition` | ✅ | ✅ duration (edge-dragging untested) |
+| `transformKeyframes` | ✅ | ✅ position, scale, rotation |
+| `opacityKeyframes` | ✅ | ✅ animated **and** static forms |
+| `nativeColorAdjustment` | ✅ | not established |
+| `connectedOverlayLayers` | ✅ | ✅ static opacity |
 
-Do not report workflow success from a plan, DTD pass, package, source preview,
-or app signature. Only a documented Final Cut import/export/readback/manual
-result can advance an appropriate row.
+## The standalone export route
+
+The capability that makes any of this usable without ever claiming to modify a
+timeline. **Proven end to end 2026-08-05:**
+
+```
+real media → LocalMediaAdmission → CapabilityGate → emitter → package → import → returned
+```
+
+- generated by `swift run fcpcommandconsole-standalone-export --media … --effect motion.living_still`
+- package `866B87BB-3536-4BE6-8534-CA2874B64889`
+- gate authorised against the installed 12.3 (450152) profile
+- imported into the disposable library with no crash and no error
+- returned **structurally identical**, 39 nodes, digest
+  `1c66fb2bfebdc437f03e52c22cad0bfa1f403129d401b131ad7685abd1effc17`
+
+The provenance file states the claim in the artifact itself:
+
+> FrameSmith generated a new Final Cut project from admitted local media. It did
+> not open Final Cut, did not read an existing timeline, and did not modify one.
+
+`standaloneFCPXMLExport` is a **different claim** from `fcpxmlExport`, not a
+weaker one. The latter asserts an existing timeline may be modified, demands
+`VerifiedFinalCutSelectionEvidence`, and can never be satisfied by local media.
+Tests cover both directions of privilege leak.
+
+Emitters exist for `motion.living_still` and `native.targeted_rotate_zoom`.
+The other two are gate-authorised but have no emitter that generalises from plan
+values; `StandaloneFCPXMLExportBuilder.missingEmitterReason` states why for each.
+
+## What Phase 1 does **not** claim
+
+Read this before writing anything about the project's status.
+
+1. **No creative-language → parameter mapping is observed for any effect.**
+   Every probe reused captured values. "Make it look older" does not yet map to
+   a Saturation number, and nothing in this phase establishes that it can.
+2. **The app does not use any of this.** The emitters, the gate, and the
+   standalone route are reachable from CLIs and tests. Integrating them into the
+   SwiftUI app is Phase A, not done.
+3. **Preview is still source-only.** The user cannot see an effect before
+   committing to it.
+4. **One build, one library.** Every admission is scoped to 12.3 (450152) and
+   fails closed on drift. A Final Cut update revokes all of it until the passes
+   are re-run — there is a test that fails when the installed build stops
+   matching.
+5. **Narrow within each contract.** Only lane 1, only the Overlay blend mode,
+   only Saturation among 18 colour params, no rotation past 45°, no keyframed
+   anchor, no retiming, no masks.
+6. **First-import resolution for a still is still unproven.** The living still's
+   `.png` resolved by dedup against media already in the library. The dissolve
+   pass covers this for `.mov` from a package `Media/` directory; the still case
+   does not.
+
+## Verification at close-out
+
+- `swift build` — clean
+- `swift test` — **184 tests, 0 failures**
+- `make test` core audit — `registry=4 schema=json-ok forbidden-patterns=0`
+- worktree clean, branch `standalone-app`, nothing pushed
+
+## The method, for the record
+
+Phase 1's durable output is not the four effects. It is a way of working that
+caught five defects that would each have shipped silently in valid FCPXML:
+
+1. A `<transition>` with no effect resource imports **disabled** — DTD-valid,
+   silently inert.
+2. Overlapping clips around a transition are **silently re-flowed** — a spine is
+   strictly sequential.
+3. `position` is percent of frame **height** while the inspector reads pixels —
+   emitting the inspector's number pans 10.8× too far and imports cleanly.
+4. Keyframe times run from a **3600 s origin for stills but 0 s for movies** —
+   the general-looking rule from the first capture would have placed every movie
+   keyframe an hour early.
+5. A keyframe at a clip's **end boundary** renders but cannot be selected — the
+   user simply cannot edit it, and nothing reports an error.
+
+None of these were found by testing. All five were found by generating one
+construction, importing it, and reading what Final Cut wrote back.
+
+**DTD validity is not acceptance. The returned file is the evidence.**

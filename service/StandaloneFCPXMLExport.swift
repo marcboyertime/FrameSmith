@@ -245,7 +245,11 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         case .naturalDissolve:
             return "the dissolve construction needs two adjacent clips and a centred transition; the admitted construction lives in FCPXMLRoundTripSpikeBuilder and has not been generalised to arbitrary plan values"
         case .oldTelevision:
-            return "connected_overlay_layers is not admitted for this Final Cut build, so no export could be authorised even if an emitter existed"
+            // connectedOverlayLayers was admitted 2026-08-05, so the gate no
+            // longer blocks this. What is missing is an emitter that composes
+            // a spine clip, a connected overlay, and a colour filter from
+            // arbitrary plan values rather than the probe's fixed timeline.
+            return "the connected-overlay construction is admitted, but no emitter generalises it from plan values yet; NativeEffectProbeBuilder builds one fixed timeline, not an arbitrary one"
         case .livingStill, .targetedRotateZoom:
             return "an emitter exists"
         }

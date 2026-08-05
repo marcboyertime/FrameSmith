@@ -81,6 +81,28 @@ public enum LocalMediaAdmissionError: Error, LocalizedError, Equatable, Sendable
 public struct LocalMediaAdmission: Sendable {
     public init() {}
 
+    /// Admit media and mint the capability evidence in one step.
+    ///
+    /// This is the **only** public way to obtain `AdmittedLocalMediaEvidence`.
+    /// Its memberwise initializer stays internal so a decoded, hand-built, or
+    /// downloaded value can never become evidence — but the admission path
+    /// itself is exactly what evidence is supposed to attest to, so it must be
+    /// reachable from outside the module or the standalone route cannot be
+    /// driven at all.
+    ///
+    /// The invariant is unchanged: evidence exists only where media actually
+    /// went through admission, was hashed, and was canonicalised.
+    public func admitAll(_ inputs: [URL]) async throws -> (assets: [LocalMediaAsset], evidence: AdmittedLocalMediaEvidence) {
+        var assets: [LocalMediaAsset] = []
+        for input in inputs {
+            assets.append(try await admit(input))
+        }
+        guard let evidence = AdmittedLocalMediaEvidence(admittedAssets: assets) else {
+            throw LocalMediaAdmissionError.unreadable(inputs.first ?? URL(fileURLWithPath: "/"))
+        }
+        return (assets, evidence)
+    }
+
     public func admit(_ input: URL) async throws -> LocalMediaAsset {
         let url = try Self.canonicalRegularFile(from: input)
         let sha256 = try hashCancellable(url)
