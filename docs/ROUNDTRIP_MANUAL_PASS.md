@@ -34,13 +34,138 @@ transition FCPXML, not from an observed export of our own package. If revision 3
 fails on placement rather than on the effect, that convention is the first thing
 to suspect.
 
-Preflight, verified at generation: `probeRevision: 3`, both media SHA-256 and
-byte counts match `manifest.json`, the FCPXML is valid against the installed
-FCPXML 1.13 DTD (checked twice — once by the generator before publishing, once
-independently afterwards), and `Returned/` is empty.
+## Preflight — re-verified 2026-08-04, immediately before the pass
 
-Run the steps below against this package. Everything from here down describing
-`CA7D0733…` is the completed revision 2 record.
+Read-only. No Final Cut interaction.
+
+| Check | Result |
+| --- | --- |
+| Working tree at `dbd3d76`, clean | pass |
+| `probeRevision` in `manifest.json` and `evidence.json` | `3` |
+| `Media/clip-a.mov` SHA-256 + byte count vs `manifest.json` | match (`cd44c0c9…`, 47,002,621 bytes) |
+| `Media/clip-b.mov` SHA-256 + byte count vs `manifest.json` | match (`a38a03bf…`, 16,261,915 bytes) |
+| `FCPCommandConsole-RoundTrip-Spike.fcpxml` vs installed FCPXML 1.13 DTD | valid (`xmllint --nonet --dtdvalid`) |
+| `Returned/` | empty — the pass has not been run |
+| `evidence.json` semantic rows | all four `unknown`, including asset admission |
+| `pgrep -lf "Final Cut"` | nothing running |
+| `Scripts/launch-isolated-fcpcommandconsole --preflight-only` | `preflight=pass` (provenance `isolated-launch-preflight.bVdMUV`) |
+
+Note for anyone re-running the DTD check by hand: `xmllint --dtdvalid` takes a
+**URI**, so the DTD's real path inside `Final Cut Pro.app` fails to parse purely
+because it contains spaces. Copy the DTD to a space-free path first; this is a
+quoting artifact, not a validation failure.
+
+## Known state of the disposable library
+
+The library already holds two spent events from earlier passes:
+
+- `FCPCommandConsole Round-Trip Spike — Manual Import Only` (revision 1)
+- `FCPCommandConsole Dissolve Admission Probe` (revision 2)
+
+Revision 3 imports under **the same event name as revision 2**, and Final Cut
+merges same-named events on XML import. Step 4 below renames the revision 2
+event first so the revision 3 import lands in an unambiguously new event.
+Without that rename there is a live risk of inspecting — or exporting — the
+revision 2 project and recording its result as revision 3's.
+
+Media dedupe is expected and is not a failure: revision 2's import copied these
+same bytes into the library, so revision 3's returned `src` may point at media
+already present. Asset admission is still observable, because `uid`/`sig` derive
+from the media itself.
+
+## Which Final Cut to launch
+
+**Never the stock `/Applications/Final Cut Pro.app`, and never by
+double-clicking anything.** The pass runs the reviewed copy at
+`~/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app`
+through `Scripts/launch-isolated-fcpcommandconsole`, which is the only launch
+path that verifies the copy's identity, forces an isolated `HOME`, and applies
+`config/fcpcommandconsole-isolation.sb`. That profile denies every `.fcpbundle`
+except the disposable library, so a production library cannot be opened even by
+accident.
+
+## Steps — revision 3
+
+Stop at the **first** failure. Do not retry, do not regenerate, do not move to
+the next step.
+
+1. Confirm no Final Cut is running: `pgrep -lf "Final Cut"` prints nothing.
+   The launcher refuses to start otherwise.
+2. Launch, from the repo root, in a terminal you can leave open — the command
+   blocks until Final Cut quits:
+
+   ```sh
+   Scripts/launch-isolated-fcpcommandconsole --launch
+   ```
+
+   It prints `preflight=pass` and a provenance directory before launching.
+   If it prints anything else and exits, stop and record that output; the
+   pass has not started.
+3. Confirm the open library is **`FCPCommandConsole Test`** and nothing else.
+   If no library opens, File ▸ Open Library ▸ Other… and choose
+   `~/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle`. An error when
+   any *other* library is offered is the sandbox working correctly, not a
+   probe failure — record it and carry on with the disposable library.
+4. In the browser sidebar, rename the existing event
+   **`FCPCommandConsole Dissolve Admission Probe`** to
+   **`REV2 spent 2026-08-03`** (click the name, type, Return). This is the
+   revision 2 event and it must not absorb the revision 3 import.
+5. File ▸ Import ▸ XML…, press `⇧⌘G`, paste the absolute path of
+   `FCPCommandConsole-RoundTrip-Spike.fcpxml` from the revision 3 package, and
+   import. **Stop and record on any error, alert, beachball, or crash.**
+6. Confirm a **new** event named `FCPCommandConsole Dissolve Admission Probe`
+   was created, with two browser clips and a project of the same name. If the
+   import instead landed in `REV2 spent 2026-08-03`, stop — the rename did not
+   take and the pass is contaminated.
+7. Confirm both clips show real media, not missing-file/red placeholders.
+8. Open the new project and inspect the spine. Expected shape, if revision 3
+   works: a timeline about **13.5 s** long, `clip-a` from 0 s to 7 s, the
+   transition straddling the cut from **6.5 s to 7.5 s**, and `clip-b` running
+   from 6.5 s to 13.5 s. Record: does the transition exist; where is it; what is
+   it called; and — click it — does the Inspector show an enabled **Cross
+   Dissolve** rather than a blank effect.
+9. Select the project in the browser, File ▸ Export XML…, press `⇧⌘G`, and
+   save into the revision 3 package's `Returned/` directory. `Returned/` is the
+   only part of the package that may be written to.
+10. Quit Final Cut. The launcher exits and writes its after-snapshots.
+11. Compare the returned FCPXML against the source using the table below.
+
+## Reading a revision 3 result
+
+The returned XML answers it, not the timeline view. Compare against revision 2's
+failure signature:
+
+| Returned value | Meaning |
+| --- | --- |
+| `<filter-video … enabled="1">` (or no `enabled`, which defaults to 1) | the effect was accepted |
+| `enabled="0"` | still rejected — as in revision 2 |
+| effect `uid` non-empty and matching what we sent | our UID was understood |
+| effect `uid=""` | Final Cut again synthesized a placeholder |
+| transition `offset` near `19500/3000s` | placement understood |
+| transition `offset="0s"` | placement still wrong — suspect the centred-offset convention |
+| clip-b `offset` ≈ clip-a end minus half the transition | handles consumed as intended |
+
+## On crash or alert
+
+1. Note the exact step and the on-screen text verbatim.
+2. Capture the new crash report from
+   `~/Library/Logs/DiagnosticReports/` and record its incident id.
+3. Stop touching the package. Record before any retry or regeneration.
+
+The known predecessor failure, for comparison: revision 1
+(`A78B1B9D-60D7-4CD8-960B-FA9104C301E7`) crashed inside
+`FFXMLImporter AssetClipImport addAssetClip:toObject:parentFormatID:`,
+incident `42DFFCF1-9E45-41DA-992F-ADB212422B07`.
+
+## Results — revision 3
+
+**Not yet run.** All four semantic rows remain `unknown`. Nothing about
+revision 3's Final Cut behaviour may be claimed until this section records an
+executed pass.
+
+---
+
+Everything below describes `CA7D0733…` and is the completed revision 2 record.
 
 ---
 
@@ -63,60 +188,11 @@ Package (spent evidence; do not regenerate, edit, or retry):
 | `media-rep` `src` URLs | point at the package's own `Media/`, not the fixtures |
 | `Scripts/launch-isolated-fcpcommandconsole --preflight-only` | `preflight=pass` (copied-app identity, entitlements, sandbox probes, no FCP running, preferences unchanged) |
 
-The input is therefore byte-identical to what was generated and DTD-validated
-on 2026-08-03. Re-run the two hash checks if any significant time passes before
-the pass is executed.
+The input was therefore byte-identical to what was generated and DTD-validated
+on 2026-08-03.
 
-## Which Final Cut to launch
-
-**Never the stock `/Applications/Final Cut Pro.app`, and never by
-double-clicking anything.** The pass runs the reviewed copy at
-`~/Applications/SpliceKit/FCPCommandConsole/Final Cut Pro - FCPCommandConsole.app`
-through `Scripts/launch-isolated-fcpcommandconsole`, which is the only launch
-path that verifies the copy's identity, forces an isolated `HOME`, and applies
-`config/fcpcommandconsole-isolation.sb`. That profile denies every `.fcpbundle`
-except the disposable library, so a production library cannot be opened even by
-accident.
-
-## Steps
-
-Stop at the **first** failure. Do not retry, do not regenerate, do not move to
-the next step.
-
-1. Confirm no Final Cut is running: `pgrep -lf "Final Cut"` prints nothing.
-   The launcher refuses to start otherwise.
-2. Launch, from the repo root, in a terminal you can leave open — the command
-   blocks until Final Cut quits:
-
-   ```sh
-   Scripts/launch-isolated-fcpcommandconsole --launch
-   ```
-
-   It prints `preflight=pass` and a provenance directory before launching.
-   If it prints anything else and exits, stop and record that output; the
-   pass has not started.
-3. Confirm the open library is **`FCPCommandConsole Test`** and nothing else.
-   If no library opens, File ▸ Open Library ▸ Other… and choose
-   `~/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle`. An error when
-   any *other* library is offered is the sandbox working correctly, not a
-   probe failure — record it and carry on with the disposable library.
-4. File ▸ Import ▸ XML…, press `⇧⌘G`, paste the absolute path of
-   `FCPCommandConsole-RoundTrip-Spike.fcpxml` from the package, and import.
-   **Stop and record on any error, alert, beachball, or crash.**
-5. Confirm the event **FCPCommandConsole Dissolve Admission Probe** was created
-   with two browser clips and a project of the same name.
-6. Confirm both clips show real media, not missing-file/red placeholders.
-7. Open the project and inspect the spine. For revision 3 the transition must be
-   **at the 7-second cut between the clips**, not at the head of the timeline.
-   Record: does it exist; where is it; what is it called; and — click it — does
-   the Inspector show an enabled Cross Dissolve rather than a blank effect.
-8. Select the project in the browser, File ▸ Export XML…, press `⇧⌘G`, and
-   save into the package's `Returned/` directory. `Returned/` is the only part
-   of the package that may be written to.
-9. Quit Final Cut. The launcher exits and writes its after-snapshots.
-10. Compare the returned FCPXML against the source: asset ids, durations, the
-    transition element and its duration, and any normalization Final Cut
-    applied.
+The pass followed the same launch path and step sequence documented above for
+revision 3, minus the step 4 event rename, which did not yet apply.
 
 ## Results — pass executed 2026-08-03 23:19–23:28
 
@@ -159,18 +235,6 @@ It does not bear on either finding: asset admission was settled at import
 before any marker could exist, and a marker on `clip-b` cannot cause a
 transition to be placed at offset 0, disabled, with an empty effect UID.
 
-## On crash or alert
-
-1. Note the exact step and the on-screen text verbatim.
-2. Capture the new crash report from
-   `~/Library/Logs/DiagnosticReports/` and record its incident id.
-3. Stop touching the package. Record before any retry or regeneration.
-
-The known predecessor failure, for comparison: revision 1
-(`A78B1B9D-60D7-4CD8-960B-FA9104C301E7`) crashed inside
-`FFXMLImporter AssetClipImport addAssetClip:toObject:parentFormatID:`,
-incident `42DFFCF1-9E45-41DA-992F-ADB212422B07`.
-
 ## What this pass admits
 
 **Asset admission only.** Natural dissolve is **not** accepted: it requires
@@ -186,21 +250,6 @@ Do not edit `evidence.json`, `manifest.json`, or anything else inside the
 package. It is the immutable artifact under test and `Returned/` is the only
 part that may be written. Evidence is recorded here and in
 `docs/PHASE1_ACCEPTANCE.md`, which are version-controlled.
-
-## Reading a revision 3 result
-
-The returned XML answers it, not the timeline view. Compare against revision 2's
-failure signature:
-
-| Returned value | Meaning |
-| --- | --- |
-| `<filter-video … enabled="1">` (or no `enabled`, which defaults to 1) | the effect was accepted |
-| `enabled="0"` | still rejected — as in revision 2 |
-| effect `uid` non-empty and matching what we sent | our UID was understood |
-| effect `uid=""` | Final Cut again synthesized a placeholder |
-| transition `offset` near `19500/3000s` | placement understood |
-| transition `offset="0s"` | placement still wrong — suspect the centred-offset convention |
-| clip-b `offset` ≈ clip-a end minus half the transition | handles consumed as intended |
 
 ## What revision 3 needs
 
