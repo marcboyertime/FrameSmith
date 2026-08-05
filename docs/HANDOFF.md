@@ -9,7 +9,9 @@ Current objective: finish Phase 1. **The section 5 import blocker is cleared.**
 
 - Repository: `/Users/marcboyer/Developer/FCPCommandConsole`
 - Branch: `standalone-app`
-- HEAD: `4f5732b` (`Record the dissolve duration-editability pass`)
+- Last substantive commit: `9b2970d` (`Record the dissolve duration-editability
+  pass`). `HEAD` itself is the checkpoint bump that records this line, so it is
+  always one commit ahead of the hash named here — do not treat that as drift.
 - Worktree: clean
 - Build/test evidence: `swift build` passed; `swift test` passed **97 tests,
   0 failures**; `make test` core audit passed — measured at `6695230`, the last
