@@ -90,4 +90,114 @@ is unlikely to be a default and will be obvious in the XML.
 
 ## Results
 
-**Not yet run.**
+**Captured 2026-08-05**, driven by the agent in the isolated app. Export at
+`~/Movies/FCPCommandConsole/exports/ground-truth/connected-layers-ground-truth.fcpxmld`.
+
+What Final Cut wrote, complete:
+
+```xml
+<spine>
+    <asset-clip ref="r2" offset="0s" name="clip-a.mov Browser Clip" duration="8s" tcFormat="NDF" audioRole="dialogue">
+        <video ref="r3" lane="1" offset="2s" name="living-still" start="10808700/3000s" duration="3s">
+            <adjust-blend amount="0.5" mode="14 (Overlay)"/>
+        </video>
+    </asset-clip>
+</spine>
+```
+
+### Finding 1 — a connected clip is a **child** of the spine clip
+
+Not a sibling, not a separate spine, not a `<lane>` wrapper. The connected clip
+nests **inside** the `asset-clip` it is attached to. That is the document-shape
+answer this capture existed to get, and it is the thing
+`service/OverlayAdapter.swift` could not have been trusted to guess.
+
+`lane="1"` numbers the first layer above the spine. Lanes below (audio) would
+presumably be negative, unobserved.
+
+A still used as a connected clip is a `<video>` element — the same element the
+living still probe emits on the spine, so that construction carries over.
+
+### Finding 2 — static values are attributes; animated values are params
+
+This is the general rule, and it now has **two independent confirmations**.
+
+Opacity here is `amount="0.5"` — an **attribute on `<adjust-blend>`**. In the
+living still, where opacity was keyframed, it was:
+
+```xml
+<adjust-blend>
+    <param name="amount"><keyframeAnimation>…</keyframeAnimation></param>
+</adjust-blend>
+```
+
+The rotation capture showed the same split on `<adjust-transform>`: static
+`anchor` was an attribute, animated `rotation` was a `<param>`.
+
+> **Static → attribute on the effect element. Animated → `<param>` child.**
+
+That resolves the open question the rotation capture left: *does `anchor` become
+a param when keyframed?* Almost certainly yes, by this rule. It is still worth
+one confirming capture before emitting a keyframed anchor, but the rule is no
+longer a guess from a single instance.
+
+It also means an emitter cannot pick a shape per property. It must pick per
+**property × animated-or-not**.
+
+### Finding 3 — blend mode is an index-and-name string
+
+`mode="14 (Overlay)"`.
+
+This is the same convention already seen in the Color Adjustments payload —
+`"0 (SDR)"`, `"11 (Video)"`, `"2 (In & Out)"`. Not a bare index, not a bare
+name, not a UID. Whether Final Cut accepts a bare `14` on import is an admission
+question this capture does not answer.
+
+### Finding 4 — the `3600s` origin belongs to the still, not the timeline context
+
+`start="10808700/3000s"` = **3602.9 s** = 3600 s + 2.9 s (87 frames).
+
+Two things follow:
+
+1. The 3600 s origin applies to stills **even as connected clips**, so it is a
+   property of the still asset, not of being on the spine. Combined with the
+   rotation capture — where a movie clip's keyframes started at `0s` — the rule
+   is now: **stills get the 3600 s origin, movies do not.**
+2. **It cannot be read off the asset.** The asset here declares
+   `start="0s" duration="0s"`, yet the clip references 3602.9 s. An emitter that
+   derives the origin from the asset's own `start` would emit `0s` and be an
+   hour wrong. The origin is a convention Final Cut applies, not data it stores.
+
+The extra 2.9 s is the source in-point, set by where the still was clicked in
+the browser before connecting. Incidental to this capture, but it does show the
+in-point is expressed in the same 3600 s-based system.
+
+### Finding 5 — untouched properties are omitted
+
+The spine `asset-clip` has no `adjust-blend`, no `adjust-transform`, nothing.
+Only what was changed is written. Consistent with the rotation capture, so this
+is now confirmed on two different element types.
+
+## Limitation this capture does *not* resolve
+
+**The `offset` reference frame is still ambiguous.** The connected clip has
+`offset="2s"` and starts 2 s into the timeline — but its parent `asset-clip` is
+itself at `offset="0s"`. Relative-to-parent and relative-to-timeline give the
+same answer, so this capture cannot distinguish them.
+
+That is a flaw in the capture design, not in the reading. The worksheet chose a
+late start specifically to make the offset readable and then left the parent at
+zero, which defeated it.
+
+Resolving it needs a spine with **two** clips and the overlay attached to the
+**second** one. If the offset is parent-relative it will restart from 0 at that
+clip's start; if timeline-relative it will carry the accumulated time. Until
+that is captured, an emitter must not assume either — and for `look.old_television`,
+where an overlay may well attach to a non-first clip, getting this wrong
+misplaces every overlay silently.
+
+## After the capture
+
+Steps 2–4 above still stand. **This capture admits nothing.**
+`connectedOverlayLayers` stays out of `FinalCutSemanticProfile` until a
+*generated* connected layer is imported and returns intact.
