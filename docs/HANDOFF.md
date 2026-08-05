@@ -227,8 +227,31 @@ What is left cannot be done in code alone.
      channel looks synthesisable; whether Final Cut accepts it without them is
      an admission question, not something the capture settled.
 
-     Next: write the emitter against that skeleton, then one admission probe.
-     Nothing is admitted yet.
+     **Emitter written 2026-08-04** (`ba2bb32`). Reusable primitives live in
+     `service/NativeFCPXML/` — rational time with the 3600s source origin, a
+     small node renderer, still resources, transform channel, opacity channel,
+     and a Color Adjustments template. They are meant to serve
+     `native.targeted_rotate_zoom`, native fades and colour, and the native
+     portions of `look.old_television`, not just this effect. **Rotation is
+     deliberately unimplemented**: its encoding is unobserved, and rotate/zoom
+     must capture it the same way before emitting one.
+
+     `LivingStillProbeBuilder` is parallel to `FCPXMLRoundTripSpikeBuilder` and
+     deliberately *not* factored together with it, so no living still change can
+     alter what a dissolve regeneration emits. Its export-root guard also
+     refuses to write beneath `exports/ground-truth`.
+
+     Probe `3E660E97-DBD8-40EA-88F9-C926CD424FDE` is generated and waiting for a
+     manual import; procedure and read-out table in
+     `docs/LIVING_STILL_ADMISSION_PASS.md`. Its `adjust-transform`,
+     `adjust-blend`, all 18 `filter-video` params, and the `effectConfig`
+     payload are **byte-identical** to Final Cut's own export; the wrapper
+     differs on purpose (no `<library location>`, no invented `uid`/`sig`).
+     128 tests pass, core audit clean, valid against the installed 1.14 DTD and
+     correctly rejected by 1.13.
+
+     Still nothing admitted. DTD validity is not acceptance — dissolve
+     revisions 1 and 3 were both valid and both were rewritten.
 3. A trustworthy contract store. Semantics have now been *observed*, but
    `ManualFCPXMLSemanticsEvidence` still defaults to an empty admitted set and
    nothing constructs a non-empty one, so every FCPXML pathway fails closed.
