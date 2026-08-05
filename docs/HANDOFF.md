@@ -202,8 +202,24 @@ What is left cannot be done in code alone.
      round-trippable. Evidence: `docs/DISSOLVE_EDITABILITY_PASS.md` and
      `…/27EA1706-…/Returned/after-duration-edit.fcpxmld`.
      **Edge-dragging was not exercised** and is still unproven.
-   - targeted rotate/zoom keyframe editability
-   - old TV overlays/controls are native-editable in Final Cut
+   - targeted rotate/zoom keyframe editability — **encoding captured
+     2026-08-05** (`docs/ROTATION_GROUND_TRUTH.md`): rotation is a single param
+     in plain degrees, `anchor` is a paired *attribute*, and a movie clip's
+     keyframes start at `0s` rather than the stills' `3600s`. A follow-up
+     capture settled the `position` sign convention (Final Cut's +Y is up,
+     measured from viewer screenshots) and showed static `position` is also a
+     paired attribute. Emitter and probe built; **the admission pass has not
+     been run.**
+   - old TV overlays/controls are native-editable in Final Cut — **encoding
+     captured 2026-08-05** (`docs/CONNECTED_LAYERS_GROUND_TRUTH.md`): a
+     connected clip is a *child* of the spine `asset-clip` with `lane="1"`,
+     blend mode is `mode="14 (Overlay)"`, and its `offset` is **parent-relative**.
+     Emitter and probe built; **the admission pass has not been run.**
+
+   Both captures produced one general rule, confirmed independently on four
+   properties: **static values are attributes on the effect element, animated
+   values are `<param>` children.** An emitter must choose a shape per
+   property *and* per animated-or-not; both wrong shapes are DTD-valid.
    - living still movement/fade/color editability — **in progress.** There is
      no emitter and was no prior revision, so the order was inverted: Final Cut
      wrote the encoding first. **Ground truth captured 2026-08-04**, full
@@ -296,8 +312,20 @@ What is left cannot be done in code alone.
    matched on both canonical path and digest — and refuses a timeline selection
    outright as a category error. Semantic contracts still apply in full.
 
-   **The gate is done and tested; nothing acts on its authorization yet.**
-   Wiring it to a real generation path is the remaining Phase 1 code item.
+   **Wired 2026-08-05** (`1a0b15c`), `service/StandaloneFCPXMLExport.swift`.
+   The gate runs first, a `StandaloneEffectEmitter` turns the plan into FCPXML,
+   and the result is a self-contained package with media, provenance, and import
+   instructions. The package README and provenance both state that FrameSmith
+   generated a new project and did not open, read, or modify an existing
+   timeline; a test asserts that wording survives. Provenance records the exact
+   Final Cut build whose profile authorised the export.
+
+   Emitters exist for `motion.living_still` and `native.targeted_rotate_zoom`.
+   The other two fail with a stated reason rather than an absence:
+   `transition.natural_dissolve` needs its two-clip construction generalised out
+   of `FCPXMLRoundTripSpikeBuilder`, and `look.old_television` has no admitted
+   `connectedOverlayLayers` contract so no export could be authorised even with
+   an emitter.
 5. Planning for what follows Phase 1 is written up in
    `docs/POST_PHASE1_ROADMAP.md`, and the ordered work list for finishing this
    phase is in `docs/NEXT_CLAUDE_PROMPT.md`. No post-Phase-1 implementation may
@@ -386,10 +414,20 @@ Current state is best described as:
 
 - Local planning and packaging architecture are implemented.
 - Hardening on local/FCP-origin claims has improved.
-- Manual Final Cut acceptance for the four target workflows is not yet complete.
+- The contract store and the standalone export route are implemented, and five
+  of six semantic contracts are admitted for Final Cut 12.3 (450152).
+- **Manual Final Cut acceptance for the four target workflows is not complete.**
+  Two of four have every required contract admitted (`transition.natural_dissolve`,
+  `motion.living_still`); `native.targeted_rotate_zoom` has its contracts but
+  its generated construction has never been imported; `look.old_television` is
+  blocked on `connectedOverlayLayers`, which no pass has admitted.
 
-Until manual and import/export gates are passed with preserved evidence, do not claim:
+Until the two queued admission passes are run with preserved evidence, do not
+claim:
 
-- “all workflows are working”
-- “editable Final Cut transitions and transforms are in production behavior”
-- “Phase 1 accepted”
+- "all workflows are working"
+- "editable Final Cut transitions and transforms are in production behavior"
+- "Phase 1 accepted"
+- "rotation and connected layers work" — their **encodings are captured** and
+  their probes are generated, which is a different and weaker statement than
+  their generated constructions being admitted.

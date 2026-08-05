@@ -202,20 +202,28 @@ The emitter must therefore choose a shape per **property × animated-or-not**,
 not per property. This is the highest-value thing to get right in the next code
 pass, because both wrong shapes are DTD-valid.
 
-### 5.5 — Wire the standalone export route
+### 5.5 — ✅ Standalone export route — wired 2026-08-05
 
-`standaloneFCPXMLExport` authorizes; nothing acts on it. Connect the gate to an
-actual generation path that writes a new project/package from admitted local
-media, using `service/NativeFCPXML/` primitives and the probe package layout as
-the model.
+`service/StandaloneFCPXMLExport.swift`. Gate first, then a
+`StandaloneEffectEmitter`, then a self-contained package with media,
+provenance, and import instructions. The claim boundary is asserted by a test.
 
-Two things to get right:
+**Remaining:** emitters for `transition.natural_dissolve` (generalise the
+two-clip construction out of `FCPXMLRoundTripSpikeBuilder`) and
+`look.old_television` (blocked on its contract). And the claim boundary is
+currently visible in the *package*; surfacing it in the **app UI** is Phase A.
 
-- The package must be self-contained: FCPXML, media, plan, provenance, import
-  instructions.
-- **The claim boundary must be visible in the UI**, not only in code. FrameSmith
-  generates a new project. It must never word its output as though it modified
-  the user's timeline.
+### 5.5b — Run the two queued admission passes
+
+**This is the only thing standing between here and a closed-out Phase 1.**
+
+Both probe packages are generated, DTD-valid, and waiting under
+`~/Movies/FCPCommandConsole/exports/native-effect-probes/`. Procedure and
+predicted values in `docs/NATIVE_EFFECT_ADMISSION_PASS.md`.
+
+If they pass, admit `connectedOverlayLayers` into
+`service/FinalCutSemanticProfile.swift` — a separate, deliberate edit, with the
+returned artifact digests and the limitations each pass did not establish.
 
 ### 5.6 — Close out Phase 1
 
