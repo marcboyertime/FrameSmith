@@ -1,7 +1,7 @@
 # Prompt for the next Claude
 
-Read this file, then `docs/HANDOFF.md`, then
-`docs/POST_PHASE1_ROADMAP.md`. Work the list in §5 below in order.
+Read this file, then `docs/PHASE1_ACCEPTANCE.md`, then
+`docs/POST_PHASE1_ROADMAP.md`. **Phase 1 is closed; your work starts at §6.**
 
 ---
 
@@ -31,32 +31,45 @@ take apart, stop — that is the failure this project is built to avoid.
 Phase 1 targets four workflows: `transition.natural_dissolve`,
 `motion.living_still`, `native.targeted_rotate_zoom`, `look.old_television`.
 
-**None of the four is accepted yet.** Two are close.
+**Phase 1 closed out 2026-08-05. All four have admission and editability
+evidence**, all six contracts are admitted, and the standalone export route is
+proven end to end. Full statement, including a long list of what this does *not*
+claim, in `docs/PHASE1_ACCEPTANCE.md` — read it before describing project status
+to anyone.
+
+The short version of the caveats, because they matter more than the headline:
+no creative-language-to-parameter mapping exists for any effect, the app uses
+none of this yet, every contract is narrow (lane 1 only, Overlay only,
+Saturation only), and every admission is scoped to build 450152 and revoked on
+drift by design.
+
+**Your work starts at `docs/POST_PHASE1_ROADMAP.md` Phase A.** Section 5 below
+is kept as a record of how Phase 1 was finished, not as a queue.
 
 What is established, all against Final Cut Pro **12.3 (450152)**:
 
-| Contract | Status |
-| --- | --- |
-| `assetAdmission` | admitted — `.mov` from a package `Media/` dir resolved on first import, `src` unchanged |
-| `crossDissolveTransition` | admitted — imported intact **and** duration-editable |
-| `transformKeyframes` | admitted — position + scale, and editable; **rotation captured 2026-08-05 but its generated form is unimported** |
-| `opacityKeyframes` | admitted — `adjust-blend/amount`; blend modes captured, not admitted |
-| `nativeColorAdjustment` | admitted — construction only, **no language→parameter mapping** |
-| `connectedOverlayLayers` | **not admitted** — encoding captured 2026-08-05, probe generated, import not run. Blocks `look.old_television`. |
+| Contract | Admitted | Editability |
+| --- | --- | --- |
+| `assetAdmission` | ✅ `.mov` from a package `Media/` dir, `src` unchanged | not established (relinking untested) |
+| `crossDissolveTransition` | ✅ imported intact | ✅ duration (edge-drag untested) |
+| `transformKeyframes` | ✅ position, scale, rotation | ✅ rotation edited 12°→30° |
+| `opacityKeyframes` | ✅ `adjust-blend/amount` | ✅ animated **and** static forms |
+| `nativeColorAdjustment` | ✅ construction only, **no language→parameter mapping** | not established |
+| `connectedOverlayLayers` | ✅ lane 1, parent-relative offset, Overlay mode | ✅ static opacity 50%→75% |
 
 The contract store is `service/FinalCutSemanticProfile.swift`. It is code, not
 data, and scoped to one build; `evidence(forInstalled:)` returns `.unknown` on
 any drift. A test reads the installed Final Cut and fails if it no longer
 matches — **if that test fails, an update has silently revoked every admission
-and the manual passes must be re-run.**
+and the manual passes must be re-run.** Two further tests require every contract
+to state an editability position and to cite a returned digest when it claims one.
 
 `standaloneFCPXMLExport` is the route that makes the tool usable without ever
-claiming a timeline mutation. Gate and generation path are both done
-(`service/StandaloneFCPXMLExport.swift`), with emitters for `motion.living_still`
-and `native.targeted_rotate_zoom`.
-
-**The only thing between here and a closed-out Phase 1 is running the two queued
-admission passes** — see §5.5b. Both probe packages are generated and waiting.
+claiming a timeline mutation, and it is **proven end to end**: real media through
+`LocalMediaAdmission.admitAll`, the gate, an emitter, a package, a hand import,
+and a structurally identical return (package `866B87BB`, 39 nodes). Drive it with
+`swift run fcpcommandconsole-standalone-export --media PATH --effect ID`.
+Emitters exist for `motion.living_still` and `native.targeted_rotate_zoom` only.
 
 ---
 
@@ -155,11 +168,13 @@ behavior", or "Phase 1 accepted".
 
 ---
 
-## 5. The work list
+## 5. How Phase 1 was finished — record, not a queue
 
-**In order. Do not start anything in `docs/POST_PHASE1_ROADMAP.md` Phases A–G
-until every item here is done.** (A1 and the A2 gate are already complete; the
-rest of Phase A is not.)
+**Everything in this section is done.** It is kept because the sequencing shows
+how each step depended on the last, and because the two ❌ items are real gaps
+that survived close-out and are listed again in §6.
+
+Start your work at §6.
 
 ### 5.1 — ✅ playback confirmed / ❌ one closure left
 
@@ -251,12 +266,43 @@ claimed 4-of-4, and this project's entire value is that its claims have held up.
 
 ---
 
-## 6. After that
+## 6. Start here
 
-`docs/POST_PHASE1_ROADMAP.md`, Phase A onward. Phase A converts the validated
-workflows into something usable for real videos, which is the point of all of
-this. Read the roadmap's §2 (what carries forward) and the primitive contract
-before writing any of it.
+`docs/POST_PHASE1_ROADMAP.md`, **Phase A**. It converts the validated workflows
+into something usable for real videos, which is the point of all of this. Read
+the roadmap's §2 (what carries forward) and the primitive contract before
+writing any of it.
+
+Phase A's state at close-out:
+
+| Item | Status |
+| --- | --- |
+| A1 version-scoped semantic profile | ✅ done |
+| A2 standalone export capability | ✅ gate **and** route, proven end to end |
+| A3 integrate emitters into the SwiftUI app | ❌ **the next real task** |
+| A4 real effect preview | ❌ — and colour needs an A/B toggle, not a frame |
+| A5 visible editable parameter controls | ❌ |
+| A6 effect stacking (schema v3) | ❌ |
+| A7 duplicate / regenerate / restore / history | ❌ |
+| A8 self-contained export package | ✅ the standalone route already writes one |
+
+**A3 is where to start.** Everything proven in Phase 1 is currently reachable
+only from CLIs and tests, which means none of it is usable for an actual video.
+
+### Small gaps carried over from Phase 1
+
+Cheap, and worth closing when convenient rather than never:
+
+1. **First-import resolution for a still.** The living still's `.png` resolved
+   by dedup against media already in the library. Import a *different* still, or
+   use a fresh library, and confirm a package-relative `file://` resolves.
+2. **Render A/B for the dissolve and the old television composite.** Both were
+   visible in the viewer but neither was measured by toggling. The living still
+   showed that "it looked right" can be wrong about colour.
+3. **Emitters for the other two effects.** `look.old_television` and
+   `transition.natural_dissolve` are gate-authorised but have no emitter that
+   generalises from plan values. See
+   `StandaloneFCPXMLExportBuilder.missingEmitterReason`.
 
 ---
 
@@ -264,7 +310,7 @@ before writing any of it.
 
 - **Continuity checks** after code changes: `git status --short`,
   `swift build`, `swift test`, `make test`, `git diff --check`.
-- Current: **148 tests, 0 failures**; core audit `registry=4 schema=json-ok
+- Current: **184 tests, 0 failures**; core audit `registry=4 schema=json-ok forbidden-patterns=0`. Branch `standalone-app`, worktree clean.
   forbidden-patterns=0`. Branch `standalone-app`, worktree clean at `551f96b`.
 - Probe executables: `swift run fcpcommandconsole-roundtrip-spike`,
   `swift run fcpcommandconsole-living-still-probe`. They are deliberately
