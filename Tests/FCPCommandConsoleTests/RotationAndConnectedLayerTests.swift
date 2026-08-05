@@ -179,6 +179,85 @@ final class RotationAndConnectedLayerTests: XCTestCase {
         XCTAssertEqual(layer.offsetWithinParent.attributeValue, "2s")
     }
 
+    // MARK: - Probe emission
+
+    private func probeXML(_ kind: NativeEffectProbeKind) throws -> String {
+        let builder = NativeEffectProbeBuilder(
+            kind: kind,
+            fixtureRoot: URL(fileURLWithPath: "/tmp/fixtures"),
+            exportRoot: URL(fileURLWithPath: "/tmp/probes")
+        )
+        return try builder.makeFCPXML(media: Dictionary(uniqueKeysWithValues: kind.fixtures.map {
+            ($0, URL(fileURLWithPath: "/tmp/probes/Media/\($0)"))
+        }))
+    }
+
+    /// The compensation is verified against a hand-computed value, not against
+    /// whatever the code happens to produce.
+    ///
+    /// Source (0.7, 0.35), centre (0.5, 0.5), scale 1.5, rotation 12°. The
+    /// target is right of and above centre, so the framing must move left and
+    /// down — both emitted values negative.
+    func testTargetedRotateZoomEmitsTheHandComputedCompensation() throws {
+        let xml = try probeXML(.targetedRotateZoom)
+        XCTAssertTrue(xml.contains(#"<keyframe time="4s" value="-60.48434"/>"#), "X compensation")
+        XCTAssertTrue(xml.contains(#"<keyframe time="4s" value="-15.77097"/>"#), "Y compensation, sign flipped")
+        XCTAssertTrue(xml.contains(#"<keyframe time="4s" value="1.5 1.5"/>"#), "scale")
+        XCTAssertTrue(xml.contains(#"<keyframe time="4s" value="12"/>"#), "rotation in degrees")
+    }
+
+    /// A movie probe must not carry the stills' one-hour origin.
+    func testTargetedRotateZoomUsesMovieKeyframeOrigin() throws {
+        let xml = try probeXML(.targetedRotateZoom)
+        XCTAssertTrue(xml.contains(#"<keyframe time="0s" value="0"/>"#))
+        XCTAssertFalse(xml.contains("3600s"), "a movie clip must not use the still source origin")
+    }
+
+    /// The old television probe's only unobserved construction is the connected
+    /// layer; everything else has already returned intact from an earlier pass.
+    func testOldTelevisionEmitsTheConnectedLayerInDTDOrder() throws {
+        let xml = try probeXML(.oldTelevision)
+        let blendAt = xml.range(of: "<adjust-blend>")!.lowerBound
+        let videoAt = xml.range(of: "<video ref=")!.lowerBound
+        let filterAt = xml.range(of: "<filter-video ")!.lowerBound
+        XCTAssertTrue(blendAt < videoAt, "intrinsics precede connected clips")
+        XCTAssertTrue(videoAt < filterAt, "connected clips precede filters — the DTD rejects the other order")
+        XCTAssertTrue(xml.contains(#"<video ref="r3" lane="1" offset="1s""#))
+        XCTAssertTrue(xml.contains(#"<adjust-blend amount="0.5" mode="14 (Overlay)"/>"#))
+    }
+
+    /// The overlay is a still, so it keeps the one-hour origin even though the
+    /// spine clip it hangs off is a movie.
+    func testOldTelevisionOverlayKeepsTheStillOrigin() throws {
+        let xml = try probeXML(.oldTelevision)
+        XCTAssertTrue(xml.contains(#"start="3600s""#), "the connected still keeps its source origin")
+    }
+
+    func testProbeRequiredContractsMatchTheGate() {
+        XCTAssertEqual(
+            ManualFCPXMLSemanticsEvidence.requiredContracts(for: NativeEffectProbeKind.oldTelevision.effectID),
+            [.assetAdmission, .opacityKeyframes, .nativeColorAdjustment, .connectedOverlayLayers]
+        )
+        XCTAssertEqual(
+            ManualFCPXMLSemanticsEvidence.requiredContracts(for: NativeEffectProbeKind.targetedRotateZoom.effectID),
+            [.assetAdmission, .transformKeyframes]
+        )
+    }
+
+    /// Spent evidence must stay unwritable, the same rail the living still
+    /// builder carries for ground truth.
+    func testProbeBuilderRefusesToWriteIntoEvidenceDirectories() {
+        for forbidden in ["ground-truth", "roundtrip-spikes", "living-still-probes"] {
+            let builder = NativeEffectProbeBuilder(
+                kind: .oldTelevision,
+                fixtureRoot: URL(fileURLWithPath: "/tmp/fixtures"),
+                exportRoot: FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Movies/FCPCommandConsole/exports/\(forbidden)")
+            )
+            XCTAssertThrowsError(try builder.validateExportRoot(builder.exportRoot), forbidden)
+        }
+    }
+
     func testConnectedLayerCarriesTransformAndExtraChildrenInOrder() {
         let layer = NativeFCPXMLConnectedLayer(
             ref: "r3",
