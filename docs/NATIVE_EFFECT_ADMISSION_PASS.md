@@ -145,4 +145,124 @@ separate acts.
 
 ## Results
 
-**Not yet run.** Both packages generated 2026-08-05; the imports are queued.
+**Run 2026-08-05. Both admitted.** Imported by the agent in the isolated app;
+neither crashed or errored.
+
+| Probe | Returned digest |
+| --- | --- |
+| targeted rotate/zoom | `cc9affa18d4c73eac723c75ec4fb9e8c08801142922ab4428879ced0c28f3099` |
+| old television | `f92bbd703ba0efcf4300d3fc4f4f28a32d4acc3cd0926b77a863d9b29ad46da2` |
+
+---
+
+### Old television — returned intact
+
+**30 nodes sent, 30 returned.** The only difference in the whole `asset-clip`
+subtree is the clip's own attributes: `format` and `start` dropped as inherited
+defaults, `tcFormat="NDF"` added. That is the same lossless normalisation the
+dissolve pass produced.
+
+Every prediction held:
+
+| Element | Returned |
+| --- | --- |
+| `<video>` position | child of the spine `asset-clip` |
+| `lane` / `offset` / `duration` | `1` / `1s` / `2s` |
+| overlay `start` | `3600s` — the still keeps its origin inside a movie clip |
+| overlay blend | `amount="0.5" mode="14 (Overlay)"`, attributes preserved |
+| spine `adjust-blend` | animated param form, three keyframes, unchanged |
+| child order | `adjust-blend`, `<video>`, `<filter-video>` |
+| Color Adjustments | all 18 params and all three payloads unchanged |
+| `enabled="0"` | absent |
+
+**`connectedOverlayLayers` is admitted.** It was the last of the six contracts
+with no evidence of any kind.
+
+---
+
+### Targeted rotate/zoom — admitted, with a normalisation
+
+**19 nodes sent, 14 returned.** The semantics survived exactly; the *shape* did
+not, and the difference is worth recording precisely.
+
+Preserved without change:
+
+- `rotation`: `0` at `0s`, `12` at `4s` — exact
+- `scale`: `1 1`, `1.5 1.5` — exact
+- keyframe times `0s` and `4s`, **no `3600s` anywhere** — the movie origin holds
+- no `enabled="0"`
+
+Rewritten:
+
+#### 1. `position` collapsed from nested sub-params to a paired value
+
+Sent:
+
+```xml
+<param name="position">
+    <param name="X" key="1"><keyframeAnimation>…</keyframeAnimation></param>
+    <param name="Y" key="2"><keyframeAnimation>…</keyframeAnimation></param>
+</param>
+```
+
+Returned:
+
+```xml
+<param name="position">
+    <keyframeAnimation>
+        <keyframe time="0s" value="0 0"/>
+        <keyframe time="4s" value="-60.4843 -15.771"/>
+    </keyframeAnimation>
+</param>
+```
+
+This **refines** the living still finding rather than contradicting it. That
+capture had X with two keyframes and Y with one — the axes were independently
+timed, and only the nested form can express that. Here both axes share identical
+keyframe times, and Final Cut collapses them into a single paired-value param.
+
+> The nested `X`/`Y` form is not the canonical shape of `position`. It is the
+> shape required **when the two axes are independently timed**. When they share
+> times, the paired form is canonical.
+
+An emitter should therefore choose between them on that basis. Ours emitted the
+nested form for co-timed axes; Final Cut accepted it and normalised it, so this
+is a fidelity gap rather than a failure — but it means a strict round-trip
+comparison on this effect will always show a difference until the emitter picks
+the same form.
+
+#### 2. Param order is canonical
+
+Sent `position, scale, rotation`; returned `position, rotation, scale`. Final Cut
+has an order and imposes it.
+
+#### 3. Precision is reduced
+
+`-60.48434` → `-60.4843`, `-15.77097` → `-15.771`. Roughly six significant
+figures. Our five-decimal emission is finer than Final Cut retains, which is
+harmless but means emitted and returned values will not compare equal as strings.
+
+---
+
+## What this admits
+
+**`connectedOverlayLayers`**, newly, from the old television pass — the
+construction returned intact.
+
+**Rotation and anchor within `transformKeyframes`**, from the rotate/zoom pass.
+The contract was already admitted for position and scale; this extends the
+observed-and-accepted surface to rotation, and to a movie clip's `0s` keyframe
+origin.
+
+It admits **no editability** for either effect — a separate question with its own
+pass, and the dissolve work showed the two are distinct. It admits nothing about
+either composition's chosen numbers: the target point, saturation, and flicker
+floor are all still unmapped from creative language.
+
+## Follow-up worth doing
+
+1. **Emit the paired `position` form when both axes are co-timed**, so our output
+   matches what Final Cut would write.
+2. **Editability passes** for both effects.
+3. The blend-mode-alongside-animated-amount question remains deliberately
+   unexercised.

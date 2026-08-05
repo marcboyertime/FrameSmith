@@ -104,9 +104,11 @@ public enum FinalCutSemanticProfileStore {
     /// Final Cut Pro 12.3 (450152) — the only build any manual pass has been
     /// run against.
     ///
-    /// Five of six contracts are admitted. `connectedOverlayLayers` is absent
-    /// because no probe has ever exercised a connected layer; `look.old_television`
-    /// therefore stays blocked, which is correct rather than unfortunate.
+    /// All six contracts are admitted as of 2026-08-05. That is a statement
+    /// about *semantics being accepted on import*, not about the four workflows
+    /// being finished: editability has been established for the dissolve and the
+    /// living still only, and no contract admits a mapping from creative
+    /// language to parameter values.
     public static let finalCut12_3_450152 = FinalCutSemanticProfile(
         finalCut: FinalCutVersionIdentity(shortVersion: "12.3", build: "450152"),
         records: [
@@ -139,6 +141,9 @@ public enum FinalCutSemanticProfileStore {
                     "Covers position (nested X/Y sub-params) and scale (one param, paired values) only. Rotation encoding is unobserved and native.targeted_rotate_zoom must capture it before emitting one.",
                     "position is percent of frame height, not pixels; keyframe times are absolute from the 3600s source origin.",
                     "Editability confirmed 2026-08-05 (docs/LIVING_STILL_EDITABILITY_PASS.md, returned 1f32d6da03ef531449c42aab2da9d7b0081ccb6e3c0c22e6d3cebf49fa9085c0). Typing 54 px produced exactly 5, so the percent-of-height conversion holds in both directions.",
+                    "Rotation admitted 2026-08-05 (docs/NATIVE_EFFECT_ADMISSION_PASS.md, returned cc9affa18d4c73eac723c75ec4fb9e8c08801142922ab4428879ced0c28f3099): a generated rotation, scale, and compensating position track returned with values intact. Rotation is plain degrees; anchor is a paired attribute; a movie clip's keyframes start at 0s, not the stills' 3600s.",
+                    "That pass also normalised our output: co-timed position axes were collapsed from nested X/Y sub-params into one paired-value param, param order was canonicalised, and precision was reduced to about six significant figures. The nested form is required only when the axes are independently timed. Semantics survived; shape did not.",
+                    "Editability is NOT established for rotation. Only the dissolve and the living still have had editability passes.",
                     "Editing one position axis writes a keyframe on BOTH axes at that time. A strict tree comparison of a user-edited position will report a false difference."
                 ]
             ),
@@ -160,6 +165,19 @@ public enum FinalCutSemanticProfileStore {
                 limitations: [
                     "Admits the Color Adjustments construction carrying all 18 params and all three opaque payloads verbatim. Whether the payloads are required is untested.",
                     "Admits the construction, not a mapping: the probe reused the captured Saturation value of 25. No creative-language-to-parameter mapping is observed."
+                ]
+            ),
+            AdmittedContractRecord(
+                contract: .connectedOverlayLayers,
+                evidenceDocument: "docs/NATIVE_EFFECT_ADMISSION_PASS.md",
+                returnedArtifactSHA256: "f92bbd703ba0efcf4300d3fc4f4f28a32d4acc3cd0926b77a863d9b29ad46da2",
+                admittedOn: "2026-08-05",
+                limitations: [
+                    "A connected clip is a CHILD of the spine asset-clip with lane=1, and its offset is measured from the parent clip's start, not the timeline origin. Timeline-relative offsets are valid FCPXML that silently misplace every overlay on a non-first clip.",
+                    "Only lane 1 was exercised. Lanes below the spine, and more than one connected layer at once, are unobserved.",
+                    "The overlay used the static blend form (amount and mode as attributes). Whether a mode attribute may coexist with an animated amount param is unobserved and was deliberately avoided.",
+                    "Only the Overlay blend mode is observed. Other modes' indices are derivable from the menu ordering but a derived index that is wrong applies the wrong mode in a valid document.",
+                    "Editability is NOT established. The overlay was imported and exported without being touched."
                 ]
             )
         ]

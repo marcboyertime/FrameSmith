@@ -74,20 +74,28 @@ final class StandaloneExportAndProfileTests: XCTestCase {
 
     /// Pins the admitted set. Adding a contract here must be a deliberate edit
     /// that fails this test first, not a side effect of another change.
-    func testProfileAdmitsExactlyTheFiveContractsWithRecordedEvidence() {
+    ///
+    /// It did exactly that on 2026-08-05: the old television pass admitted
+    /// `connectedOverlayLayers` and this assertion failed until the pin was
+    /// updated alongside the evidence.
+    func testProfileAdmitsExactlyTheSixContractsWithRecordedEvidence() {
         let profile = FinalCutSemanticProfileStore.finalCut12_3_450152
         XCTAssertEqual(profile.finalCut, testedBuild)
-        XCTAssertEqual(profile.admittedContracts, [
-            .assetAdmission,
-            .crossDissolveTransition,
-            .transformKeyframes,
-            .opacityKeyframes,
-            .nativeColorAdjustment
-        ])
-        XCTAssertFalse(
-            profile.admittedContracts.contains(.connectedOverlayLayers),
-            "No probe has ever exercised a connected layer"
-        )
+        XCTAssertEqual(profile.admittedContracts, Set(FCPXMLSemanticContract.allCases))
+    }
+
+    /// All six contracts admitted is a claim about semantics accepted on
+    /// import. It is not a claim that the workflows are finished, and the
+    /// records must keep saying so.
+    func testAdmissionDoesNotImplyEditability() {
+        let profile = FinalCutSemanticProfileStore.finalCut12_3_450152
+        for contract in [FCPXMLSemanticContract.connectedOverlayLayers, .transformKeyframes] {
+            let record = profile.record(for: contract)
+            XCTAssertTrue(
+                record?.limitations.contains { $0.contains("Editability is NOT established") } ?? false,
+                "\(contract.rawValue) must record that editability is unproven"
+            )
+        }
     }
 
     func testEveryAdmittedContractCitesADocumentADigestAndItsLimitations() {
@@ -150,13 +158,12 @@ final class StandaloneExportAndProfileTests: XCTestCase {
         )
     }
 
-    func testOldTelevisionRemainsBlockedByTheMissingOverlayContract() {
+    func testEveryPhase1EffectNowHasItsContractsAdmitted() {
         let profile = FinalCutSemanticProfileStore.finalCut12_3_450152
-        XCTAssertEqual(profile.missingContracts(for: .oldTelevision), [.connectedOverlayLayers])
-        for admitted in [EffectID.naturalDissolve, .livingStill, .targetedRotateZoom] {
+        for effect in EffectID.allCases {
             XCTAssertTrue(
-                profile.missingContracts(for: admitted).isEmpty,
-                "\(admitted.rawValue) should have every contract admitted"
+                profile.missingContracts(for: effect).isEmpty,
+                "\(effect.rawValue) still has unadmitted contracts"
             )
         }
     }
@@ -189,13 +196,18 @@ final class StandaloneExportAndProfileTests: XCTestCase {
         ))
     }
 
+    /// Contract scoping must still bite when a contract is genuinely absent.
+    /// With the 12.3 profile now complete, the case that exercises this is a
+    /// profile missing one contract rather than an effect missing one.
     func testStandaloneExportStillHonoursEffectScopedContracts() throws {
         var plan = try localMediaPlan()
         plan.effectID = .oldTelevision
-        let gate = admittedGate()
+        let partial = CapabilityGate(manualSemanticsEvidence: ManualFCPXMLSemanticsEvidence(
+            admittedContracts: Set(FCPXMLSemanticContract.allCases).subtracting([.connectedOverlayLayers])
+        ))
         let evidence = try admittedEvidence()
-        XCTAssertFalse(gate.decision(for: plan, capability: .standaloneFCPXMLExport, mediaEvidence: evidence).allowed)
-        XCTAssertThrowsError(try gate.require(plan, capability: .standaloneFCPXMLExport, mediaEvidence: evidence)) { error in
+        XCTAssertFalse(partial.decision(for: plan, capability: .standaloneFCPXMLExport, mediaEvidence: evidence).allowed)
+        XCTAssertThrowsError(try partial.require(plan, capability: .standaloneFCPXMLExport, mediaEvidence: evidence)) { error in
             XCTAssertEqual(
                 error as? CapabilityGateError,
                 .missingManualFCPXMLSemanticsEvidence(
