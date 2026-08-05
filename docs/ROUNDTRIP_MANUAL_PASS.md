@@ -7,9 +7,16 @@ Final Cut and records what happened here.
 Read `docs/FCPXML_ROUNDTRIP_SPIKE.md` first for what the package contains and
 why it is shaped the way it is. This file is the execution sheet.
 
-## Current package under test — revision 3
+## Revision 3 — pass executed 2026-08-04, spent evidence
 
 `/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/6B8F8B1C-8171-4770-86C0-E5A859C3B32A`
+
+**Outcome: the Cross Dissolve was admitted; the spine geometry was rejected.**
+Full results and the returned XML analysis are in
+[Results — pass executed 2026-08-04](#results--pass-executed-2026-08-04-21212128)
+below, and the one-number fix in *What revision 4 needs*. The steps and the
+"which Final Cut to launch" rules in this section stand unchanged for the next
+revision; only the package path changes.
 
 Generated 2026-08-03 after the revision 2 pass. It keeps everything Final Cut
 already admitted in revision 2 — the assets, the `asset-clip` construction, the
@@ -157,11 +164,131 @@ The known predecessor failure, for comparison: revision 1
 `FFXMLImporter AssetClipImport addAssetClip:toObject:parentFormatID:`,
 incident `42DFFCF1-9E45-41DA-992F-ADB212422B07`.
 
-## Results — revision 3
+## Results — pass executed 2026-08-04 21:21–21:28
 
-**Not yet run.** All four semantic rows remain `unknown`. Nothing about
-revision 3's Final Cut behaviour may be claimed until this section records an
-executed pass.
+Final Cut Pro 12.3 / 450152, reviewed copy, launched via
+`Scripts/launch-isolated-fcpcommandconsole --launch`
+(provenance `isolated-launch-preflight.JsuyVQ`). Returned export written
+21:28:07 to
+`Returned/FCPCommandConsole Dissolve Admission Probe.fcpxmld/Info.fcpxml`.
+
+**The Cross Dissolve is admitted. The spine layout is not.**
+
+| Row | Status | Evidence |
+| --- | --- | --- |
+| Import completed without error/crash | **pass** | No alert, error, or crash. |
+| Asset admission | **pass** | Both assets returned with real `uid`/`sig`, `videoSources="1" audioSources="1"`, 8s durations, Apple ProRes 422 LT + Linear PCM detected. |
+| Cross dissolve native semantics | **pass** | Returned as `<transition name="Cross Dissolve">` carrying `<filter-video ref="r4" name="Cross Dissolve">` against `<effect id="r4" uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265"/>` — **our exact UID, preserved**. No `enabled="0"`. All four params round-tripped verbatim. |
+| Transition timing and handles | **fail** | Final Cut re-flowed the spine: `clip-a` truncated 7s → 6.5s, and its removed 0.5s tail re-appeared as a **third spine element** at `offset="40500/3000s"`. Handles were not consumed as intended. |
+| Returned FCPXML round trip | **partial** | The effect round-tripped faithfully; the spine layout did not. |
+
+### The decisive detail
+
+Final Cut **added** a companion it was never given:
+
+```xml
+<effect id="r5" name="Audio Crossfade" uid="FFAudioTransition"/>
+...
+<filter-audio ref="r5" name="Audio Crossfade"/>
+```
+
+It only synthesizes an audio crossfade for a transition it actually
+instantiated as a native transition across two clips carrying audio. Revision 2
+got a synthesized `<effect uid=""/>` and `enabled="0"`; revision 3 got an
+enrichment. That is the difference between a placeholder and a real effect.
+
+### Why the layout failed — overlapping spine siblings
+
+Sent versus returned:
+
+```
+sent      clip-a  0 → 7          transition 6.5 → 7.5    clip-b  6.5 → 13.5
+returned  clip-a  0 → 6.5        transition 6   → 7      clip-b  6.5 → 13.5
+                                                         clip-a  13.5 → 14  (start=6.5s)
+```
+
+A `<spine>` is a strictly sequential container; its children cannot overlap.
+Our `clip-a` ran to 7 s while `clip-b` began at 6.5 s, so Final Cut resolved
+the 0.5 s conflict by truncating `clip-a` at `clip-b`'s offset and re-appending
+the orphaned remainder after `clip-b`. Every returned number follows from that:
+the orphan is exactly 0.5 s long and its `start="19500/3000s"` is exactly the
+truncated portion of the source.
+
+The transition's own placement was *correct relative to the cut Final Cut
+ended up with*: `offset="6s"` is `6.5 − 0.5`, centred on the 6.5 s butt joint.
+So the centring rule is right and the clip layout rule was wrong.
+
+**Correct convention, derived from the returned file:**
+
+| Element | Rule |
+| --- | --- |
+| transition `offset` | `cut − T/2` — confirmed correct |
+| incoming clip `offset` | **`cut`**, not `cut − T/2` — the clips butt-join and the transition straddles the joint |
+
+Revision 3 set the incoming clip's offset equal to the transition's offset.
+That is a one-number error: `clip-b` `offset` should be `21000/3000s` (7 s),
+not `19500/3000s` (6.5 s). Handles are then drawn from the clips' unused source
+either side of the joint — `clip-a` has 7–8 s spare, `clip-b` has 0–1 s spare —
+which is exactly what a 1 s dissolve at a 7 s joint consumes.
+
+### The disproven assumption
+
+The centred-incoming-clip convention came from
+`reference/…/upstream_otio_fcpxml/fcpx_transitions.fcpxml`, which lays out
+`Clip_A 0→10`, `transition 9.5→10.5`, `Clip_B 9.5→19.5` — the same 0.5 s
+sibling overlap. That fixture is OTIO **writer output**, not a Final Cut
+export, and Final Cut does not accept it as written. It was flagged in advance
+as the first thing to suspect on a placement failure, and it was the cause.
+Treat that fixture as untrusted for spine geometry.
+
+### Observations that are not claims
+
+- Returned `media-rep src` points at the **revision 3 package's own `Media/`**,
+  not at library-internal media as in revision 2. But `ingestDate` reads
+  `2026-08-03 23:22:15` and the asset `uid`s match revision 2's, so Final Cut
+  deduplicated against the already-ingested asset and re-pathed it. This is
+  **not** proof that leave-in-place referencing works on a first import.
+- The step 4 guard worked, at project level rather than event level: the
+  revision 3 import merged into the existing event, but because the operator
+  had renamed the revision 2 **project** to `REV2 spent 2026-08-03`, the two
+  projects are unambiguous and the export contains both.
+- That second project independently re-confirms the revision 2 findings from a
+  fresh export: `<effect id="r6" uid=""/>`, `<filter-video ref="r6"
+  enabled="0"/>`, `offset="0s"`, an 8 s + 8 s butt cut, and the `Marker 1`
+  deviation still present on `clip-b`.
+
+### What this pass admits
+
+**Asset admission and cross dissolve native semantics.** Natural dissolve as a
+workflow is **not** accepted: correct transition timing is part of it and the
+timing row failed. No capability gate has been moved — that is a separate,
+deliberate decision and the effect-scoped contract names need revisiting first,
+since what was proven is a *fully specified* cross dissolve, not the "bare
+dissolve" the taxonomy names. Phase 1 remains **0/4 workflows accepted**.
+
+`evidence.json` inside the package still reads `unknown` and is left untouched;
+the package is the immutable artifact under test.
+
+## What revision 4 needs
+
+One number. Keep everything revision 3 proved — the `<effect>` resource, the
+UID, the `filter-video` reference, the params, the centred transition offset,
+the 7 s clip durations and their handles — and change only the incoming clip's
+offset so the clips butt-join instead of overlapping:
+
+```
+clip-b  offset="19500/3000s"   →   offset="21000/3000s"
+```
+
+Expected result: a 14 s sequence, `clip-a` 0→7 s, `clip-b` 7→14 s, transition
+6.5→7.5 s straddling the joint, no orphaned third element, and the transition
+returning with our UID and no `enabled="0"` as it already does.
+
+Do not change anything else. Revision 3 isolated the effect question and
+answered it; revision 4 must isolate the geometry question the same way, so
+that a failure has exactly one possible cause.
+
+Revision 3 is spent evidence. Do not modify, regenerate, or retry it.
 
 ---
 

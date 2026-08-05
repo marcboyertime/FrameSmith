@@ -96,14 +96,38 @@ and revision 3 requirements are in `docs/ROUNDTRIP_MANUAL_PASS.md`.
 
 Revision 2 is spent evidence and was not modified, regenerated, or retried.
 
-**Revision 3 is built and awaiting its manual pass:**
+**The revision 3 pass was executed on 2026-08-04 21:21–21:28** against
 `/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes/6B8F8B1C-8171-4770-86C0-E5A859C3B32A`
 
-It keeps everything Final Cut admitted in revision 2 and changes only the
-transition: a real `<effect>` carrying the Cross Dissolve UID
-`FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265` (derived from Final Cut's own
-`Filters.bundle` and corroborated by a real-world transition FCPXML), a
-`filter-video` reference to it, an explicit offset centred on the cut, and
-one-second handles on both clips. DTD-valid, media hashes verified,
-`Returned/` empty. Its own semantic rows are all `unknown` — including asset
-admission, which is re-checked rather than assumed.
+Revision 3 kept everything Final Cut admitted in revision 2 and changed only
+the transition: a real `<effect>` carrying the Cross Dissolve UID
+`FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265`, a `filter-video` reference to
+it, an explicit offset centred on the cut, and one-second handles.
+
+**The Cross Dissolve was admitted.** It returned with our exact UID, no
+`enabled="0"`, all four params verbatim, and an `FFAudioTransition` Audio
+Crossfade companion that Final Cut added on its own — which it does only for a
+transition it genuinely instantiated. Asset admission passed again on a
+re-check.
+
+**The spine geometry was rejected.** Revision 3 gave the incoming clip the same
+offset as the transition, so the two spine clips overlapped by half the
+transition duration. A spine is strictly sequential, so Final Cut truncated
+`clip-a` from 7s to 6.5s and re-appended its orphaned 0.5s remainder after
+`clip-b`. The correct rule, derived from the returned file: transition offset
+`cut − T/2` is right, but the incoming clip's offset must be `cut` — the clips
+butt-join and the transition straddles the joint. Revision 4 is a one-number
+change.
+
+The faulty convention came from an OTIO-written fixture in `reference/`, not a
+Final Cut export; it is now untrusted for spine geometry.
+
+Phase 1 remains **incomplete: 0/4 Final Cut workflows accepted**. Natural
+dissolve needs correct transition timing and that row failed. No capability
+gate has been moved, and the effect-scoped contract taxonomy needs revisiting
+first — what was proven is a *fully specified* cross dissolve, not the "bare
+dissolve" the taxonomy names.
+
+Revisions 2 and 3 are spent evidence and were not modified, regenerated, or
+retried. Full results and the returned XML analysis are in
+`docs/ROUNDTRIP_MANUAL_PASS.md`.

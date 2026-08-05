@@ -108,3 +108,57 @@ arithmetic and is unit-tested for frame alignment and handle sufficiency.
 Open assumption: the centred-offset convention comes from a real-world
 transition FCPXML, not from an observed export of this project's own package.
 If revision 3 fails on placement rather than on the effect, suspect that first.
+
+## Outcome of the revision 3 pass (2026-08-04)
+
+Executed once. **The Cross Dissolve is admitted; the spine geometry is not.**
+The assumption flagged immediately above was the cause.
+
+Final Cut returned the transition intact — our exact UID, no `enabled="0"`,
+all four params verbatim — and added a companion it was never given:
+
+```xml
+<effect id="r4" name="Cross Dissolve" uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265"/>
+<effect id="r5" name="Audio Crossfade" uid="FFAudioTransition"/>
+...
+<transition name="Cross Dissolve" offset="6s" duration="1s">
+  <filter-video ref="r4" name="Cross Dissolve">…</filter-video>
+  <filter-audio ref="r5" name="Audio Crossfade"/>
+</transition>
+```
+
+Final Cut synthesizes an audio crossfade only for a transition it actually
+instantiated across two clips with audio. Compare revision 2's synthesized
+`<effect uid=""/>` with `enabled="0"`. The effect question is settled: a
+`<transition>` needs a real `<effect>` resource and a `<filter-video>`
+reference, and with them it is admitted natively.
+
+The layout was re-flowed:
+
+```
+sent      clip-a  0 → 7      transition 6.5 → 7.5   clip-b  6.5 → 13.5
+returned  clip-a  0 → 6.5    transition 6   → 7     clip-b  6.5 → 13.5
+                                                    clip-a  13.5 → 14  (start=6.5s)
+```
+
+A `<spine>` is strictly sequential and its children cannot overlap. Revision 3
+gave `clip-b` the transition's offset, so it began at 6.5 s while `clip-a` still
+ran to 7 s. Final Cut truncated `clip-a` at `clip-b`'s offset and re-appended
+the orphaned 0.5 s after `clip-b`.
+
+The transition's own offset was right relative to the resulting joint
+(`6 = 6.5 − 0.5`). The corrected rule is therefore:
+
+- transition `offset` = `cut − T/2` — **confirmed**
+- incoming clip `offset` = `cut` — the clips butt-join; the transition
+  straddles the joint and draws its overlap from their handles
+
+`reference/…/upstream_otio_fcpxml/fcpx_transitions.fcpxml` encodes the
+overlapping form (`Clip_A 0→10`, `transition 9.5→10.5`, `Clip_B 9.5→19.5`).
+It is OTIO writer output rather than a Final Cut export, and Final Cut does not
+accept it as written. Treat it as untrusted for spine geometry.
+
+Revision 4 is a single change — `clip-b` `offset` `19500/3000s` →
+`21000/3000s` — keeping everything revision 3 proved. As with revision 2, the
+spent package's `evidence.json` is left reading `unknown`; recorded evidence
+lives in `docs/ROUNDTRIP_MANUAL_PASS.md` and `docs/PHASE1_ACCEPTANCE.md`.

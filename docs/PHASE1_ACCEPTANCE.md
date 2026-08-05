@@ -64,21 +64,52 @@ precisely why: `offset` and the `filter-video` child are both `#IMPLIED` in the
 DTD, so omitting them passes validation but yields a disabled placeholder at
 time zero.
 
-**Revision 3 has been built** as operation
-`6B8F8B1C-8171-4770-86C0-E5A859C3B32A` and awaits its manual pass. It supplies
-the real Cross Dissolve effect UID, the `filter-video` reference, an explicit
-offset centred on the cut, and one-second handles, while keeping every
-construction Final Cut already admitted. Revision 2 was not modified,
-regenerated, or retried. Nothing about revision 3's Final Cut behaviour may be
-claimed until its own pass is run — its evidence ledger records every semantic
-row as `unknown`, including asset admission.
+### The revision 3 pass was executed on 2026-08-04 (21:21–21:28)
+
+Operation `6B8F8B1C-8171-4770-86C0-E5A859C3B32A`, same guarded isolated
+launcher and disposable library (provenance `isolated-launch-preflight.JsuyVQ`).
+
+| Contract | Result |
+| --- | --- |
+| Import completed without error or crash | pass |
+| asset admission | **pass** — re-checked, not inherited: real uid/sig, correct durations, codecs detected |
+| cross dissolve native semantics | **pass** — returned with our exact UID `FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265`, no `enabled="0"`, all four params verbatim, and Final Cut *added* an `FFAudioTransition` Audio Crossfade companion |
+| transition timing and handles | **fail** — overlapping spine siblings; Final Cut truncated `clip-a` 7s → 6.5s and re-appended its 0.5s remainder as a third element |
+| returned FCPXML round trip | partial — the effect round-tripped faithfully, the spine layout did not |
+
+**The effect question is answered.** A `<transition>` carrying a real
+`<effect>` resource and a `<filter-video>` reference is admitted as a native
+Cross Dissolve. The unprompted Audio Crossfade companion is the proof: Final
+Cut synthesizes one only for a transition it actually instantiated.
+
+**The geometry question is not.** The incoming clip's offset was set to the
+transition's offset, which made the two spine clips overlap by half the
+transition duration. A spine is strictly sequential and cannot represent that.
+The correct rule, read off the returned file: the transition offset is
+`cut − T/2` (confirmed right), but the incoming clip's offset is `cut` — the
+clips butt-join and the transition straddles the joint. That is a one-number
+fix for revision 4.
+
+The bad convention came from an OTIO-written fixture in `reference/`, not from
+a Final Cut export. It was flagged in advance as the prime suspect for a
+placement failure and it was the cause; that fixture is now untrusted for spine
+geometry.
+
+**Natural dissolve is still not accepted** — correct transition timing is part
+of the workflow and it failed. No capability gate has been moved. The
+effect-scoped contract taxonomy needs revisiting before one can be: what was
+proven is a *fully specified* cross dissolve, not the "bare dissolve" the
+taxonomy names, and revision 2 disproved the bare form outright.
+
+Revisions 2 and 3 are spent evidence and were not modified, regenerated, or
+retried.
 
 ## Workflow matrix
 
 | Workflow | Offline/local status | Final Cut acceptance |
 | --- | --- | --- |
 | Targeted rotate/zoom | planner/math/local point selection implemented | not accepted |
-| Natural dissolve | registry + reduced v2 syntax package; v2 imported cleanly but the bare transition was rejected as a disabled placeholder | not accepted — asset admission observed, bare dissolve failed |
+| Natural dissolve | registry + syntax packages through revision 3 | not accepted — asset admission and native cross dissolve observed; transition geometry failed |
 | Old Television | layered-media plan/composition/local package only | not accepted |
 | Living Still | native-fallback plan/local package only | not accepted |
 
