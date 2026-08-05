@@ -202,14 +202,31 @@ What is left cannot be done in code alone.
      **Edge-dragging was not exercised** and is still unproven.
    - targeted rotate/zoom keyframe editability
    - old TV overlays/controls are native-editable in Final Cut
-   - living still movement/fade/color editability — **in progress.** Unlike the
-     dissolve there is no emitter and no prior revision: nothing in the tree
-     emits `adjust-transform`, `adjust-blend`, or `keyframeAnimation`, and the
-     param names, `position` units, fade encoding, and colour effect identity
-     are all unknown. Guessing any of them yields a confounded result, so the
-     order is inverted — Final Cut writes the encoding first and we read it.
-     Procedure in `docs/LIVING_STILL_GROUND_TRUTH.md`; the emitter and the
-     admission probe are written against that return, not before it.
+   - living still movement/fade/color editability — **in progress.** There is
+     no emitter and was no prior revision, so the order was inverted: Final Cut
+     wrote the encoding first. **Ground truth captured 2026-08-04**, full
+     analysis in `docs/LIVING_STILL_GROUND_TRUTH.md`. Three findings that would
+     each have produced a silently wrong emitter:
+     1. `position` splits into nested `X`/`Y` sub-params with separate
+        animations, while `scale` stays one param with a paired value. The two
+        do **not** share a shape.
+     2. `position` is **percent of frame height**, though the inspector reads
+        `px`: 38.4 px was written as `3.55556`. Emitting the inspector's number
+        pans 10.8× too far and imports cleanly — a wrong magnitude, not a
+        rejection.
+     3. Keyframe times are **absolute source time** — a still gets
+        `start="3600s"` and keyframes are offset from that hour in a 720000
+        timescale. A keyframe at `0s` lands an hour early.
+
+     Colour is `filter-video` → `<effect uid="FxPlug:7E2022A5-202B-4EEB-A311-AC2B585D01B0"/>`
+     ("Color Adjustments", internally `PAEHDRColorCorrect`) — neither candidate
+     guessed from `Filters.bundle`. Its three opaque payloads decode to a
+     `{pluginVersion: 3}` stamp and two untouched-default `ozml` blobs, so the
+     channel looks synthesisable; whether Final Cut accepts it without them is
+     an admission question, not something the capture settled.
+
+     Next: write the emitter against that skeleton, then one admission probe.
+     Nothing is admitted yet.
 3. A trustworthy contract store. Semantics have now been *observed*, but
    `ManualFCPXMLSemanticsEvidence` still defaults to an empty admitted set and
    nothing constructs a non-empty one, so every FCPXML pathway fails closed.

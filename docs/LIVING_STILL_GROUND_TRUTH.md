@@ -158,4 +158,139 @@ about our code.
 
 ## Results
 
-**Not yet run.**
+**Captured 2026-08-04 22:31.** Final Cut wrote all three channels.
+
+Artifact: `~/Movies/FCPCommandConsole/exports/ground-truth/living-still-ground-truth.fcpxmld`.
+Exported as version **1.14**. Fixture hash re-checked after the pass:
+`170df534…` unchanged.
+
+Built as specified: 4 s still, Position X 38.4 px and Scale 108 % keyframed
+between frame 0 and frame 119, Opacity 100 %→0 % between frames 108 and 119,
+Saturation raised to 25 statically. Colour was applied with **Color
+Adjustments**, which is what `⌘6` now offers in place of Color Board.
+
+### Every unknown, answered
+
+| Unknown | Answer | |
+| --- | --- | --- |
+| keyframed `position` | **nested sub-params** `<param name="X" key="1">` / `<param name="Y" key="2">`, each with its own `keyframeAnimation` | wrong guess |
+| keyframed `scale` | **single** `<param name="scale">`, paired value `"1 1"` → `"1.08 1.08"` | wrong guess |
+| `position` units | **percent of frame height**, not pixels | wrong guess |
+| opacity param | `<adjust-blend><param name="amount">`, values `1`→`0` | as guessed |
+| colour mechanism | `filter-video` → `<effect>` resource | as the DTD implied |
+| colour effect uid | `FxPlug:7E2022A5-202B-4EEB-A311-AC2B585D01B0` | neither candidate |
+| easing | no `interp` emitted at all; one `curve="linear"` on the static Y | — |
+
+### The three that would have broken the emitter
+
+**Position and scale do not share a shape.** Position splits into `X`/`Y`
+children with independent animations; scale keeps one param with a
+space-separated pair. Nothing suggests this asymmetry from outside — the DTD
+permits `param*` inside `param` but does not hint that only position uses it.
+
+**Position is normalised to frame height.** The inspector reads `px` and we
+entered `38.4`; Final Cut wrote `3.55556`. That is `38.4 / 1080 × 100`. So a
+pan expressed as a fraction of *width* converts as
+
+```
+xmlX = panXFraction × width / height × 100      // 0.02 → 3.55556 at 1920×1080
+```
+
+Emitting the inspector's own number would have panned 10.8× too far — and it
+would have imported cleanly, because there is nothing invalid about it. A
+silent wrong-magnitude result, not a rejection.
+
+**Keyframe times are absolute source time, not timeline time.** The still is
+given `start="3600s"` and every keyframe is offset from that hour, in a
+720000 timescale:
+
+| Point | Frame | Emitted time | = |
+| --- | --- | --- | --- |
+| clip start | 0 | `3600s` | 3600 |
+| fade begins | 108 | `2594592000/720000s` | 3603.6 |
+| last frame | 119 | `2594856000/720000s` | 3603.96667 |
+
+A keyframe written at `0s` would land an hour before the clip.
+
+### Also worth keeping
+
+- A still is `<video>`, `offset="0s" start="3600s" duration="4s"`, no `format`.
+- Its `<asset>` is `start="0s" duration="0s" hasVideo="1" videoSources="1"`
+  pointing at a **second** format, `FFVideoFormatRateUndefined`, 1920×1080,
+  `colorSpace="1-13-1"`, with no `frameDuration`. The sequence keeps
+  `FFVideoFormat1080p30`.
+- Final Cut holds a value flat before the first keyframe, so the composition's
+  three opacity keyframes (`0 / 3.65 / 4`) need only **two** emitted.
+- Y got a single-keyframe animation rather than being omitted.
+
+### The colour blobs are inert
+
+`Color Adjustments` carries three opaque payloads that looked, at first, like a
+blocker for synthesising it:
+
+| Payload | Decoded |
+| --- | --- |
+| `<data key="effectConfig">` | 289-byte NSKeyedArchiver holding exactly `{pluginVersion: 3}` |
+| `param key="20"` (unnamed) | 822-char base64 `ozml`, `numberOfKeypoints=0`, `defaultVal == dataValue` |
+| `param key="23"` Neutralization Data | 1785-char base64 `ozml`, `numberOfKeypoints=0`, `defaultVal == dataValue` |
+
+Both `ozml` blobs are byte-identical in their default and current values and
+carry zero keypoints — they are untouched defaults, not state. The archive is
+a version stamp. So the colour channel is very likely synthesisable by copying
+these three constants verbatim, or by omitting them.
+
+**Likely, not shown.** Whether Final Cut accepts the filter without them is an
+admission question and needs the probe. `Saturation` itself is plain:
+`<param name="Saturation" key="16" value="25"/>`, matching the inspector
+one-for-one, alongside fifteen sibling params left at `0`.
+
+### Skeleton for the emitter
+
+Blobs elided, structure exact:
+
+```xml
+<format id="r1" name="FFVideoFormat1080p30" frameDuration="100/3000s" width="1920" height="1080" colorSpace="1-1-1 (Rec. 709)"/>
+<asset id="r2" name="living-still" start="0s" duration="0s" hasVideo="1" format="r3" videoSources="1">
+  <media-rep kind="original-media" src="file:///…/living-still.png"/>
+</asset>
+<format id="r3" name="FFVideoFormatRateUndefined" width="1920" height="1080" colorSpace="1-13-1"/>
+<effect id="r4" name="Color Adjustments" uid="FxPlug:7E2022A5-202B-4EEB-A311-AC2B585D01B0"/>
+…
+<video ref="r2" offset="0s" name="living-still" start="3600s" duration="4s">
+  <adjust-transform>
+    <param name="position">
+      <param name="X" key="1"><keyframeAnimation>
+        <keyframe time="3600s" value="0"/>
+        <keyframe time="2594856000/720000s" value="3.55556"/>
+      </keyframeAnimation></param>
+      <param name="Y" key="2"><keyframeAnimation>
+        <keyframe time="3600s" value="0" curve="linear"/>
+      </keyframeAnimation></param>
+    </param>
+    <param name="scale"><keyframeAnimation>
+      <keyframe time="3600s" value="1 1"/>
+      <keyframe time="2594856000/720000s" value="1.08 1.08"/>
+    </keyframeAnimation></param>
+  </adjust-transform>
+  <adjust-blend>
+    <param name="amount"><keyframeAnimation>
+      <keyframe time="2594592000/720000s" value="1"/>
+      <keyframe time="2594856000/720000s" value="0"/>
+    </keyframeAnimation></param>
+  </adjust-blend>
+  <filter-video ref="r4" name="Color Adjustments">
+    <param name="Saturation" key="16" value="25"/>
+    <!-- 15 sibling params at 0; effectConfig + key 20 + key 23 blobs -->
+  </filter-video>
+</video>
+```
+
+`adjust-transform` precedes `adjust-blend` precedes `filter-video`, matching
+`%intrinsic-params-video;` followed by `%video_filter_item;`.
+
+### Standing
+
+Still **nothing admitted**, exactly as this document said before the run. This
+is Final Cut's construction, not ours. It tells us what to emit; it does not
+show that our generated file will be accepted, and it says nothing about
+editability after import. Those remain two separate passes.
