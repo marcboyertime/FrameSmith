@@ -146,56 +146,61 @@ behavior", or "Phase 1 accepted".
 until every item here is done.** (A1 and the A2 gate are already complete; the
 rest of Phase A is not.)
 
-### 5.1 — Two cheap closures, both need the user at the GUI
+### 5.1 — ✅ playback confirmed / ❌ one closure left
 
-Bundle these into one Final Cut session:
+- **Living still playback — done 2026-08-05.** Push-in, drift and fade all
+  visible; colour confirmed by A/B toggle. All three channels render.
+- **First-import asset resolution for a still — still open.** The living
+  still's `.png` resolved by dedup against media already in the library, so that
+  run proves nothing about a fresh import. Regenerate with a *different* still,
+  or import into a fresh library, and confirm the package-relative `file://`
+  resolves. (`assetAdmission` is admitted on the dissolve's `.mov` evidence, so
+  this is a completeness gap, not a blocker.)
 
-- **Play the living still probe** and confirm the four-second still actually
-  renders: slow push-in, slight rightward drift, richer image, fade over the
-  last twelve frames. Structural admission is not render confirmation.
-- **First-import asset resolution for a still.** The living still's `.png`
-  resolved by dedup against media already in the library, so that run proves
-  nothing about a fresh import. Regenerate with a *different* still, or import
-  into a fresh library, and confirm the package-relative `file://` resolves.
+### 5.2 — ✅ Living still editability pass — done 2026-08-05
 
-Record both in `docs/LIVING_STILL_ADMISSION_PASS.md` under Results.
+Passed. Scale 108→120%, position X 38.4→54 px returning exactly `5`, opacity
+0→25% returning `0.25`. Keyframes are natively editable, and the
+percent-of-height conversion is confirmed in the edit direction too.
 
-### 5.2 — Living still editability pass
+One unpredicted finding: editing one position axis writes a keyframe on **both**.
+See `docs/LIVING_STILL_EDITABILITY_PASS.md`.
 
-Same shape as `docs/DISSOLVE_EDITABILITY_PASS.md`, which is the template: pick
-exact, frame-aligned values; predict the returned numbers *before* the run; stop
-at the first failure.
+### 5.3 — Rotation → `native.targeted_rotate_zoom`
 
-Adjust a position keyframe, a scale keyframe, and the fade, then export and
-compare. The question is whether the keyframes are natively editable or merely
-round-trippable — revision 2's disabled placeholder round-tripped too.
+**Capture done 2026-08-05** — `docs/ROTATION_GROUND_TRUTH.md`. Rotation is a
+single `<param>` in plain degrees; `anchor` is an **attribute** on
+`adjust-transform`, percent of frame height on both axes; movie-clip keyframes
+start at `0s`, not the stills' `3600s`.
 
-### 5.3 — Rotation ground truth capture → `native.targeted_rotate_zoom`
+**Remaining:** extend `service/NativeFCPXML/NativeFCPXMLTransformChannel.swift`
+with rotation and anchor, build a probe, run an admission pass.
+`service/TransformMath.swift` and `service/AspectFitPointMapper.swift` already
+handle the targeting math.
 
-Rotation's encoding is **unobserved**. Do not guess it; `transformKeyframes` is
-admitted for position and scale only.
+### 5.4 — Connected layers → `look.old_television`
 
-Capture first, in the pattern of `docs/LIVING_STILL_GROUND_TRUTH.md`: have the
-user rotate a clip in Final Cut with keyframes, export, and read what it wrote.
-Watch specifically for whether rotation nests like `position` or stays flat like
-`scale`, what unit it uses (degrees vs radians vs something normalized), and how
-it interacts with anchor.
+**Capture done 2026-08-05** — `docs/CONNECTED_LAYERS_GROUND_TRUTH.md`, two
+captures. A connected clip is a **child** of the spine `asset-clip` with
+`lane="1"`; blend mode is `mode="14 (Overlay)"`; and critically the connected
+clip's **`offset` is parent-relative, not timeline-relative**.
 
-Then extend `service/NativeFCPXML/NativeFCPXMLTransformChannel.swift`, build the
-probe, and run an admission pass. `service/TransformMath.swift` and
-`service/AspectFitPointMapper.swift` already handle the targeting math.
+**Remaining:** add a connected-layer primitive and a blend-mode channel to
+`service/NativeFCPXML/`, then `service/OldTelevisionComposition.swift` and
+`service/OverlayAdapter.swift` become emittable and an admission pass can run.
 
-### 5.4 — Connected layers ground truth → `look.old_television`
+### 5.4b — The rule that came out of both captures
 
-`connectedOverlayLayers` has **no evidence at all** — this is the single blocker
-on the fourth workflow, and the largest unknown left in Phase 1.
+> **Static values are attributes on the effect element. Animated values are
+> `<param>` children.**
 
-Capture first: a connected clip above the spine, with opacity and a blend mode.
-Read how the connection, lane, and offset are encoded. Blend modes were never
-exercised by any pass, so capture them here too.
+Confirmed independently on `adjust-transform` (static `anchor` attribute vs
+animated `rotation` param) and `adjust-blend` (static `amount` attribute vs the
+living still's animated `amount` param).
 
-Then `service/OldTelevisionComposition.swift` and `service/OverlayAdapter.swift`
-become emittable, and an admission pass can run.
+The emitter must therefore choose a shape per **property × animated-or-not**,
+not per property. This is the highest-value thing to get right in the next code
+pass, because both wrong shapes are DTD-valid.
 
 ### 5.5 — Wire the standalone export route
 
