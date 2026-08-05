@@ -178,23 +178,42 @@ The spine `asset-clip` has no `adjust-blend`, no `adjust-transform`, nothing.
 Only what was changed is written. Consistent with the rotation capture, so this
 is now confirmed on two different element types.
 
-## Limitation this capture does *not* resolve
+## Finding 6 — `offset` is **parent-relative** (second capture)
 
-**The `offset` reference frame is still ambiguous.** The connected clip has
-`offset="2s"` and starts 2 s into the timeline — but its parent `asset-clip` is
-itself at `offset="0s"`. Relative-to-parent and relative-to-timeline give the
-same answer, so this capture cannot distinguish them.
+The first capture could not answer this. Its connected clip had `offset="2s"`
+and started 2 s into the timeline, but the parent `asset-clip` was itself at
+`offset="0s"`, so parent-relative and timeline-relative gave the same number.
+That was a flaw in the capture design: the worksheet chose a late start to make
+the offset readable, then left the parent at zero, which defeated the purpose.
 
-That is a flaw in the capture design, not in the reading. The worksheet chose a
-late start specifically to make the offset readable and then left the parent at
-zero, which defeated it.
+Captured again the same session as
+`connected-layers-offset-disambiguation.fcpxmld`, with a **two-clip** spine and
+the overlay connected at 10 s — inside the *second* clip:
 
-Resolving it needs a spine with **two** clips and the overlay attached to the
-**second** one. If the offset is parent-relative it will restart from 0 at that
-clip's start; if timeline-relative it will carry the accumulated time. Until
-that is captured, an emitter must not assume either — and for `look.old_television`,
-where an overlay may well attach to a non-first clip, getting this wrong
-misplaces every overlay silently.
+```xml
+<spine>
+    <asset-clip ref="r2" offset="0s" name="clip-a.mov Browser Clip" duration="8s" …/>
+    <asset-clip ref="r2" offset="8s" name="clip-a.mov Browser Clip" duration="8s" …>
+        <video ref="r3" lane="1" offset="2s" name="living-still" start="10808700/3000s" duration="12100/3000s"/>
+    </asset-clip>
+</spine>
+```
+
+The overlay sits at 10 s in the timeline. Its parent starts at 8 s. It is
+written as **`offset="2s"`**.
+
+> **A connected clip's `offset` is measured from its parent clip's start, not
+> from the timeline origin.**
+
+Timeline-relative would have been `10s`. This is the finding most likely to
+have shipped a silent defect: an emitter using timeline time produces valid
+FCPXML that imports without complaint and puts every overlay in the wrong place
+— and only for overlays attached to something other than the first clip, so a
+single-clip test would never catch it. `look.old_television` is exactly that
+case.
+
+Note also the first `asset-clip` is written self-closing with no children,
+confirming again that untouched clips get nothing.
 
 ## After the capture
 
