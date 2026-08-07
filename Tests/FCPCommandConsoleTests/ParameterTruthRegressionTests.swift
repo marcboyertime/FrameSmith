@@ -16,19 +16,23 @@ final class ParameterTruthRegressionTests: XCTestCase {
     }
 
     func testLivingStillChannelsAndXMLFollowPlanValues() throws {
-        let media = asset(); var plan = try plan(.livingStill, asset: media)
+        let media = asset(); let baseline = try plan(.livingStill, asset: media); let defaultChannels = try LivingStillStandaloneEmitter().channels(plan: baseline, media: [.primary: media]); var plan = baseline
         plan.parameters["durationSeconds"] = .number(5)
         plan.parameters["pushInScaleStart"] = .number(1.2); plan.parameters["pushInScaleEnd"] = .number(1.5)
         plan.parameters["panX"] = .number(0.1); plan.parameters["panY"] = .number(0.2)
         plan.parameters["fadeDurationSeconds"] = .number(1); plan.parameters["opacityStart"] = .number(0.8); plan.parameters["opacityEnd"] = .number(0.2)
         try PlanValidator(registry: registry()).validate(plan)
         let emitter = LivingStillStandaloneEmitter(); let channels = try emitter.channels(plan: plan, media: [.primary: media])
-        XCTAssertEqual(channels.durationSeconds, 5); XCTAssertEqual(channels.transform.scale.last?.value, "1.5 1.5")
+        XCTAssertNotEqual(channels.durationSeconds, defaultChannels.durationSeconds); XCTAssertEqual(channels.durationSeconds, 5); XCTAssertEqual(channels.transform.scale.first?.value, "1.2 1.2"); XCTAssertEqual(channels.transform.scale.last?.value, "1.5 1.5")
         XCTAssertEqual(channels.transform.positionY.last?.value, "-20") // 0.2 height fraction, sign-flipped
         XCTAssertEqual(channels.opacity.amount.first?.value, "0.8"); XCTAssertEqual(channels.opacity.amount.last?.value, "0.2")
         let xml = try emitter.emitDocument(plan: plan, media: [.primary: media], publishedMediaURLs: [.primary: media.url], version: "1.14")
         XCTAssertTrue(xml.contains("duration=\"5s\"")); XCTAssertTrue(xml.contains("value=\"-20\"")); XCTAssertTrue(xml.contains("value=\"1.5 1.5\""))
         plan.parameters["pushInScaleEnd"] = .number(1); XCTAssertThrowsError(try PlanValidator(registry: registry()).validate(plan))
+        plan = baseline; plan.parameters["fadeDurationSeconds"] = .number(10); XCTAssertThrowsError(try PlanValidator(registry: registry()).validate(plan))
+        for keyframe in channels.transform.positionX + channels.transform.positionY + channels.transform.scale + channels.opacity.amount {
+            XCTAssertTrue(xml.contains("time=\"\(keyframe.time.attributeValue)\"")); XCTAssertTrue(xml.contains("value=\"\(keyframe.value)\""))
+        }
     }
 
     func testTargetedOriginsDirectionAndMovieOverflow() throws {
@@ -54,5 +58,7 @@ final class ParameterTruthRegressionTests: XCTestCase {
         XCTAssertThrowsError(try service.revise(result, patch: ["colorEnrichment": .number(0.2)])); XCTAssertThrowsError(try service.revise(result, patch: ["panY": .string("bad")]))
         XCTAssertEqual(StandaloneEmitterCatalog().absenceReason(for: .oldTelevision), StandaloneFCPXMLExportBuilder.missingEmitterReason(for: .oldTelevision))
         XCTAssertNotNil(StandaloneEmitterCatalog().emitter(for: .livingStill))
+        XCTAssertNotNil(StandaloneEmitterCatalog().emitter(for: .targetedRotateZoom))
+        XCTAssertEqual(StandaloneEmitterCatalog().absenceReason(for: .naturalDissolve), StandaloneFCPXMLExportBuilder.missingEmitterReason(for: .naturalDissolve))
     }
 }
