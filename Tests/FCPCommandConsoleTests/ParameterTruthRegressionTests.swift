@@ -98,8 +98,33 @@ final class ParameterTruthRegressionTests: XCTestCase {
     }
 
     func testMetadataDriftIsRejectedBeforeExportConstruction() throws {
-        let media = asset(); var plan = try self.plan(.livingStill, asset: media)
-        plan.representation = .layeredMedia
-        XCTAssertThrowsError(try ValidatedPlanExecution(registry: try registry()).validate(plan: plan, media: [.primary: media]))
+        let scratch = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("framesmith-metadata-drift-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let input = scratch.appendingPathComponent("still.png")
+        try Data(repeating: 0x42, count: 512).write(to: input)
+        let media = LocalMediaAsset(
+            itemID: "still", url: input, kind: .still,
+            dimensions: .init(width: 1920, height: 1080), durationSeconds: nil,
+            frameRate: nil, hasAudio: false, canonicalPath: input.path,
+            sha256: try ContentHasher.sha256File(input))
+        let plan = try self.plan(.livingStill, asset: media)
+
+        // Simulate a registry edit that no longer matches the admitted plan.
+        var definitions = Array((try registry()).definitions.values)
+        let livingStill = try XCTUnwrap(definitions.firstIndex { $0.identifier == .livingStill })
+        definitions[livingStill].representation = .layeredMedia
+        let driftedRegistry = try EffectRegistry(definitions: definitions)
+        XCTAssertThrowsError(try ValidatedPlanExecution(registry: driftedRegistry).validate(plan: plan, media: [.primary: media]))
+
+        let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [media]))
+        let installed = FinalCutVersionIdentity(shortVersion: "12.3", build: "450152")
+        let gate = CapabilityGate(manualSemanticsEvidence: FinalCutSemanticProfileStore.finalCut12_3_450152.evidence(forInstalled: installed))
+        let outputRoot = scratch.appendingPathComponent("out", isDirectory: true)
+        let builder = StandaloneFCPXMLExportBuilder(gate: gate, outputRoot: outputRoot, registry: driftedRegistry)
+        XCTAssertThrowsError(try builder.export(plan: plan, media: [.primary: media], mediaEvidence: evidence, installedFinalCut: installed))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputRoot.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputRoot.appendingPathComponent(plan.operationID.uuidString).path))
     }
 }
