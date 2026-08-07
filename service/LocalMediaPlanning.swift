@@ -70,8 +70,28 @@ public struct LocalMediaPlanningResult: Equatable, Sendable {
     public let localPreviewDecision: CapabilityDecision
     public let inertPackageDecision: CapabilityDecision
     public let fcpxmlExportDecision: CapabilityDecision
+    /// Whether a **new** Final Cut project may be generated from this plan.
+    ///
+    /// Distinct from `fcpxmlExportDecision`, which asks whether an *existing*
+    /// timeline may be modified and can never be satisfied by local media. A UI
+    /// that conflated the two would show the user a refusal for the thing they
+    /// can actually do.
+    public let standaloneExportDecision: CapabilityDecision
 
-    public init(plan: EffectPlan, admission: EffectPlanAdmissionResult, selection: LocalMediaSelection, inputs: LocalMediaPlanInputs, localPreviewDecision: CapabilityDecision, inertPackageDecision: CapabilityDecision, fcpxmlExportDecision: CapabilityDecision) {
+    public init(
+        plan: EffectPlan,
+        admission: EffectPlanAdmissionResult,
+        selection: LocalMediaSelection,
+        inputs: LocalMediaPlanInputs,
+        localPreviewDecision: CapabilityDecision,
+        inertPackageDecision: CapabilityDecision,
+        fcpxmlExportDecision: CapabilityDecision,
+        standaloneExportDecision: CapabilityDecision = CapabilityDecision(
+            capability: .standaloneFCPXMLExport,
+            allowed: false,
+            reason: "Standalone export was not evaluated for this plan"
+        )
+    ) {
         self.plan = plan
         self.admission = admission
         self.selection = selection
@@ -79,6 +99,7 @@ public struct LocalMediaPlanningResult: Equatable, Sendable {
         self.localPreviewDecision = localPreviewDecision
         self.inertPackageDecision = inertPackageDecision
         self.fcpxmlExportDecision = fcpxmlExportDecision
+        self.standaloneExportDecision = standaloneExportDecision
     }
 
     /// Reports the first way the live inputs have drifted from the ones this
@@ -108,6 +129,26 @@ public struct LocalMediaPlannerSession {
         let encoded = try JSONEncoder().encode(effectPlan)
         try schemaValidator?.validate(encoded)
         let admission = try EffectPlanAdmission.decode(encoded)
+
+        // Evidence is minted here from the assets that actually came through
+        // admission, never reconstructed from the plan. A plan is only a
+        // description of media; it is not proof any of it was admitted.
+        let admittedAssets = [primary, outgoing, incoming].compactMap { $0 }
+        let standaloneDecision: CapabilityDecision
+        if let mediaEvidence = AdmittedLocalMediaEvidence(admittedAssets: admittedAssets) {
+            standaloneDecision = capabilityGate.decision(
+                for: admission,
+                capability: .standaloneFCPXMLExport,
+                mediaEvidence: mediaEvidence
+            )
+        } else {
+            standaloneDecision = CapabilityDecision(
+                capability: .standaloneFCPXMLExport,
+                allowed: false,
+                reason: "No admitted local media to generate a project from"
+            )
+        }
+
         return LocalMediaPlanningResult(
             plan: effectPlan,
             admission: admission,
@@ -115,7 +156,8 @@ public struct LocalMediaPlannerSession {
             inputs: LocalMediaPlanInputs(request: request, target: target, primary: primary, outgoing: outgoing, incoming: incoming),
             localPreviewDecision: capabilityGate.decision(for: admission, capability: .localOnlyPreview),
             inertPackageDecision: capabilityGate.decision(for: admission, capability: .inertPayloadNeutralPackage),
-            fcpxmlExportDecision: capabilityGate.decision(for: admission, capability: .fcpxmlExport)
+            fcpxmlExportDecision: capabilityGate.decision(for: admission, capability: .fcpxmlExport),
+            standaloneExportDecision: standaloneDecision
         )
     }
 }

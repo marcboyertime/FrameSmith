@@ -28,6 +28,39 @@ private final class AppModel: ObservableObject {
     @Published var loadingRole: LocalMediaRole?
     @Published var isSavingPackage = false
     @Published var isCancellingPackage = false
+    @Published var isExportingProject = false
+    @Published var exportedProject: StandaloneFCPXMLExportBuilder.Package?
+
+    /// The Final Cut build on this machine, read once.
+    ///
+    /// `nil` means Final Cut is not where it was expected, which is not an
+    /// error — it just means no semantic profile applies and every FCPXML
+    /// pathway stays closed, which is the correct default.
+    let installedFinalCut: FinalCutVersionIdentity? = InstalledFinalCutVersionReader().read()
+
+    /// The gate the planner uses, carrying whatever the installed build admits.
+    ///
+    /// Built from the profile rather than left empty: an empty gate would
+    /// refuse everything, and the app would show the user a permanent refusal
+    /// for workflows that are in fact admitted on their machine.
+    private var capabilityGate: CapabilityGate {
+        CapabilityGate(
+            manualSemanticsEvidence: installedFinalCut
+                .map { FinalCutSemanticProfileStore.evidence(forInstalled: $0) } ?? .unknown
+        )
+    }
+
+    /// What the app may honestly say about Final Cut support right now.
+    var finalCutStatus: String {
+        guard let installedFinalCut else {
+            return "Final Cut Pro was not found. Project generation is unavailable."
+        }
+        let admitted = FinalCutSemanticProfileStore.profile(for: installedFinalCut)?.admittedContracts.count ?? 0
+        guard admitted > 0 else {
+            return "Final Cut \(installedFinalCut.description) has no verified profile. Project generation is unavailable until the manual passes are re-run against this build."
+        }
+        return "Verified against Final Cut \(installedFinalCut.description)."
+    }
     private var admissionTasks: [LocalMediaRole: Task<AdmissionOutcome, Never>] = [:]
     private var admissionGeneration = LocalMediaOperationGeneration()
     private var packageTask: Task<PackageOutcome, Never>?
@@ -45,6 +78,7 @@ private final class AppModel: ObservableObject {
         guard let result, let staleness = result.staleness(against: currentInputs) else { return }
         self.result = nil
         package = nil
+        exportedProject = nil
         noticeMessage = staleness.reason
         cancelPackage()
     }
@@ -138,12 +172,14 @@ private final class AppModel: ObservableObject {
         noticeMessage = nil
         result = nil
         package = nil
+        exportedProject = nil
         do {
             let registryURL = try appResource(named: "registry/effects")
             let schemaURL = try appResource(named: "schemas/effect-plan.schema.json")
             let session = LocalMediaPlannerSession(
                 registry: try EffectRegistry.load(from: registryURL),
-                schemaValidator: try PlanSchemaValidator(schemaURL: schemaURL)
+                schemaValidator: try PlanSchemaValidator(schemaURL: schemaURL),
+                capabilityGate: capabilityGate
             )
             result = try session.plan(request: command, primary: primary, outgoing: outgoing, incoming: incoming, target: target)
         } catch {
@@ -181,6 +217,85 @@ private final class AppModel: ObservableObject {
         Task { [weak self] in
             let outcome = await task.value
             self?.finishPackage(outcome)
+        }
+    }
+
+    /// Generates a **new** Final Cut project from the admitted media.
+    ///
+    /// This is deliberately a separate action from `savePackage()`, which
+    /// writes an inert payload-neutral package. Collapsing them into one
+    /// button would blur the difference between "I described an operation" and
+    /// "I produced something Final Cut will act on".
+    ///
+    /// It does not open Final Cut, read a timeline, or modify one. The user
+    /// imports the result by hand, and the package says so in its own README
+    /// and provenance so the claim survives being forwarded without this UI.
+    func exportFinalCutProject() {
+        guard !isExportingProject, let result, result.standaloneExportDecision.allowed else { return }
+        if let staleness = result.staleness(against: currentInputs) {
+            invalidatePlanIfInputsDrifted()
+            errorMessage = staleness.reason
+            return
+        }
+
+        // Built here, on the main actor, as an immutable sendable value so the
+        // detached work below captures data rather than actor-isolated state.
+        let ordered: [(role: LocalMediaRole, url: URL)] = LocalMediaRole.allCases.compactMap { role in
+            let asset: LocalMediaAsset?
+            switch role {
+            case .primary: asset = primary
+            case .outgoing: asset = outgoing
+            case .incoming: asset = incoming
+            }
+            return asset.map { (role: role, url: $0.url) }
+        }
+        guard !ordered.isEmpty else {
+            errorMessage = "No admitted local media to generate a project from."
+            return
+        }
+
+        isExportingProject = true
+        errorMessage = nil
+        noticeMessage = nil
+        let plan = result.plan
+        let gate = capabilityGate
+        let installed = installedFinalCut
+
+        Task { [weak self] in
+            let outcome: Result<StandaloneFCPXMLExportBuilder.Package, Error> = await Task.detached(priority: .userInitiated) {
+                do {
+                    // Re-admit rather than reusing the assets held in memory.
+                    // Evidence attests that media went through the checked
+                    // path; if a file changed on disk since planning, the fresh
+                    // digest will not match the plan's source identity and the
+                    // gate refuses. Reusing the in-memory asset would export a
+                    // project describing bytes that are no longer there.
+                    let admitted = try await LocalMediaAdmission().admitAll(ordered.map(\.url))
+                    var media: [LocalMediaRole: LocalMediaAsset] = [:]
+                    for (index, entry) in ordered.enumerated() {
+                        media[entry.role] = admitted.assets[index]
+                    }
+                    let builder = StandaloneFCPXMLExportBuilder(gate: gate)
+                    return .success(try builder.export(
+                        plan: plan,
+                        media: media,
+                        mediaEvidence: admitted.evidence,
+                        installedFinalCut: installed
+                    ))
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+
+            guard let self else { return }
+            self.isExportingProject = false
+            switch outcome {
+            case .success(let package):
+                self.exportedProject = package
+                self.noticeMessage = "Generated a new Final Cut project at \(package.packageRoot.path). Import it by hand — nothing was modified."
+            case .failure(let error):
+                self.errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -272,17 +387,36 @@ private struct ContentView: View {
                         .help(result.inertPackageDecision.reason)
                 }
                 if let result = model.result {
-                    let export = result.fcpxmlExportDecision
-                    Button("FCPXML Export") {}
-                        .disabled(true)
-                        .help(export.reason)
-                    Text(export.reason)
+                    let standalone = result.standaloneExportDecision
+                    Button(model.isExportingProject ? "Generating…" : "Generate Final Cut Project…") {
+                        model.exportFinalCutProject()
+                    }
+                    .disabled(!standalone.allowed || model.isExportingProject)
+                    .help(standalone.allowed
+                          ? "Writes a new Final Cut project you import by hand. Nothing existing is opened or changed."
+                          : standalone.reason)
+                }
+            }
+
+            // The two Final Cut claims, kept visually apart because they are
+            // different claims and not two grades of the same one. Generating a
+            // new project is something the app can do; modifying a timeline it
+            // has never seen is not, and never will be from local media alone.
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.finalCutStatus)
+                    .font(.caption)
+                    .foregroundStyle(model.installedFinalCut == nil ? .orange : .secondary)
+                if let result = model.result {
+                    if !result.standaloneExportDecision.allowed {
+                        Label(result.standaloneExportDecision.reason, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .textSelection(.enabled)
+                    }
+                    Text("Modifying an existing timeline is unavailable: \(result.fcpxmlExportDecision.reason)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else {
-                    Button("FCPXML Export") {}
-                        .disabled(true)
-                        .help("Plan a local selection first; Final Cut export remains unverified.")
+                        .textSelection(.enabled)
                 }
             }
 
@@ -300,6 +434,9 @@ private struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+            }
+            if let project = model.exportedProject {
+                GeneratedProjectSummary(package: project)
             }
             Spacer(minLength: 0)
         }
@@ -422,6 +559,48 @@ private struct PlanSummary: View {
         }
         .font(.caption)
         .textSelection(.enabled)
+        .padding(10)
+        .background(.quaternary)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// What the app says after generating a project.
+///
+/// The claim is stated here as well as in the package's own README and
+/// provenance. Saying it in one place would be enough for a user who reads the
+/// package, and not enough for one who only ever sees this window.
+private struct GeneratedProjectSummary: View {
+    let package: StandaloneFCPXMLExportBuilder.Package
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Generated a new Final Cut project", systemImage: "checkmark.seal")
+                .font(.headline)
+
+            Text("FrameSmith wrote a new project. It did not open Final Cut, did not read an existing timeline, and did not modify one. Import it by hand.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            LabeledContent("Effect") { Text(package.effectID.rawValue).textSelection(.enabled) }
+            LabeledContent("Package") { Text(package.packageRoot.path).textSelection(.enabled) }
+            LabeledContent("FCPXML") { Text(package.fcpxmlURL.lastPathComponent).textSelection(.enabled) }
+            if let build = package.admittedAgainst {
+                LabeledContent("Verified against") { Text("Final Cut \(build.description)").textSelection(.enabled) }
+            }
+
+            HStack {
+                Button("Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([package.packageRoot])
+                }
+                Button("Open Import Instructions") {
+                    NSWorkspace.shared.open(package.instructionsURL)
+                }
+            }
+            .controlSize(.small)
+        }
+        .font(.caption)
         .padding(10)
         .background(.quaternary)
         .clipShape(RoundedRectangle(cornerRadius: 8))
