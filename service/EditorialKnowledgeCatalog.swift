@@ -112,6 +112,15 @@ public struct EditorialKnowledgeCatalog: Sendable {
         public var admittedCapabilities: Set<String>
         /// When true, only cards that can actually be run are returned.
         public var executableOnly: Bool
+        /// Whether an intent-tag match is **required** or merely preferred.
+        ///
+        /// Defaults to preferred. A hard filter looks reasonable and behaves
+        /// badly: the user writes "give this some atmosphere", no validated card
+        /// happens to carry that exact tag, and the result is zero options
+        /// despite several techniques being perfectly runnable. Ranking by
+        /// overlap keeps the best match first without letting vocabulary gaps
+        /// empty the list.
+        public var requireIntentMatch: Bool
         /// Cap on returned cards. The planner must not ingest the whole atlas.
         public var limit: Int
 
@@ -121,6 +130,7 @@ public struct EditorialKnowledgeCatalog: Sendable {
             mediaKinds: Set<LocalMediaKind> = [],
             admittedCapabilities: Set<String> = [],
             executableOnly: Bool = true,
+            requireIntentMatch: Bool = false,
             limit: Int = 8
         ) {
             self.domains = domains
@@ -128,6 +138,7 @@ public struct EditorialKnowledgeCatalog: Sendable {
             self.mediaKinds = mediaKinds
             self.admittedCapabilities = admittedCapabilities
             self.executableOnly = executableOnly
+            self.requireIntentMatch = requireIntentMatch
             self.limit = limit
         }
     }
@@ -141,7 +152,8 @@ public struct EditorialKnowledgeCatalog: Sendable {
         let matches = cards.filter { card in
             if !query.domains.isEmpty, !query.domains.contains(card.domain) { return false }
             if query.executableOnly, !card.isExecutable(admittedCapabilities: query.admittedCapabilities) { return false }
-            if !query.intentTags.isEmpty, query.intentTags.isDisjoint(with: Set(card.intentTags)) { return false }
+            if query.requireIntentMatch, !query.intentTags.isEmpty,
+               query.intentTags.isDisjoint(with: Set(card.intentTags)) { return false }
             return true
         }
         return matches

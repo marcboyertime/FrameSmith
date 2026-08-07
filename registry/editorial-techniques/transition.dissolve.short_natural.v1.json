@@ -31,7 +31,8 @@
       "asset_admission",
       "cross_dissolve_transition"
     ],
-    "previewFidelity": "shared_construction"
+    "previewFidelity": "shared_construction",
+    "requiredEffectID": "transition.natural_dissolve"
   },
   "parameters": [
     {

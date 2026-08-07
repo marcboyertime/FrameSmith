@@ -32,7 +32,8 @@
       "native_color_adjustment",
       "connected_overlay_layers"
     ],
-    "previewFidelity": "shared_construction"
+    "previewFidelity": "shared_construction",
+    "requiredEffectID": "look.old_television"
   },
   "parameters": [
     {

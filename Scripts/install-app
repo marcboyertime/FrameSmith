@@ -62,6 +62,9 @@ esac
 mkdir -p "$stage_bundle/Contents/MacOS" "$stage_bundle/Contents/Resources/registry"
 cp "$binary" "$stage_bundle/Contents/MacOS/FCPCommandConsoleApp"
 ditto "$project_root/registry/effects" "$stage_bundle/Contents/Resources/registry/effects"
+# Technique cards ship with the app: the catalog must work with no network and
+# no checkout, so Surprise Me cannot depend on the developer's working copy.
+ditto "$project_root/registry/editorial-techniques" "$stage_bundle/Contents/Resources/registry/editorial-techniques"
 ditto "$project_root/schemas" "$stage_bundle/Contents/Resources/schemas"
 cat > "$stage_bundle/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -84,6 +87,7 @@ plutil -lint "$stage_bundle/Contents/Info.plist" >/dev/null
 staged_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$stage_bundle/Contents/Info.plist")
 [ "$staged_id" = "$bundle_id" ] || fail "Staged bundle identifier is wrong: $staged_id"
 test -f "$stage_bundle/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json"
+test -f "$stage_bundle/Contents/Resources/registry/editorial-techniques/motion.still.quiet_push.v1.json"
 test -f "$stage_bundle/Contents/Resources/schemas/effect-plan.schema.json"
 codesign --force --deep --sign - "$stage_bundle"
 codesign --verify --deep --strict "$stage_bundle"
@@ -95,6 +99,7 @@ verify_installed() {
   installed_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null || true)
   [ "$installed_id" = "$bundle_id" ] || return 1
   [ -f "$1/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json" ] || return 1
+  [ -f "$1/Contents/Resources/registry/editorial-techniques/motion.still.quiet_push.v1.json" ] || return 1
   [ -f "$1/Contents/Resources/schemas/effect-plan.schema.json" ] || return 1
   codesign --verify --deep --strict "$1" >/dev/null 2>&1 || return 1
   return 0

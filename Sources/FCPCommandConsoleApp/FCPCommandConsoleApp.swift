@@ -36,6 +36,10 @@ private final class AppModel: ObservableObject {
     /// Channels for the current plan, sampled by the preview. Cleared with the
     /// plan so a stale preview can never outlive what produced it.
     @Published var previewChannels: NativeFCPXMLEffectChannels?
+    // MARK: Surprise Me
+    @Published var treatmentOptions: TreatmentOptionSet?
+    @Published var appliedTreatment: TreatmentPlan?
+    @Published var isGeneratingOptions = false
 
     /// The Final Cut build on this machine, read once.
     ///
@@ -194,6 +198,135 @@ private final class AppModel: ObservableObject {
             previewChannels = effectChannels(for: planned)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Surprise Me
+
+    /// Offers up to three treatments that leave the edit exactly as the user
+    /// made it.
+    ///
+    /// The structure lock is established from the media **in the order the user
+    /// supplied it** and every option carries its fingerprint, so a treatment
+    /// that drifted could not be shown even if one were generated.
+    func surpriseMe() {
+        errorMessage = nil
+        noticeMessage = nil
+        treatmentOptions = nil
+        appliedTreatment = nil
+        isGeneratingOptions = true
+        defer { isGeneratingOptions = false }
+
+        let ordered = orderedMedia()
+        guard !ordered.isEmpty else {
+            errorMessage = "Add some media first — Surprise Me treats your clips, it does not choose them."
+            return
+        }
+        do {
+            let cardsURL = try appResource(named: "registry/editorial-techniques")
+            let catalog = try EditorialKnowledgeCatalog.load(from: cardsURL)
+            let lock = EditorialStructureLock.establish(
+                orderedMedia: ordered,
+                clipDurationFrames: ordered.map { _ in 120 }
+            )
+            let generator = TreatmentOptionGenerator(
+                catalog: catalog,
+                admittedCapabilities: Set(installedProfileContracts())
+            )
+            let set = generator.generate(
+                lock: lock,
+                media: currentMediaRoles(),
+                intent: TreatmentIntent(
+                    originalWording: command.isEmpty ? "surprise me" : command,
+                    intensity: .restrained
+                ),
+                basePlans: candidatePlans()
+            )
+            treatmentOptions = set
+            if set.options.isEmpty {
+                noticeMessage = set.shortfallExplanation ?? "No treatment can run on this media yet."
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Applies an option by adopting its validated effect plan.
+    ///
+    /// The command text and media are untouched, a fresh operation identity is
+    /// taken so stale export state cannot be reused, and the previous treatment
+    /// stays available for comparison.
+    func useTreatment(_ option: TreatmentPlan) {
+        errorMessage = nil
+        do {
+            let registryURL = try appResource(named: "registry/effects")
+            let schemaURL = try appResource(named: "schemas/effect-plan.schema.json")
+            let session = LocalMediaPlannerSession(
+                registry: try EffectRegistry.load(from: registryURL),
+                schemaValidator: try PlanSchemaValidator(schemaURL: schemaURL),
+                capabilityGate: capabilityGate
+            )
+            let request = defaultRequest(for: option.effectPlan.effectID)
+            let planned = try session.plan(
+                request: request, primary: primary, outgoing: outgoing, incoming: incoming, target: target
+            )
+            result = planned
+            previewChannels = effectChannels(for: planned)
+            appliedTreatment = option
+            package = nil
+            exportedProject = nil
+            noticeMessage = "Applied \(option.name). Your clips and timing are unchanged."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func orderedMedia() -> [LocalMediaAsset] {
+        [outgoing, primary, incoming].compactMap { $0 }
+    }
+
+    private func currentMediaRoles() -> [LocalMediaRole: LocalMediaAsset] {
+        var media: [LocalMediaRole: LocalMediaAsset] = [:]
+        media[.primary] = primary
+        media[.outgoing] = outgoing
+        media[.incoming] = incoming
+        return media
+    }
+
+    private func installedProfileContracts() -> [String] {
+        guard let installed = InstalledFinalCutVersionReader().read(),
+              let profile = FinalCutSemanticProfileStore.profile(for: installed) else { return [] }
+        return profile.admittedContracts.map(\.rawValue)
+    }
+
+    /// One validated plan per effect the current media can support.
+    ///
+    /// An effect that cannot be planned from this media is simply absent, which
+    /// is what stops the generator offering something unrunnable.
+    private func candidatePlans() -> [EffectID: EffectPlan] {
+        guard let registryURL = try? appResource(named: "registry/effects"),
+              let schemaURL = try? appResource(named: "schemas/effect-plan.schema.json"),
+              let registry = try? EffectRegistry.load(from: registryURL),
+              let validator = try? PlanSchemaValidator(schemaURL: schemaURL) else { return [:] }
+        let session = LocalMediaPlannerSession(registry: registry, schemaValidator: validator, capabilityGate: capabilityGate)
+        var plans: [EffectID: EffectPlan] = [:]
+        for effect in EffectID.allCases {
+            if let planned = try? session.plan(
+                request: defaultRequest(for: effect),
+                primary: primary, outgoing: outgoing, incoming: incoming, target: target
+            ) {
+                plans[effect] = planned.plan
+            }
+        }
+        return plans
+    }
+
+    private func defaultRequest(for effectID: EffectID) -> String {
+        switch effectID {
+        case .livingStill: return "Make this a living still."
+        case .targetedRotateZoom: return "Give this image a slow clockwise rotation while zooming toward the point I select."
+        case .naturalDissolve: return "cross dissolve"
+        case .oldTelevision: return "old television look"
         }
     }
 
@@ -471,7 +604,15 @@ private struct ContentView: View {
                           ? "Writes a new Final Cut project you import by hand. Nothing existing is opened or changed."
                           : standalone.reason)
                 }
+                // Optional, and deliberately beside the normal flow rather than
+                // replacing it: Surprise Me is an alternative way in, not the
+                // way in.
+                Button(model.isGeneratingOptions ? "Thinking…" : "Surprise Me") { model.surpriseMe() }
+                    .disabled(model.isGeneratingOptions || (model.primary == nil && model.outgoing == nil))
+                    .help("Shows up to three different treatments. Your clips and timing stay exactly as you set them.")
             }
+
+            if let set = model.treatmentOptions { TreatmentOptionsView(set: set, model: model) }
 
             // The two Final Cut claims, kept visually apart because they are
             // different claims and not two grades of the same one. Generating a
@@ -958,5 +1099,95 @@ private struct EffectPreview: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// Surprise Me's option cards.
+///
+/// The preservation promise is stated once at the top rather than repeated per
+/// card, because it is a property of the whole feature: every option carries
+/// the same editorial-structure fingerprint by construction.
+private struct TreatmentOptionsView: View {
+    let set: TreatmentOptionSet
+    @ObservedObject fileprivate var model: AppModel
+    @State private var showingRejected = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Divider()
+            Text("Treatment options").font(.headline)
+            Text("Your clips and timing are locked. These options change only the treatment.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let shortfall = set.shortfallExplanation {
+                Text(shortfall)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ForEach(set.options) { option in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(option.name).font(.subheadline).bold()
+                        Spacer()
+                        if model.appliedTreatment?.id == option.id {
+                            Text("Applied").font(.caption).foregroundStyle(.green)
+                        }
+                    }
+                    Text(option.idea).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(option.changes, id: \.self) { line in
+                        Text("• " + line).font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    // What is preserved, restated per card because this is the
+                    // reassurance the director-control contract asks for.
+                    Text("Preserved: " + option.preserved.joined(separator: " · "))
+                        .font(.caption2).foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Label(editabilityLabel(option.editability), systemImage: "slider.horizontal.3")
+                            .font(.caption2)
+                        if option.previewFidelity == .indicative {
+                            Label("Preview approximate", systemImage: "exclamationmark.triangle")
+                                .font(.caption2).foregroundStyle(.orange)
+                        }
+                        Label(costLabel(option), systemImage: "clock").font(.caption2)
+                    }
+                    HStack {
+                        Button("Use This") { model.useTreatment(option) }
+                            .disabled(model.appliedTreatment?.id == option.id)
+                        Text(option.techniqueCardIDs.joined(separator: ", "))
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
+            }
+
+            if !set.rejected.isEmpty {
+                DisclosureGroup("Why some options are not here (\(set.rejected.count))", isExpanded: $showingRejected) {
+                    ForEach(Array(set.rejected.enumerated()), id: \.offset) { _, entry in
+                        Text("• " + entry.explanation).font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .font(.caption)
+            }
+        }
+    }
+
+    private func editabilityLabel(_ value: TreatmentEditability) -> String {
+        switch value {
+        case .finalCutNative: return "Editable in Final Cut"
+        case .framesmithRegeneration: return "Adjust by regenerating"
+        case .fixed: return "Fixed once made"
+        }
+    }
+
+    private func costLabel(_ option: TreatmentPlan) -> String {
+        let latency = option.estimatedLatency == .instant ? "Instant" : String(describing: option.estimatedLatency).capitalized
+        return option.monetary == .free ? "\(latency) · free · local" : "\(latency) · paid"
     }
 }

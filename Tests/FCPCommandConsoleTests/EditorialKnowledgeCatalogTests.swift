@@ -192,7 +192,7 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         let motion = loaded.retrieve(.init(domains: [.motion], admittedCapabilities: admittedCapabilities, limit: 20))
         XCTAssertTrue(motion.allSatisfy { $0.domain == .motion })
 
-        let quiet = loaded.retrieve(.init(intentTags: ["quiet"], admittedCapabilities: admittedCapabilities, limit: 20))
+        let quiet = loaded.retrieve(.init(intentTags: ["quiet"], admittedCapabilities: admittedCapabilities, requireIntentMatch: true, limit: 20))
         XCTAssertTrue(quiet.allSatisfy { $0.intentTags.contains("quiet") })
         XCTAssertFalse(quiet.isEmpty)
     }

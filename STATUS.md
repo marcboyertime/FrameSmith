@@ -1,5 +1,34 @@
 # FrameSmith status
 
+## Editorial Intelligence Foundation — 2026-08-07
+
+The director-control contract is a **tested runtime invariant**, not prose.
+`EditorialStructureLock` captures ordered media identity, timeline placement,
+duration, source in-point, retiming, sync, protected regions, and
+narration/music digests; 19 adversarial tests assert that reordering, omitting,
+duplicating, substituting, retiming, slipping sync, or moving an edit point is
+refused. Validation compares fields rather than only a fingerprint, because a
+hash says *that* something changed and a director deserves to know *what*.
+
+Eleven provenance-bearing technique cards: **5 validated, 6 reference_only**.
+Validated means this repository built the construction and a returned FCPXML
+admitted it — never that a source described the technique.
+
+Surprise Me ships for one scenario end to end: a single admitted still with a
+confirmed focal target returns three materially different treatments, each
+carrying the same editorial-structure fingerprint. Coverage, diversity
+reasoning, manual verification, and limitations are recorded in
+`docs/editorial-intelligence/BAKEOFF_AND_COVERAGE.md`.
+
+All four effects now have production emitters. Natural dissolve and old
+television were generalized out of their probe builders and admitted by real
+import on 2026-08-07.
+
+**Not claimed:** no creative-language-to-parameter mapping exists; colour is
+indicative only; no audio, typography, masking, or tracking; old television's
+connected overlay is unexercised by its emitter; and no frame-by-frame
+comparative image-quality bakeoff has been run.
+
 ## Current implementation checkpoint
 
 Phase 1 is complete at the current repository checkpoint. `swift test` and
