@@ -30,6 +30,9 @@ private final class AppModel: ObservableObject {
     @Published var isCancellingPackage = false
     @Published var isExportingProject = false
     @Published var exportedProject: StandaloneFCPXMLExportBuilder.Package?
+    /// Channels for the current plan, sampled by the preview. Cleared with the
+    /// plan so a stale preview can never outlive what produced it.
+    @Published var previewChannels: NativeFCPXMLEffectChannels?
 
     /// The Final Cut build on this machine, read once.
     ///
@@ -79,6 +82,7 @@ private final class AppModel: ObservableObject {
         self.result = nil
         package = nil
         exportedProject = nil
+        previewChannels = nil
         noticeMessage = staleness.reason
         cancelPackage()
     }
@@ -173,6 +177,7 @@ private final class AppModel: ObservableObject {
         result = nil
         package = nil
         exportedProject = nil
+        previewChannels = nil
         do {
             let registryURL = try appResource(named: "registry/effects")
             let schemaURL = try appResource(named: "schemas/effect-plan.schema.json")
@@ -181,10 +186,31 @@ private final class AppModel: ObservableObject {
                 schemaValidator: try PlanSchemaValidator(schemaURL: schemaURL),
                 capabilityGate: capabilityGate
             )
-            result = try session.plan(request: command, primary: primary, outgoing: outgoing, incoming: incoming, target: target)
+            let planned = try session.plan(request: command, primary: primary, outgoing: outgoing, incoming: incoming, target: target)
+            result = planned
+            previewChannels = effectChannels(for: planned)
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// The channels a preview samples — the same ones the export would emit.
+    ///
+    /// Returns `nil` rather than surfacing an error: an effect with no emitter
+    /// is a known gap, not a fault in the plan, and the export button already
+    /// reports it with a stated reason. Failing the whole plan here would hide
+    /// a valid plan behind a missing preview.
+    private func effectChannels(for planned: LocalMediaPlanningResult) -> NativeFCPXMLEffectChannels? {
+        var media: [LocalMediaRole: LocalMediaAsset] = [:]
+        media[.primary] = primary
+        media[.outgoing] = outgoing
+        media[.incoming] = incoming
+        let emitters: [any StandaloneEffectEmitter] = [
+            LivingStillStandaloneEmitter(),
+            TargetedRotateZoomStandaloneEmitter()
+        ]
+        guard let emitter = emitters.first(where: { $0.effectID == planned.plan.effectID }) else { return nil }
+        return try? emitter.channels(plan: planned.plan, media: media)
     }
 
     /// Only one package operation may be in flight. Two builds of the same plan
@@ -426,6 +452,19 @@ private struct ContentView: View {
             if let notice = model.noticeMessage {
                 Text(notice).foregroundStyle(.orange).textSelection(.enabled)
             }
+            if let channels = model.previewChannels, let media = model.primary {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Effect preview").font(.headline)
+                    EffectPreview(media: media, channels: channels)
+                }
+            } else if model.result != nil {
+                // A plan with no preview is a stated gap, not a blank space.
+                // The export button reports the same absence with its own
+                // reason; leaving nothing here would read as "no effect".
+                Text("No preview for this effect yet — it has no emitter, so nothing can be shown or generated from it.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
             if let result = model.result {
                 PlanSummary(result: result)
             }
@@ -604,5 +643,163 @@ private struct GeneratedProjectSummary: View {
         .padding(10)
         .background(.quaternary)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// How much a preview can be trusted.
+///
+/// Stated per preview rather than assumed, because the tiers differ by more
+/// than polish. A transform preview reads the exact numbers that will be
+/// exported; a colour preview is a guess at a mapping nothing has observed.
+/// Presenting them identically would make the second look as reliable as the
+/// first.
+private enum PreviewFidelity {
+    /// Reads the emitted keyframes directly. Exact at keyframes.
+    case exact
+    /// Directionally right, magnitude unverified.
+    case indicative
+
+    var label: String {
+        switch self {
+        case .exact: return "Exact"
+        case .indicative: return "Indicative"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .exact: return .green
+        case .indicative: return .orange
+        }
+    }
+}
+
+/// Previews an effect by sampling the channels that will actually be exported.
+///
+/// The alternative — rendering from the composition model — would let the
+/// preview and the export disagree, and only Final Cut would ever find out.
+private struct EffectPreview: View {
+    let media: LocalMediaAsset
+    let channels: NativeFCPXMLEffectChannels
+
+    @State private var time: Double = 0
+    @State private var showColor = true
+    @State private var comparing = false
+
+    private var sampler: NativeFCPXMLChannelSampler {
+        NativeFCPXMLChannelSampler(frameHeight: channels.frameHeight)
+    }
+
+    private var state: NativeFCPXMLChannelState {
+        sampler.state(
+            transform: channels.transform,
+            opacity: channels.opacity,
+            atClipSeconds: time,
+            origin: channels.origin
+        )
+    }
+
+    /// Indicative only. Final Cut's `Saturation` runs 0–100 with no observed
+    /// mapping to a perceptual result, and the probes reused a captured `25`
+    /// rather than deriving it. Treating it as a percentage increase gets the
+    /// direction right and says nothing trustworthy about the amount.
+    private var indicativeSaturation: Double {
+        guard showColor, !comparing, let saturation = channels.saturation else { return 1 }
+        return 1 + saturation / 100
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GeometryReader { geometry in
+                ZStack {
+                    Color.black
+                    if let image = NSImage(contentsOf: media.url) {
+                        // Offsets are in source pixels; scale them into the
+                        // preview so the framing matches at any window size.
+                        let ratio = geometry.size.height / CGFloat(channels.frameHeight)
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .saturation(indicativeSaturation)
+                            .scaleEffect(comparing ? 1 : state.scale)
+                            .rotationEffect(.degrees(comparing ? 0 : -state.rotationDegrees))
+                            .offset(
+                                x: comparing ? 0 : state.offsetX * ratio,
+                                y: comparing ? 0 : state.offsetY * ratio
+                            )
+                            .opacity(comparing ? 1 : state.opacity)
+                            .clipped()
+                    } else {
+                        Text("Image unavailable").foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(height: 220)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            HStack(spacing: 10) {
+                Text(String(format: "%.2fs", time)).font(.caption.monospacedDigit())
+                Slider(value: $time, in: 0...max(channels.durationSeconds, 0.01))
+                Text(String(format: "%.2fs", channels.durationSeconds))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 12) {
+                // Colour needs an explicit A/B. During the living still pass a
+                // Saturation change was invisible during full-motion playback
+                // and obvious the moment it was toggled — so a preview that
+                // only ever shows the result fails silently for colour.
+                Button(comparing ? "Showing original" : "Hold to compare") {}
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in comparing = true }
+                            .onEnded { _ in comparing = false }
+                    )
+                if channels.saturation != nil {
+                    Toggle("Colour", isOn: $showColor)
+                        .toggleStyle(.checkbox)
+                        .controlSize(.small)
+                }
+                Spacer()
+            }
+
+            fidelityNotes
+        }
+    }
+
+    @ViewBuilder
+    private var fidelityNotes: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            badge(.exact, "Position, scale, rotation and opacity read the exported keyframes.")
+            Text("Between keyframes the preview interpolates linearly. Final Cut's default interpolation has never been observed, so mid-segment frames are approximate; the keyframes themselves are exact.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if channels.saturation != nil {
+                badge(.indicative, "Colour direction only — the Saturation mapping is unobserved, so the amount shown is not trustworthy.")
+            }
+            Text("Rotation direction is unverified against Final Cut.")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+        }
+    }
+
+    private func badge(_ fidelity: PreviewFidelity, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(fidelity.label)
+                .font(.caption2.bold())
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(fidelity.color.opacity(0.2))
+                .foregroundStyle(fidelity.color)
+                .clipShape(Capsule())
+            Text(text)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

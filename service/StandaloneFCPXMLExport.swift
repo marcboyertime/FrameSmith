@@ -28,6 +28,47 @@ public enum StandaloneExportError: Error, LocalizedError, Equatable {
     }
 }
 
+/// The intrinsic channels an effect will emit, before any document is built.
+///
+/// This exists so **preview and export read the same construction**. If a
+/// preview were computed from the composition model and the export from these
+/// channels, the two could disagree and only Final Cut would ever notice. With
+/// one source, a preview that looks wrong is a symptom of an export that is
+/// wrong — which is the useful direction for the error to point.
+public struct NativeFCPXMLEffectChannels: Sendable {
+    public let transform: NativeFCPXMLTransformChannel
+    public let opacity: NativeFCPXMLOpacityChannel
+    /// The Color Adjustments `Saturation` value, when the effect applies one.
+    ///
+    /// **Indicative only.** No observed mapping connects this 0–100 param to a
+    /// perceptual result, and the probes reused a captured `25` rather than
+    /// deriving it. A preview may suggest the direction of the change; it must
+    /// not claim the magnitude.
+    public let saturation: Double?
+    public let durationSeconds: Double
+    public let origin: NativeFCPXMLTimingOrigin
+    public let frameWidth: Int
+    public let frameHeight: Int
+
+    public init(
+        transform: NativeFCPXMLTransformChannel,
+        opacity: NativeFCPXMLOpacityChannel,
+        saturation: Double?,
+        durationSeconds: Double,
+        origin: NativeFCPXMLTimingOrigin,
+        frameWidth: Int,
+        frameHeight: Int
+    ) {
+        self.transform = transform
+        self.opacity = opacity
+        self.saturation = saturation
+        self.durationSeconds = durationSeconds
+        self.origin = origin
+        self.frameWidth = frameWidth
+        self.frameHeight = frameHeight
+    }
+}
+
 /// Emits the FCPXML body for one effect from a plan and its admitted media.
 ///
 /// Separate from the probe builders on purpose. A probe reproduces one fixed
@@ -35,6 +76,14 @@ public enum StandaloneExportError: Error, LocalizedError, Equatable {
 /// values, and the two have different failure modes.
 public protocol StandaloneEffectEmitter: Sendable {
     var effectID: EffectID { get }
+
+    /// The channels this effect will emit. `emitDocument` must build its
+    /// document from exactly this, so preview and export cannot diverge.
+    func channels(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset]
+    ) throws -> NativeFCPXMLEffectChannels
+
     func emitDocument(
         plan: EffectPlan,
         media: [LocalMediaRole: LocalMediaAsset],
@@ -48,6 +97,41 @@ public protocol StandaloneEffectEmitter: Sendable {
 public struct LivingStillStandaloneEmitter: StandaloneEffectEmitter {
     public let effectID: EffectID = .livingStill
     public init() {}
+
+    public func channels(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset]
+    ) throws -> NativeFCPXMLEffectChannels {
+        guard let asset = media[.primary] else { throw StandaloneExportError.missingMedia(.primary) }
+        let rate = NativeFCPXMLFrameRate.thirty
+        let width = asset.dimensions.width
+        let height = asset.dimensions.height
+        let durationFrames = LivingStillProbeTimeline.durationFrames
+
+        return NativeFCPXMLEffectChannels(
+            transform: .pushInAndPan(
+                startFrame: 0,
+                endFrame: durationFrames - 1,
+                rate: rate,
+                panXFraction: LivingStillProbeTimeline.panXFraction,
+                panYFraction: LivingStillProbeTimeline.panYFraction,
+                scaleStart: LivingStillProbeTimeline.scaleStart,
+                scaleEnd: LivingStillProbeTimeline.scaleEnd,
+                width: width,
+                height: height
+            ),
+            opacity: .fade(
+                fadeStartFrame: LivingStillProbeTimeline.fadeStartFrame,
+                endFrame: durationFrames - 1,
+                rate: rate
+            ),
+            saturation: LivingStillProbeTimeline.saturation,
+            durationSeconds: Double(durationFrames) / Double(rate.framesPerSecond),
+            origin: .still,
+            frameWidth: width,
+            frameHeight: height
+        )
+    }
 
     public func emitDocument(
         plan: EffectPlan,
@@ -73,23 +157,11 @@ public struct LivingStillStandaloneEmitter: StandaloneEffectEmitter {
             height: height,
             frameRate: rate
         )
-        let transform = NativeFCPXMLTransformChannel.pushInAndPan(
-            startFrame: 0,
-            endFrame: durationFrames - 1,
-            rate: rate,
-            panXFraction: LivingStillProbeTimeline.panXFraction,
-            panYFraction: LivingStillProbeTimeline.panYFraction,
-            scaleStart: LivingStillProbeTimeline.scaleStart,
-            scaleEnd: LivingStillProbeTimeline.scaleEnd,
-            width: width,
-            height: height
-        )
-        let opacity = NativeFCPXMLOpacityChannel.fade(
-            fadeStartFrame: LivingStillProbeTimeline.fadeStartFrame,
-            endFrame: durationFrames - 1,
-            rate: rate
-        )
-        let colorFilter = NativeFCPXMLColorAdjustments.filterNode(ref: "r4", saturation: LivingStillProbeTimeline.saturation)
+        // Built from the shared construction, never re-derived here.
+        let built = try channels(plan: plan, media: media)
+        let transform = built.transform
+        let opacity = built.opacity
+        let colorFilter = NativeFCPXMLColorAdjustments.filterNode(ref: "r4", saturation: built.saturation ?? LivingStillProbeTimeline.saturation)
 
         var children: [NativeFCPXMLNode] = []
         if let node = transform.node { children.append(node) }
@@ -117,15 +189,11 @@ public struct TargetedRotateZoomStandaloneEmitter: StandaloneEffectEmitter {
     public let effectID: EffectID = .targetedRotateZoom
     public init() {}
 
-    public func emitDocument(
+    public func channels(
         plan: EffectPlan,
-        media: [LocalMediaRole: LocalMediaAsset],
-        publishedMediaURLs: [LocalMediaRole: URL],
-        version: String
-    ) throws -> String {
-        guard let asset = media[.primary], let url = publishedMediaURLs[.primary] else {
-            throw StandaloneExportError.missingMedia(.primary)
-        }
+        media: [LocalMediaRole: LocalMediaAsset]
+    ) throws -> NativeFCPXMLEffectChannels {
+        guard let asset = media[.primary] else { throw StandaloneExportError.missingMedia(.primary) }
         let rate = NativeFCPXMLFrameRate.thirty
         let width = asset.dimensions.width
         let height = asset.dimensions.height
@@ -140,13 +208,12 @@ public struct TargetedRotateZoomStandaloneEmitter: StandaloneEffectEmitter {
         guard let point = plan.normalizedPoint, point.confirmed, point.isInNormalizedBounds else {
             throw StandaloneExportError.unconfirmedTarget
         }
-        let target = Point2D(x: point.x, y: point.y)
         let durationFrames = NativeEffectProbeTimeline.durationFrames
 
         let recipe: TargetedTransformKeyframeRecipe
         do {
             recipe = try TargetedTransformKeyframeRecipe(
-                source: target,
+                source: Point2D(x: point.x, y: point.y),
                 durationSeconds: Double(durationFrames) / Double(rate.framesPerSecond),
                 scaleStart: NativeEffectProbeTimeline.scaleStart,
                 scaleEnd: NativeEffectProbeTimeline.scaleEnd,
@@ -159,14 +226,40 @@ public struct TargetedRotateZoomStandaloneEmitter: StandaloneEffectEmitter {
 
         // A still and a movie do not share a keyframe origin.
         let origin: NativeFCPXMLTimingOrigin = asset.kind == .still ? .still : .movieFromZero
-        let transform = NativeFCPXMLTransformChannel.targetedRotateZoom(
-            recipe: recipe,
-            rate: rate,
+        return NativeFCPXMLEffectChannels(
+            transform: .targetedRotateZoom(
+                recipe: recipe,
+                rate: rate,
+                origin: origin,
+                width: width,
+                height: height,
+                clipDurationFrames: durationFrames
+            ),
+            opacity: NativeFCPXMLOpacityChannel(),
+            saturation: nil,
+            durationSeconds: Double(durationFrames) / Double(rate.framesPerSecond),
             origin: origin,
-            width: width,
-            height: height,
-            clipDurationFrames: durationFrames
+            frameWidth: width,
+            frameHeight: height
         )
+    }
+
+    public func emitDocument(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset],
+        publishedMediaURLs: [LocalMediaRole: URL],
+        version: String
+    ) throws -> String {
+        guard let asset = media[.primary], let url = publishedMediaURLs[.primary] else {
+            throw StandaloneExportError.missingMedia(.primary)
+        }
+        let rate = NativeFCPXMLFrameRate.thirty
+        let width = asset.dimensions.width
+        let height = asset.dimensions.height
+        let durationFrames = NativeEffectProbeTimeline.durationFrames
+
+        // Built from the shared construction, never re-derived here.
+        let transform = try channels(plan: plan, media: media).transform
         let duration = rate.time(frames: durationFrames)
         let name = StandaloneFCPXMLExportBuilder.projectName(for: plan)
 
