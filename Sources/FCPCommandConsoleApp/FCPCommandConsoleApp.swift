@@ -208,12 +208,32 @@ private final class AppModel: ObservableObject {
         media[.primary] = primary
         media[.outgoing] = outgoing
         media[.incoming] = incoming
-        let emitters: [any StandaloneEffectEmitter] = [
-            LivingStillStandaloneEmitter(),
-            TargetedRotateZoomStandaloneEmitter()
-        ]
-        guard let emitter = emitters.first(where: { $0.effectID == planned.plan.effectID }) else { return nil }
+        guard let emitter = StandaloneEmitterCatalog().emitter(for: planned.plan.effectID) else { return nil }
         return try? emitter.channels(plan: planned.plan, media: media)
+    }
+
+    /// Parameter controls call the same atomic revision path as other core
+    /// callers. A rejected edit leaves the visible plan and preview untouched.
+    func revise(parameters patch: [String: ParameterValue]) {
+        guard let result else { return }
+        do {
+            let registryURL = try appResource(named: "registry/effects")
+            let schemaURL = try appResource(named: "schemas/effect-plan.schema.json")
+            let revised = try LocalMediaPlanRevisionService(
+                registry: EffectRegistry.load(from: registryURL),
+                schemaValidator: PlanSchemaValidator(schemaURL: schemaURL),
+                capabilityGate: capabilityGate
+            ).revise(result, patch: patch)
+            self.result = revised
+            previewChannels = effectChannels(for: revised)
+            package = nil
+            exportedProject = nil
+            errorMessage = nil
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func parameterDefinitions(for result: LocalMediaPlanningResult) -> [ParameterDefinition] {
+        (try? EffectRegistry.load(from: try appResource(named: "registry/effects")).definition(for: result.plan.effectID).parameters) ?? []
     }
 
     /// Only one package operation may be in flight. Two builds of the same plan
@@ -488,6 +508,7 @@ private struct ContentView: View {
                     .foregroundStyle(.orange)
             }
             if let result = model.result {
+                ParameterInspector(result: result, definitions: model.parameterDefinitions(for: result), revise: model.revise)
                 PlanSummary(result: result)
             }
             if let package = model.package {
@@ -514,6 +535,88 @@ private struct ContentView: View {
     private func admit(_ urls: [URL], as role: LocalMediaRole) {
         guard let url = urls.first else { return }
         model.admit(url, as: role)
+    }
+}
+
+/// Metadata-driven inspector: it intentionally has no effect-ID switches.
+private struct ParameterInspector: View {
+    let result: LocalMediaPlanningResult
+    let definitions: [ParameterDefinition]
+    let revise: ([String: ParameterValue]) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Creative parameters").font(.headline)
+                Button("Reset all") {
+                    let patch = Dictionary(uniqueKeysWithValues: definitions.compactMap { definition -> (String, ParameterValue)? in
+                        (definition.presentation ?? .failClosed).exposure.isEditable ? result.baselineParameters[definition.name].map { (definition.name, $0) } : nil
+                    })
+                    revise(patch)
+                }
+            }
+            ForEach(ParameterGroup.allCases, id: \.self) { group in
+                let listed = definitions.filter { ($0.presentation ?? .failClosed).group == group }
+                if !listed.isEmpty {
+                    Text(group.rawValue.capitalized).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    ForEach(listed, id: \.name) { definition in
+                        ParameterControl(definition: definition, value: result.plan.parameters[definition.name] ?? .null, baseline: result.baselineParameters[definition.name], revise: revise)
+                    }
+                }
+            }
+        }
+        .padding(10).background(.quaternary).clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct ParameterControl: View {
+    let definition: ParameterDefinition
+    let value: ParameterValue
+    let baseline: ParameterValue?
+    let revise: ([String: ParameterValue]) -> Void
+    @State private var text = ""
+
+    private var presentation: ParameterPresentation { definition.presentation ?? .failClosed }
+    private var editable: Bool { presentation.exposure.isEditable }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(presentation.label)
+                if presentation.exposure == .approximateEditable { Text("Approximate").font(.caption2).foregroundStyle(.orange) }
+                if !editable { Text("Read-only").font(.caption2).foregroundStyle(.secondary) }
+                Spacer()
+                if editable, let baseline { Button("Reset") { revise([definition.name: baseline]) }.font(.caption) }
+            }
+            if editable { control } else { Text("\(display(value)) — \(presentation.explanation)").font(.caption).foregroundStyle(.secondary) }
+            if let units = presentation.units, editable { Text(units).font(.caption2).foregroundStyle(.secondary) }
+        }
+        .onAppear { text = display(value) }
+    }
+
+    @ViewBuilder private var control: some View {
+        switch definition.type {
+        case "boolean":
+            Toggle("", isOn: Binding(get: { if case .boolean(let flag) = value { return flag }; return false }, set: { revise([definition.name: .boolean($0)]) }))
+                .labelsHidden()
+        case "string" where definition.allowedValues != nil:
+            Picker("", selection: Binding(get: { value.stringValue ?? "" }, set: { revise([definition.name: .string($0)]) })) {
+                ForEach(definition.allowedValues?.compactMap(\.stringValue) ?? [], id: \.self) { Text($0).tag($0) }
+            }.labelsHidden()
+        case "integer":
+            Stepper(value: Binding(get: { value.numberValue.map(Int.init) ?? 0 }, set: { revise([definition.name: .integer($0)]) }), in: Int(definition.minimum ?? -1000)...Int(definition.maximum ?? 1000)) { Text(display(value)) }
+        default:
+            HStack {
+                if let minimum = definition.minimum, let maximum = definition.maximum {
+                    Slider(value: Binding(get: { value.numberValue ?? 0 }, set: { revise([definition.name: .number($0)]) }), in: minimum...maximum)
+                }
+                TextField("Value", text: $text).frame(width: 72).onSubmit { if let number = Double(text), number.isFinite { revise([definition.name: .number(number)]) } }
+            }
+        }
+    }
+
+    private func display(_ value: ParameterValue) -> String {
+        switch value { case .string(let string): return string; case .number(let number): return String(number); case .integer(let integer): return String(integer); case .boolean(let boolean): return boolean ? "On" : "Off"; default: return "—" }
     }
 }
 
