@@ -1,35 +1,58 @@
 # FrameSmith
 
-FrameSmith (repository and bundle identifiers remain FCPCommandConsole) now creates a **new** Final Cut project from admitted local media; it never modifies a timeline. Real emitter-backed preview/export currently cover Living Still and Targeted Rotate + Zoom. Natural Dissolve and Old Television are honestly unavailable pending generalized emitters. Registry controls distinguish exact supported edits, approximate edits, invariants, and unsupported values; Living Still color is indicative only and fixed to captured Saturation 25.
+FrameSmith is the product name; the repository, Swift package, bundle, and
+legacy command identifiers remain `FCPCommandConsole` for compatibility. Phase
+1 is complete at the current **213-test** checkpoint.
 
-FCPCommandConsole is a private, local macOS planner with a standalone SwiftUI
-app. It accepts local stills/movies read-only, creates schema-versioned plans,
-and saves inert, byte-verified plan/media packages. It has no network runtime
-and does not automate, patch, launch, or modify Final Cut Pro.
+It is a real local SwiftUI macOS app for turning admitted stills or movies and
+a creative instruction into a schema-versioned FrameSmith plan. It admits media
+read-only with source identities, plans against the local registry, offers a
+plan-revision inspector, and can generate a **new** Final Cut project package.
+It never inspects or mutates an existing Final Cut timeline.
 
-The installed app is `/Users/marcboyer/Applications/FCPCommandConsole.app`.
-Build/install/launch it with:
+Living Still and Targeted Rotate + Zoom have production standalone emitters.
+Their shared plan-driven channels feed both the app preview and FCPXML export,
+so a changed admitted control has one construction path. Natural Dissolve and
+Old Television are deliberately unavailable in this milestone: they have no
+general standalone emitter yet, and the catalog presents the same explicit
+reason in preview and export rather than implying a partial implementation.
+
+The inspector exposes only registry-declared live controls. It distinguishes
+runtime/approximate edits from invariant and unsupported values, validates
+revisions atomically, and supports reset/reset-all to the plan baseline. Living
+Still's color construction is only the captured Saturation 25 adapter: it is
+indicative, not arbitrary color grading or perceptual calibration. Easing is
+read-only where no emitted FCPXML representation has been established.
+
+## Build and verify
 
 ```sh
 swift test
+make test
+swift build -c release
 make install-app
 make launch-app
 ```
 
-The app is explicitly **LOCAL MEDIA PREVIEW ONLY**. Source preview is not an
-effect render. FCPXML export is visible but disabled by `CapabilityGate` because
-Final Cut semantics, selection evidence, import, export, and editability remain
-unverified.
+At this checkpoint, `swift test` and `make test` pass all 213 tests; `make test`
+also runs the core registry/schema/forbidden-pattern audit. Installing or
+launching an app is a separate local-artifact step, not proof that a previous
+installed copy is current.
 
-Plans use schema `2.0` and the canonical representations `fcpxml_native`,
-`layered_media`, `motion_template`, `external_editable_composition`, and
-`baked_render`. Legacy schema/value inputs are quarantined and must be replanned.
+## Outputs and evidence boundary
 
-`Save Local Plan Package` creates an inert package under
+`Save Local Plan Package` writes an inert, byte-verified package under
 `~/Movies/FCPCommandConsole/exports/local-plan-packages/` by default. It copies
-only verified source bytes and metadata; it is not FCPXML, not an effect render,
-and is not claimed to be Final Cut importable.
+admitted media and plan/provenance metadata, but it is not FCPXML, not an effect
+render, and is not claimed importable by Final Cut.
 
-See [STATUS.md](STATUS.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
-[docs/RUNBOOK.md](docs/RUNBOOK.md), and [docs/HANDOFF.md](docs/HANDOFF.md) for
-the current evidence boundary and next manual probe.
+Standalone FCPXML export is different: after registry validation, admitted
+local-media checks, emitter availability, and the version-scoped Final Cut
+semantic profile, it stages and publishes a new project package. The profile is
+specific to Final Cut 12.3 (build 450152); evidence remains bounded to the
+admitted constructions and does not establish broad visual quality, arbitrary
+parameter mappings, or all future Final Cut versions.
+
+See [STATUS.md](STATUS.md), [docs/PARAMETER_LIVENESS.md](docs/PARAMETER_LIVENESS.md),
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and
+[docs/POST_PHASE1_ROADMAP.md](docs/POST_PHASE1_ROADMAP.md).

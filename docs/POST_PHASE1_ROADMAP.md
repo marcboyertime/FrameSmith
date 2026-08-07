@@ -35,9 +35,12 @@ The tempting shape for a tool like this is a menu of named looks — "VHS",
 That shape collapses within a month of real use, because the second request is
 always *"same thing but less"*, and a flattened one-off has no *less*.
 
-So: **no phase below ships a named effect as its unit of work.** The units are
-typed primitives, and looks are inspectable compositions of them. A recipe the
-user cannot take apart is a bug, not a feature.
+So: typed primitives and inspectable compositions remain the preferred unit of
+work. Useful editability is a priority, not an absolute veto on quality. When a
+layered, rendered, or ML-assisted construction wins materially, it may ship if
+FrameSmith retains enough revision data, parameters, source identities, and
+provenance for the user to understand and revise the operation. A flattened
+result without that retained record is not acceptable.
 
 ---
 
@@ -126,9 +129,8 @@ Two notes on the spine:
 
 ## Next Phase A: productionize the standalone tool
 
-**Goal:** convert the validated workflows into a tool usable for real videos.
-This is first priority because everything currently proven is only reachable
-through manual probe scripts.
+**Goal:** carry the validated workflows into a tool usable for real videos,
+then add the remaining two Phase 1 effects using the same construction path.
 
 **Done when:** the user can go from a folder of media and a sentence of
 direction to an importable Final Cut project, without touching a terminal.
@@ -136,31 +138,35 @@ direction to an importable Final Cut project, without touching a terminal.
 ### A1. Version-scoped semantic profile — ✅ **done**
 
 `service/FinalCutSemanticProfile.swift`, scoped to Final Cut **12.3 (450152)**.
-Admits five contracts; `connectedOverlayLayers` deliberately absent. Fails
-closed on any version drift. See HANDOFF §6 item 3.
+It admits the currently documented contracts, including rotation and connected
+overlays, and fails closed on version drift. See `STATUS.md` for the bounded
+claim rather than extrapolating it to another Final Cut build.
 
-### A2. Standalone FCPXML export capability — ⚠️ **gate done, emitter route not**
+### A2. Standalone FCPXML export capability — ✅ **done for current emitters**
 
 `standaloneFCPXMLExport` exists in `CapabilityGate` and requires canonical
 admitted local media, a valid schema-v2 plan, and effect-scoped contracts. It
-refuses a timeline selection as a category error.
-
-Remaining: wire it to an actual export that generates a new project/package.
-The gate authorizes; nothing yet acts on the authorization.
+refuses a timeline selection as a category error. `StandaloneFCPXMLExportBuilder`
+also validates the registry/plan/media relationship, resolves the shared
+emitter catalog, stages safely, and publishes a new-project package only after
+those checks pass.
 
 The claim boundary must stay explicit in the UI, not just in code: FrameSmith
 **generates a new project**. It does not modify an existing timeline, and must
 never word its output as though it had.
 
-### A3. Integrate the native emitters into the SwiftUI app
+### A3. Shared emitter integration — ✅ **done for Living Still and Targeted Rotate + Zoom**
 
-`service/NativeFCPXML/` currently serves probe executables only. Move it behind
-the app's job path so the same primitives serve preview, export, and packaging.
+The app and standalone export use the same plan-driven channels for Living
+Still and Targeted Rotate + Zoom. Natural Dissolve and Old Television remain
+explicit catalog absences until their generalized emitters are added; they are
+the next milestone, not hidden fallback paths.
 
-### A4. Real effect preview, not source-only preview
+### A4. Shared effect preview — ✅ **done for current emitters**
 
-Today the app previews the source. That is honest but nearly useless — the user
-cannot judge an operation they cannot see.
+Living Still and Targeted Rotate + Zoom preview the same emitted construction
+used for export. Preview remains effect-scoped: availability is not inferred
+from merely having source media or JSON parameters.
 
 Preview strategy is per-primitive (it is one of the seven contract fields) and
 will not be uniform. Expect three tiers:
@@ -182,10 +188,13 @@ that just shows the result has failed at its only job. Every colour primitive
 therefore needs an explicit A/B affordance. Expect the same to be true of
 subtle grain, vignette, and diffusion in Phases B and C.
 
-### A5. Visible, editable parameter controls
+### A5. Visible, editable parameter controls — ✅ **done**
 
-Every parameter in the plan gets a control. This is where "adjustable" stops
-being a claim and becomes a fact. Bounds come from the primitive contract.
+The revision inspector presents only metadata-declared live controls. It gives
+invariants and unsupported values an explanatory read-only state, validates
+numeric drafts and patches atomically, and supports reset/reset-all to the
+original baseline. Bounds and exposure come from registry metadata, not a UI
+guess based on parameter presence.
 
 ### A6. Effect stacking in one plan
 
@@ -224,17 +233,18 @@ Grouped by system, not listed as features:
 
 **Geometry** — `scale`, `position`, `rotation`, `anchor targeting`, `crop`
 
-Position and scale are admitted (Phase 1). **Rotation is not** — its encoding is
-unobserved, and `native.targeted_rotate_zoom` must capture it the same way the
-living still captured transform before emitting one. Anchor targeting is what
-makes "zoom toward *that*" work and is the reason `AspectFitPointMapper` and
-`TransformMath` already exist.
+Position, scale, and rotation are admitted in the current scoped evidence.
+`native.targeted_rotate_zoom` emits signed rotation through its shared channels;
+anchor targeting is what makes "zoom toward *that*" work and is the reason
+`AspectFitPointMapper` and `TransformMath` exist. New geometry primitives still
+need their own capture/evidence rather than inheriting this admission.
 
 **Compositing** — `opacity`, `blend mode`, `connected layers`
 
-Opacity keyframes are admitted. Blend modes were **not** exercised by the living
-still pass. Connected layers have **no evidence at all** and are the single
-blocker on `look.old_television`.
+Opacity keyframes and connected overlay layers are admitted in the current
+scoped evidence. Blend-mode breadth remains unproven, and Old Television still
+needs a generalized emitter and its own parameter-to-construction coverage; its
+unavailability is not an evidence absence disguised as a UI limitation.
 
 **Color** — `exposure`, `contrast`, `saturation`, `temperature`, `tint`,
 `monochrome`, `vignette`
@@ -493,14 +503,17 @@ within the configured budget (`service/CostPolicy.swift` already exists).
 
 ### The governing rule
 
-**Never use generative processing when an editable conventional operation can
-produce the requested result.**
+**Prefer an editable conventional operation when it reaches the required
+quality.** A layered, rendered, or generative construction is allowed when it
+materially wins on the requested result, provided FrameSmith preserves the
+source identities, chosen settings, generated assets, revision lineage, and
+provenance needed for an honest future edit. Opaque output with no retained
+revision record remains unacceptable.
 
-This is not a stylistic preference. A generative result is opaque, unrepeatable,
-and unadjustable — it violates *transparent* and *adjustable* simultaneously. It
-is justified only where no conventional operation exists at all: removing an
-object from a moving shot, reconstructing a background, inventing motion in a
-still beyond what a 2.5D parallax can do.
+That distinction matters for object removal, background reconstruction, and
+motion beyond a modest 2.5D treatment: refusing a clearly better result merely
+because it is not native would violate the quality-first doctrine. The UI and
+provenance must state the tier used and its editability limits.
 
 `reference/BrokenSource/DepthFlow` (**AGPL-3.0**) is worth noting here: depth-based
 parallax is a *conventional* operation that covers a large share of what people
@@ -532,31 +545,26 @@ have terms that do not fit. Read them before building on them.
 
 ---
 
-## Gate: what "current phase complete" means
+## Current gate and next emitter milestone
 
-**No Phase A–G or Final Phase implementation may begin until all of the
-following are complete.** Current status:
+Phase 1 is complete for the present scope. The table below records current
+implementation truth, not a prohibition on beginning future work:
 
 | Item | Status |
 | --- | --- |
-| Living Still emitter | ✅ done (`ba2bb32`) |
-| Living Still admission pass | ✅ passed 2026-08-04, returned intact |
-| Editability pass (dissolve) | ✅ passed 2026-08-04 |
-| Living Still editability | ❌ not run |
-| Targeted transform | ❌ rotation encoding unobserved; no capture, no emitter |
-| Old Television layers | ❌ `connectedOverlayLayers` has no evidence at all |
-| Natural dissolve | ✅ admitted and editable |
-| Standalone export route | ⚠️ gate done (`551f96b`); emitter wiring not done |
+| Living Still | ✅ production emitter, shared preview/export channels, parameter-truth inspector |
+| Targeted Rotate + Zoom | ✅ production emitter, confirmed-target transform/rotation path |
+| Rotation semantics | ✅ admitted in the current Final Cut 12.3 (450152) scoped profile |
+| Connected overlay semantics | ✅ admitted in the current Final Cut 12.3 (450152) scoped profile |
+| Standalone export route | ✅ validated registry/media/emitter route, new-project-only package publication |
+| Natural Dissolve | ⏭ next-milestone generalized emitter; explicitly unavailable today |
+| Old Television | ⏭ next-milestone generalized emitter; explicitly unavailable today |
 
-Two smaller gaps recorded during the passes, both cheap:
-
-- **Living still playback** was never visually confirmed — structural admission
-  is not render confirmation.
-- **First-import asset resolution for the still** rode on dedup against media
-  already in the library. The dissolve pass covers this for `.mov` from a
-  package `Media/` directory; the still does not.
-
-See `docs/NEXT_CLAUDE_PROMPT.md` for the ordered work list.
+The next work is not to relitigate Phase 1. It is to give Natural Dissolve and
+Old Television the same registry → validated plan → shared channels →
+preview/FCPXML path, with focused evidence and regression coverage. Existing
+evidence remains version-scoped and construction-scoped; it does not substitute
+for visual-quality evaluation or broad compatibility claims.
 
 ---
 
