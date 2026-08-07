@@ -2,6 +2,14 @@ import XCTest
 @testable import FCPCommandConsoleCore
 
 final class CoreTests: XCTestCase {
+    func testPreviewTimeClampsRetainedStateToCurrentChannelDuration() {
+        XCTAssertEqual(PreviewTime.clamped(5.94, duration: 4), 4)
+        XCTAssertEqual(PreviewTime.clamped(-1, duration: 4), 0)
+        XCTAssertEqual(PreviewTime.clamped(2, duration: 4), 2)
+        XCTAssertEqual(PreviewTime.clamped(.infinity, duration: 4), 0)
+        XCTAssertEqual(PreviewTime.clamped(2, duration: 0), 0)
+    }
+
     func testParameterNumericInputRejectsInvalidDraftsAndAcceptsFiniteNumbers() {
         XCTAssertEqual(ParameterNumericInput.parse("1.25"), .success(1.25))
         for text in ["", "nope", "nan", "inf"] {

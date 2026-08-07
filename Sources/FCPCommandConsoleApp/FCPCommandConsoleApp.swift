@@ -835,11 +835,15 @@ private struct EffectPreview: View {
         NativeFCPXMLChannelSampler(frameHeight: channels.frameHeight)
     }
 
+    private var previewTime: Double {
+        PreviewTime.clamped(time, duration: channels.durationSeconds)
+    }
+
     private var state: NativeFCPXMLChannelState {
         sampler.state(
             transform: channels.transform,
             opacity: channels.opacity,
-            atClipSeconds: time,
+            atClipSeconds: previewTime,
             origin: channels.origin
         )
     }
@@ -886,8 +890,14 @@ private struct EffectPreview: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
             HStack(spacing: 10) {
-                Text(String(format: "%.2fs", time)).font(.caption.monospacedDigit())
-                Slider(value: $time, in: 0...max(channels.durationSeconds, 0.01))
+                Text(String(format: "%.2fs", previewTime)).font(.caption.monospacedDigit())
+                Slider(
+                    value: Binding(
+                        get: { previewTime },
+                        set: { time = PreviewTime.clamped($0, duration: channels.durationSeconds) }
+                    ),
+                    in: 0...max(channels.durationSeconds, 0.01)
+                )
                 Text(String(format: "%.2fs", channels.durationSeconds))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -915,6 +925,9 @@ private struct EffectPreview: View {
             }
 
             fidelityNotes
+        }
+        .onChange(of: channels.durationSeconds) { _, duration in
+            time = PreviewTime.clamped(time, duration: duration)
         }
     }
 
