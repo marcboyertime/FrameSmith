@@ -2,6 +2,12 @@ import XCTest
 @testable import FCPCommandConsoleCore
 
 final class CoreTests: XCTestCase {
+    func testParameterNumericInputRejectsInvalidDraftsAndAcceptsFiniteNumbers() {
+        XCTAssertEqual(ParameterNumericInput.parse("1.25"), .success(1.25))
+        for text in ["", "nope", "nan", "inf"] {
+            if case .success = ParameterNumericInput.parse(text) { XCTFail("expected invalid draft for \(text)") }
+        }
+    }
     private var sourceA: URL!
     private var sourceB: URL!
 

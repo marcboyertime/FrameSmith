@@ -232,6 +232,8 @@ private final class AppModel: ObservableObject {
         } catch { errorMessage = error.localizedDescription }
     }
 
+    func reportValidation(_ message: String) { errorMessage = message }
+
     func parameterDefinitions(for result: LocalMediaPlanningResult) -> [ParameterDefinition] {
         (try? EffectRegistry.load(from: try appResource(named: "registry/effects")).definition(for: result.plan.effectID).parameters) ?? []
     }
@@ -513,7 +515,7 @@ private struct ContentView: View {
                     .foregroundStyle(.orange)
             }
             if let result = model.result {
-                ParameterInspector(result: result, definitions: model.parameterDefinitions(for: result), revise: model.revise)
+                ParameterInspector(result: result, definitions: model.parameterDefinitions(for: result), revise: model.revise, reportValidation: model.reportValidation)
                 PlanSummary(result: result)
             }
             if let package = model.package {
@@ -548,6 +550,7 @@ private struct ParameterInspector: View {
     let result: LocalMediaPlanningResult
     let definitions: [ParameterDefinition]
     let revise: ([String: ParameterValue]) -> Void
+    let reportValidation: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -565,7 +568,7 @@ private struct ParameterInspector: View {
                 if !listed.isEmpty {
                     Text(group.rawValue.capitalized).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     ForEach(listed, id: \.name) { definition in
-                        ParameterControl(definition: definition, value: result.plan.parameters[definition.name] ?? .null, baseline: result.baselineParameters[definition.name], revise: revise)
+                        ParameterControl(definition: definition, value: result.plan.parameters[definition.name] ?? .null, baseline: result.baselineParameters[definition.name], revise: revise, reportValidation: reportValidation)
                     }
                 }
             }
@@ -579,6 +582,7 @@ private struct ParameterControl: View {
     let value: ParameterValue
     let baseline: ParameterValue?
     let revise: ([String: ParameterValue]) -> Void
+    let reportValidation: (String) -> Void
     @State private var text = ""
 
     private var presentation: ParameterPresentation { definition.presentation ?? .failClosed }
@@ -593,10 +597,11 @@ private struct ParameterControl: View {
                 Spacer()
                 if editable, let baseline { Button("Reset") { revise([definition.name: baseline]) }.font(.caption) }
             }
-            if editable { control } else { Text("\(display(value)) — \(presentation.explanation)").font(.caption).foregroundStyle(.secondary) }
+            if editable { control; Text(presentation.explanation).font(.caption).foregroundStyle(.secondary) } else { Text("\(display(value)) — \(presentation.explanation)").font(.caption).foregroundStyle(.secondary) }
             if let units = presentation.units, editable { Text(units).font(.caption2).foregroundStyle(.secondary) }
         }
         .onAppear { text = display(value) }
+        .onChange(of: value) { _, newValue in text = display(newValue) }
     }
 
     @ViewBuilder private var control: some View {
@@ -615,7 +620,12 @@ private struct ParameterControl: View {
                 if let minimum = definition.minimum, let maximum = definition.maximum {
                     Slider(value: Binding(get: { value.numberValue ?? 0 }, set: { revise([definition.name: .number($0)]) }), in: minimum...maximum)
                 }
-                TextField("Value", text: $text).frame(width: 72).onSubmit { if let number = Double(text), number.isFinite { revise([definition.name: .number(number)]) } }
+                TextField("Value", text: $text).frame(width: 72).onSubmit {
+                    switch ParameterNumericInput.parse(text) {
+                    case .success(let number): revise([definition.name: .number(number)])
+                    case .failure(let error): reportValidation("\(presentation.label): \(error.message)")
+                    }
+                }
             }
         }
     }
