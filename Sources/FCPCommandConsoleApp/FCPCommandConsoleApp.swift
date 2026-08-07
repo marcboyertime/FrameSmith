@@ -23,6 +23,9 @@ private final class AppModel: ObservableObject {
     @Published var primary: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted() } }
     @Published var outgoing: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted() } }
     @Published var incoming: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted() } }
+    /// A texture composited above the primary clip. Optional, and not part of
+    /// the edit — so it is deliberately absent from the structure lock.
+    @Published var overlay: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted() } }
     @Published var target: Target? { didSet { invalidatePlanIfInputsDrifted() } }
     @Published var result: LocalMediaPlanningResult?
     @Published var package: LocalPlanPackage?
@@ -148,6 +151,7 @@ private final class AppModel: ObservableObject {
         case .primary: primary = nil
         case .outgoing: outgoing = nil
         case .incoming: incoming = nil
+        case .overlay: overlay = nil
         }
         target = nil
         result = nil
@@ -175,6 +179,7 @@ private final class AppModel: ObservableObject {
         case .primary: primary = media
         case .outgoing: outgoing = media
         case .incoming: incoming = media
+        case .overlay: overlay = media
         }
     }
 
@@ -281,6 +286,9 @@ private final class AppModel: ObservableObject {
         }
     }
 
+    /// Only structural roles enter the lock. An overlay is a texture on top of
+    /// a clip, not a clip in the edit, so including it would make swapping a
+    /// texture look like restructuring the cut.
     private func orderedMedia() -> [LocalMediaAsset] {
         [outgoing, primary, incoming].compactMap { $0 }
     }
@@ -290,6 +298,7 @@ private final class AppModel: ObservableObject {
         media[.primary] = primary
         media[.outgoing] = outgoing
         media[.incoming] = incoming
+        media[.overlay] = overlay
         return media
     }
 
@@ -341,6 +350,7 @@ private final class AppModel: ObservableObject {
         media[.primary] = primary
         media[.outgoing] = outgoing
         media[.incoming] = incoming
+        media[.overlay] = overlay
         guard let emitter = StandaloneEmitterCatalog().emitter(for: planned.plan.effectID) else { return nil }
         return try? emitter.channels(plan: planned.plan, media: media)
     }
@@ -430,6 +440,7 @@ private final class AppModel: ObservableObject {
             case .primary: asset = primary
             case .outgoing: asset = outgoing
             case .incoming: asset = incoming
+            case .overlay: asset = overlay
             }
             return asset.map { (role: role, url: $0.url) }
         }

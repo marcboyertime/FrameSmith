@@ -151,8 +151,8 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
             plan: plan(.oldTelevision, parameters: [
                 "durationSeconds": .number(4), "overlayOpacity": .number(0.5), "overlayStartSeconds": .number(1)
             ]),
-            media: [.primary: base, .incoming: overlay],
-            publishedMediaURLs: [.primary: base.url, .incoming: overlay.url],
+            media: [.primary: base, .overlay: overlay],
+            publishedMediaURLs: [.primary: base.url, .overlay: overlay.url],
             version: "1.14"
         )
         // Animated flicker uses the param form.
@@ -174,7 +174,7 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
             plan: plan(.oldTelevision, parameters: [
                 "durationSeconds": .number(4), "overlayStartSeconds": .number(1)
             ]),
-            media: [.primary: base, .incoming: overlay]
+            media: [.primary: base, .overlay: overlay]
         )
         let descriptor = try XCTUnwrap(channels.overlay)
         XCTAssertEqual(descriptor.startFrameWithinParent, 30, "1s into a parent that starts at 0 is frame 30")
@@ -188,7 +188,7 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
             plan: plan(.oldTelevision, parameters: [
                 "durationSeconds": .number(2), "overlayStartSeconds": .number(1), "overlayDurationSeconds": .number(1)
             ]),
-            media: [.primary: base, .incoming: overlay]
+            media: [.primary: base, .overlay: overlay]
         ))
     }
 
@@ -242,10 +242,10 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         let overlay = still("texture", digest: "t")
         let television = OldTelevisionStandaloneEmitter()
         let televisionPlan = plan(.oldTelevision, parameters: ["overlayOpacity": .number(0.35)])
-        let televisionChannels = try television.channels(plan: televisionPlan, media: [.primary: base, .incoming: overlay])
+        let televisionChannels = try television.channels(plan: televisionPlan, media: [.primary: base, .overlay: overlay])
         let televisionXML = try television.emitDocument(
-            plan: televisionPlan, media: [.primary: base, .incoming: overlay],
-            publishedMediaURLs: [.primary: base.url, .incoming: overlay.url], version: "1.14"
+            plan: televisionPlan, media: [.primary: base, .overlay: overlay],
+            publishedMediaURLs: [.primary: base.url, .overlay: overlay.url], version: "1.14"
         )
         let descriptor = try XCTUnwrap(televisionChannels.overlay)
         XCTAssertEqual(descriptor.opacity, 0.35)

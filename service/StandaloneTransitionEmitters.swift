@@ -314,7 +314,7 @@ public struct OldTelevisionStandaloneEmitter: StandaloneEffectEmitter {
             origin: origin,
             frameWidth: base.dimensions.width,
             frameHeight: base.dimensions.height,
-            overlay: media[.incoming] == nil ? nil : NativeFCPXMLOverlayDescriptor(
+            overlay: media[.overlay] == nil ? nil : NativeFCPXMLOverlayDescriptor(
                 startFrameWithinParent: settings.overlayStartFrame,
                 durationFrames: settings.overlayDurationFrames,
                 opacity: settings.overlayOpacity,
@@ -358,7 +358,7 @@ public struct OldTelevisionStandaloneEmitter: StandaloneEffectEmitter {
         let filters = [NativeFCPXMLColorAdjustments.filterNode(ref: "r5", saturation: settings.saturation)]
 
         var connectedLayers: [NativeFCPXMLConnectedLayer] = []
-        if let overlayAsset = media[.incoming], let overlayURL = publishedMediaURLs[.incoming] {
+        if let overlayAsset = media[.overlay], let overlayURL = publishedMediaURLs[.overlay] {
             let overlayResources = NativeFCPXMLStillResources(
                 sequenceFormatID: "r1", assetID: "r3", stillFormatID: "r4",
                 name: overlayAsset.itemID, mediaURL: overlayURL,

@@ -4,6 +4,19 @@ public enum LocalMediaRole: String, Codable, CaseIterable, Hashable, Sendable {
     case primary
     case outgoing
     case incoming
+    /// A layer composited **above** the primary clip.
+    ///
+    /// Optional by design, and deliberately not `incoming`: an overlay is not a
+    /// second clip in the edit, it is a texture on top of one. Conflating the
+    /// two made the role check reject a perfectly valid old-television plan and
+    /// left its emitter's connected-layer path unreachable.
+    case overlay
+}
+
+public extension LocalMediaRole {
+    /// Roles that are part of the edit itself, and therefore protected by the
+    /// editorial-structure lock.
+    static var structuralRoles: [LocalMediaRole] { [.outgoing, .primary, .incoming] }
 }
 
 public struct LocalMediaSlot: Codable, Equatable, Sendable {

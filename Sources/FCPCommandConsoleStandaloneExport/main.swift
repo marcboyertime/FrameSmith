@@ -237,6 +237,7 @@ struct FCPCommandConsoleStandaloneExportCLI {
         guard let second else { return [.primary: first] }
         switch effectID {
         case .naturalDissolve: return [.outgoing: first, .incoming: second]
+        case .oldTelevision: return [.primary: first, .overlay: second]
         default: return [.primary: first, .incoming: second]
         }
     }
