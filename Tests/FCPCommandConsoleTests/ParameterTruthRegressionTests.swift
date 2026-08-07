@@ -47,6 +47,12 @@ final class ParameterTruthRegressionTests: XCTestCase {
         plan.parameters["direction"] = .string("clockwise"); XCTAssertThrowsError(try PlanValidator(registry: registry()).validate(plan))
         var moviePlan = try self.plan(.targetedRotateZoom, asset: asset(kind: .movie, duration: 2), target: .confirmed(x: 0.5, y: 0.5)); moviePlan.parameters["durationSeconds"] = .number(3)
         XCTAssertThrowsError(try TargetedRotateZoomStandaloneEmitter().channels(plan: moviePlan, media: [.primary: asset(kind: .movie, duration: 2)]))
+        let other = try self.plan(.targetedRotateZoom, asset: still, target: .confirmed(x: 0.8, y: 0.2))
+        let otherChannels = try TargetedRotateZoomStandaloneEmitter().channels(plan: other, media: [.primary: still])
+        XCTAssertNotEqual(channels.transform.positionX.last?.value, otherChannels.transform.positionX.last?.value)
+        XCTAssertNotEqual(channels.transform.positionY.last?.value, otherChannels.transform.positionY.last?.value)
+        let movie = asset(kind: .movie, duration: 10); let movieChannels = try TargetedRotateZoomStandaloneEmitter().channels(plan: try self.plan(.targetedRotateZoom, asset: movie, target: .confirmed(x: 0.5, y: 0.5)), media: [.primary: movie])
+        XCTAssertEqual(movieChannels.origin, .movieFromZero); XCTAssertEqual(try XCTUnwrap(movieChannels.transform.rotation.last).time.seconds, 119.0 / 30.0, accuracy: 0.00001)
     }
 
     func testRevisionCatalogAndReadOnlyPolicies() throws {
@@ -60,5 +66,8 @@ final class ParameterTruthRegressionTests: XCTestCase {
         XCTAssertNotNil(StandaloneEmitterCatalog().emitter(for: .livingStill))
         XCTAssertNotNil(StandaloneEmitterCatalog().emitter(for: .targetedRotateZoom))
         XCTAssertEqual(StandaloneEmitterCatalog().absenceReason(for: .naturalDissolve), StandaloneFCPXMLExportBuilder.missingEmitterReason(for: .naturalDissolve))
+        XCTAssertThrowsError(try service.revise(result, patch: ["preserveOriginal": .boolean(false)])); XCTAssertThrowsError(try service.revise(result, patch: ["unknown": .number(1)]))
+        XCTAssertThrowsError(try LocalMediaPlanRevisionService(registry: try registry()).revise(result, patch: ["panY": .number(0.1)]))
+        let reset = try service.reset(revised, parameter: "panY"); XCTAssertEqual(reset.plan.parameters["panY"], result.baselineParameters["panY"])
     }
 }
