@@ -372,12 +372,18 @@ private struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("LOCAL MEDIA PREVIEW ONLY")
+            // This banner said "Final Cut export and editability are
+            // unverified" and "previews do not render an effect" until
+            // 2026-08-06. Both were true when written and neither is now, so
+            // it was understating the tool as badly as an overclaim would have
+            // overstated it. It states what is actually true instead.
+            Text("GENERATES NEW PROJECTS — NEVER MODIFIES YOUR TIMELINE")
                 .font(.headline)
                 .foregroundStyle(.orange)
-            Text("Final Cut export and editability are unverified. Source previews do not render an effect or modify source media.")
+            Text("FrameSmith writes a new Final Cut project from your media, which you import by hand. It never opens Final Cut, reads an existing timeline, or changes one. Source media is never modified.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             TextEditor(text: $model.command)
                 .font(.body)
