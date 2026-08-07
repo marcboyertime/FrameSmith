@@ -131,6 +131,7 @@ public struct LocalMediaPlannerSession {
         guard let effectID = interpretation.effectID else { throw PlannerError.noMatch }
         let selection = try LocalMediaSelection(effectID: effectID, primary: primary, outgoing: outgoing, incoming: incoming)
         let effectPlan = try DeterministicPlanner(registry: registry).plan(request: request, selection: selection.token, target: target)
+        try ValidatedPlanExecution(registry: registry).validate(plan: effectPlan, media: Dictionary(uniqueKeysWithValues: selection.slots.map { ($0.role, $0.media) }))
         let encoded = try JSONEncoder().encode(effectPlan)
         try schemaValidator?.validate(encoded)
         let admission = try EffectPlanAdmission.decode(encoded)

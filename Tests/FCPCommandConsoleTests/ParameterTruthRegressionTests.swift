@@ -48,7 +48,7 @@ final class ParameterTruthRegressionTests: XCTestCase {
     func testRevisionCatalogAndReadOnlyPolicies() throws {
         let media = asset(); let session = LocalMediaPlannerSession(registry: try registry())
         let result = try session.plan(request: "living still", primary: media, outgoing: nil, incoming: nil, target: nil)
-        let service = LocalMediaPlanRevisionService(registry: try registry())
+        let service = LocalMediaPlanRevisionService(registry: try registry(), schemaValidator: try PlanSchemaValidator(schemaURL: root().appendingPathComponent("schemas/effect-plan.schema.json")))
         let revised = try service.revise(result, patch: ["panY": .number(0.1)])
         XCTAssertNotEqual(revised.plan.operationID, result.plan.operationID); XCTAssertEqual(revised.baselineParameters, result.baselineParameters); XCTAssertEqual(result.plan.parameters["panY"]?.numberValue, 0)
         XCTAssertThrowsError(try service.revise(result, patch: ["colorEnrichment": .number(0.2)])); XCTAssertThrowsError(try service.revise(result, patch: ["panY": .string("bad")]))

@@ -38,12 +38,14 @@ public struct LocalMediaPlanRevisionService {
         do { try PlanValidator(registry: registry).validate(plan) }
         catch { throw PlanRevisionError.invalid(error.localizedDescription) }
         let encoded = try JSONEncoder().encode(plan)
-        do { try schemaValidator?.validate(encoded) } catch { throw PlanRevisionError.invalid(error.localizedDescription) }
+        guard let schemaValidator else { throw PlanRevisionError.invalid("plan revision requires a schema validator") }
+        do { try schemaValidator.validate(encoded) } catch { throw PlanRevisionError.invalid(error.localizedDescription) }
         let admission: EffectPlanAdmissionResult
         do { admission = try EffectPlanAdmission.decode(encoded) } catch { throw PlanRevisionError.invalid(error.localizedDescription) }
 
         let assets = Dictionary(uniqueKeysWithValues: result.selection.slots.map { ($0.role, $0.media) })
         guard assets.values.allSatisfy({ asset in result.plan.selectionToken.sourceIdentities.contains(asset.sourceIdentity) }) else { throw PlanRevisionError.invalid("selection media correspondence failed") }
+        do { try ValidatedPlanExecution(registry: registry, catalog: catalog).validate(plan: plan, media: assets) } catch { throw PlanRevisionError.invalid(error.localizedDescription) }
         let evidence = AdmittedLocalMediaEvidence(admittedAssets: result.selection.slots.map(\.media))
         let standalone: CapabilityDecision
         if let reason = catalog.absenceReason(for: plan.effectID) {
