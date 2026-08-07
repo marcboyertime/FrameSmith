@@ -34,6 +34,43 @@ public enum StandaloneExportError: Error, LocalizedError, Equatable {
     }
 }
 
+/// A transition centred on a locked edit point.
+///
+/// `cutFrame` is the user's edit point and is never moved. The transition
+/// extends `durationFrames / 2` either side of it, which is why handles are a
+/// hard prerequisite rather than something to trim toward.
+public struct NativeFCPXMLTransitionDescriptor: Equatable, Sendable {
+    public let cutFrame: Int
+    public let durationFrames: Int
+    public let outgoingDurationFrames: Int
+    public let incomingDurationFrames: Int
+
+    public init(cutFrame: Int, durationFrames: Int, outgoingDurationFrames: Int, incomingDurationFrames: Int) {
+        self.cutFrame = cutFrame
+        self.durationFrames = durationFrames
+        self.outgoingDurationFrames = outgoingDurationFrames
+        self.incomingDurationFrames = incomingDurationFrames
+    }
+
+    /// Frames of unused source needed on each side.
+    public var requiredHandleFrames: Int { durationFrames / 2 }
+}
+
+/// A connected layer above the spine clip.
+public struct NativeFCPXMLOverlayDescriptor: Equatable, Sendable {
+    public let startFrameWithinParent: Int
+    public let durationFrames: Int
+    public let opacity: Double
+    public let blendMode: NativeFCPXMLBlendMode?
+
+    public init(startFrameWithinParent: Int, durationFrames: Int, opacity: Double, blendMode: NativeFCPXMLBlendMode?) {
+        self.startFrameWithinParent = startFrameWithinParent
+        self.durationFrames = durationFrames
+        self.opacity = opacity
+        self.blendMode = blendMode
+    }
+}
+
 /// The intrinsic channels an effect will emit, before any document is built.
 ///
 /// This exists so **preview and export read the same construction**. If a
@@ -44,6 +81,10 @@ public enum StandaloneExportError: Error, LocalizedError, Equatable {
 public struct NativeFCPXMLEffectChannels: Sendable {
     public let transform: NativeFCPXMLTransformChannel
     public let opacity: NativeFCPXMLOpacityChannel
+    /// Present when the effect is a transition rather than a per-clip treatment.
+    public var transition: NativeFCPXMLTransitionDescriptor?
+    /// Present when the effect hangs a connected layer above the spine.
+    public var overlay: NativeFCPXMLOverlayDescriptor?
     /// The Color Adjustments `Saturation` value, when the effect applies one.
     ///
     /// **Indicative only.** No observed mapping connects this 0–100 param to a
@@ -63,10 +104,14 @@ public struct NativeFCPXMLEffectChannels: Sendable {
         durationSeconds: Double,
         origin: NativeFCPXMLTimingOrigin,
         frameWidth: Int,
-        frameHeight: Int
+        frameHeight: Int,
+        transition: NativeFCPXMLTransitionDescriptor? = nil,
+        overlay: NativeFCPXMLOverlayDescriptor? = nil
     ) {
         self.transform = transform
         self.opacity = opacity
+        self.transition = transition
+        self.overlay = overlay
         self.saturation = saturation
         self.durationSeconds = durationSeconds
         self.origin = origin
@@ -358,7 +403,7 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         gate: CapabilityGate,
         outputRoot: URL = StandaloneFCPXMLExportBuilder.defaultOutputRoot,
         fcpxmlVersion: String = StandaloneFCPXMLExportBuilder.preferredFCPXMLVersion,
-        emitters: [any StandaloneEffectEmitter] = [LivingStillStandaloneEmitter(), TargetedRotateZoomStandaloneEmitter()],
+        emitters: [any StandaloneEffectEmitter] = [LivingStillStandaloneEmitter(), TargetedRotateZoomStandaloneEmitter(), NaturalDissolveStandaloneEmitter(), OldTelevisionStandaloneEmitter()],
         registry: EffectRegistry? = nil
     ) {
         self.gate = gate

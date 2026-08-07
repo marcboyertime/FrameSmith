@@ -5,7 +5,7 @@ import Foundation
 public struct StandaloneEmitterCatalog: Sendable {
     public let emitters: [EffectID: any StandaloneEffectEmitter]
 
-    public init(emitters: [any StandaloneEffectEmitter] = [LivingStillStandaloneEmitter(), TargetedRotateZoomStandaloneEmitter()]) {
+    public init(emitters: [any StandaloneEffectEmitter] = [LivingStillStandaloneEmitter(), TargetedRotateZoomStandaloneEmitter(), NaturalDissolveStandaloneEmitter(), OldTelevisionStandaloneEmitter()]) {
         self.emitters = Dictionary(uniqueKeysWithValues: emitters.map { ($0.effectID, $0) })
     }
 
@@ -14,12 +14,15 @@ public struct StandaloneEmitterCatalog: Sendable {
     public func absenceReason(for effectID: EffectID) -> String? {
         guard emitters[effectID] == nil else { return nil }
         switch effectID {
+        // Every effect has a production emitter as of 2026-08-07. These reasons
+        // are reachable only when a caller constructs a catalog that omits one,
+        // so they describe registration rather than a missing capability.
         case .naturalDissolve:
-            return "the dissolve construction needs two adjacent clips and a centred transition; it has not been generalised to arbitrary plan values"
+            return "no dissolve emitter is registered in this catalog; a dissolve also needs two admitted clips with sufficient handle on both sides"
         case .oldTelevision:
-            return "the connected-overlay construction is admitted, but no emitter generalises it from arbitrary plan values"
+            return "no old television emitter is registered in this catalog"
         case .livingStill, .targetedRotateZoom:
-            return nil
+            return "no emitter is registered in this catalog for \(effectID.rawValue)"
         }
     }
 }

@@ -62,10 +62,12 @@ final class ParameterTruthRegressionTests: XCTestCase {
         let revised = try service.revise(result, patch: ["panY": .number(0.1)])
         XCTAssertNotEqual(revised.plan.operationID, result.plan.operationID); XCTAssertEqual(revised.baselineParameters, result.baselineParameters); XCTAssertEqual(result.plan.parameters["panY"]?.numberValue, 0)
         XCTAssertThrowsError(try service.revise(result, patch: ["colorEnrichment": .number(0.2)])); XCTAssertThrowsError(try service.revise(result, patch: ["panY": .string("bad")]))
-        XCTAssertEqual(StandaloneEmitterCatalog().absenceReason(for: .oldTelevision), StandaloneFCPXMLExportBuilder.missingEmitterReason(for: .oldTelevision))
-        XCTAssertNotNil(StandaloneEmitterCatalog().emitter(for: .livingStill))
-        XCTAssertNotNil(StandaloneEmitterCatalog().emitter(for: .targetedRotateZoom))
-        XCTAssertEqual(StandaloneEmitterCatalog().absenceReason(for: .naturalDissolve), StandaloneFCPXMLExportBuilder.missingEmitterReason(for: .naturalDissolve))
+        // All four effects gained production emitters on 2026-08-07, so the
+        // catalog reports no absence for any of them.
+        for effect in EffectID.allCases {
+            XCTAssertNotNil(StandaloneEmitterCatalog().emitter(for: effect), effect.rawValue)
+            XCTAssertNil(StandaloneEmitterCatalog().absenceReason(for: effect), effect.rawValue)
+        }
         XCTAssertThrowsError(try service.revise(result, patch: ["preserveOriginal": .boolean(false)])); XCTAssertThrowsError(try service.revise(result, patch: ["unknown": .number(1)]))
         XCTAssertThrowsError(try LocalMediaPlanRevisionService(registry: try registry()).revise(result, patch: ["panY": .number(0.1)]))
         let reset = try service.reset(revised, parameter: "panY"); XCTAssertEqual(reset.plan.parameters["panY"], result.baselineParameters["panY"])
@@ -83,7 +85,15 @@ final class ParameterTruthRegressionTests: XCTestCase {
         let session = LocalMediaPlannerSession(registry: try registry()); let first = asset(); let second = asset(id: "b")
         let dissolve = try session.plan(request: "natural dissolve", primary: nil, outgoing: first, incoming: second, target: nil)
         let television = try session.plan(request: "old television", primary: first, outgoing: nil, incoming: nil, target: nil)
-        for result in [dissolve, television] { XCTAssertFalse(result.standaloneExportDecision.allowed); XCTAssertEqual(result.standaloneExportDecision.reason, StandaloneEmitterCatalog().absenceReason(for: result.plan.effectID)); XCTAssertEqual(result.standaloneExportDecision.reason, StandaloneFCPXMLExportBuilder.missingEmitterReason(for: result.plan.effectID)) }
+        // Both now have emitters, so any refusal here comes from the capability
+        // gate rather than an absent emitter. The reason must still be stated
+        // and must not be the old emitter-absence text.
+        for result in [dissolve, television] {
+            if !result.standaloneExportDecision.allowed {
+                XCTAssertFalse(result.standaloneExportDecision.reason.isEmpty, result.plan.effectID.rawValue)
+                XCTAssertNil(StandaloneEmitterCatalog().absenceReason(for: result.plan.effectID))
+            }
+        }
     }
 
     func testTwoInputMediaMustMatchTokenIdentityOrder() throws {

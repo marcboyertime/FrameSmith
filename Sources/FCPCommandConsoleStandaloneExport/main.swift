@@ -22,16 +22,22 @@ struct FCPCommandConsoleStandaloneExportCLI {
             // Media goes through the real admission path; the gate will not
             // accept anything that did not.
             let admission = LocalMediaAdmission()
-            let admitted = try await admission.admitAll([URL(fileURLWithPath: configuration.mediaPath)])
+            var inputs = [URL(fileURLWithPath: configuration.mediaPath)]
+            if let second = configuration.secondMediaPath { inputs.append(URL(fileURLWithPath: second)) }
+            let admitted = try await admission.admitAll(inputs)
             guard let asset = admitted.assets.first else { throw CLIError.admissionProducedNoEvidence }
             let mediaEvidence = admitted.evidence
+            let secondAsset = admitted.assets.count > 1 ? admitted.assets[1] : nil
 
             let registry = try EffectRegistry.load(from: URL(fileURLWithPath: configuration.registryPath))
-            let selection = SelectionToken(
-                selectionType: .singleClip,
-                clipIDs: [asset.itemID],
-                sourceIdentities: [asset.sourceIdentity],
-                revision: "standalone-1"
+            // A dissolve is a two-clip effect: the selection carries both
+            // identities in the order the user supplied them, because order is
+            // exactly what the editorial-structure lock protects.
+            let selection = try makeSelection(
+                effectID: configuration.effectID,
+                first: asset,
+                second: secondAsset,
+                dissolveFrames: configuration.dissolveFrames
             )
             var plan = try DeterministicPlanner(registry: registry).plan(
                 request: configuration.request,
@@ -48,7 +54,7 @@ struct FCPCommandConsoleStandaloneExportCLI {
             let builder = StandaloneFCPXMLExportBuilder(gate: gate)
             let package = try builder.export(
                 plan: plan,
-                media: [.primary: asset],
+                media: mediaRoles(effectID: configuration.effectID, first: asset, second: secondAsset),
                 mediaEvidence: mediaEvidence,
                 installedFinalCut: installed
             )
@@ -73,10 +79,12 @@ struct FCPCommandConsoleStandaloneExportCLI {
     private struct Configuration {
         let effectID: EffectID
         let mediaPath: String
+        let secondMediaPath: String?
         let request: String
         let targetX: Double
         let targetY: Double
         let registryPath: String
+        let dissolveFrames: Int
     }
 
     private enum CLIError: Error, LocalizedError {
@@ -84,6 +92,7 @@ struct FCPCommandConsoleStandaloneExportCLI {
         case unknownEffect(String)
         case invalidNumber(String)
         case admissionProducedNoEvidence
+        case insufficientHandle(Int)
 
         var errorDescription: String? {
             switch self {
@@ -93,6 +102,8 @@ struct FCPCommandConsoleStandaloneExportCLI {
             case .invalidNumber(let value): return "expected a number, got \(value)"
             case .admissionProducedNoEvidence:
                 return "local media admission produced no usable evidence"
+            case .insufficientHandle(let frames):
+                return "each clip needs at least \(frames) frames of unused source for this dissolve; the edit point will not be moved to make room"
             }
         }
     }
@@ -100,10 +111,12 @@ struct FCPCommandConsoleStandaloneExportCLI {
     private static func parse(arguments: [String]) throws -> Configuration {
         var effectID = EffectID.livingStill
         var mediaPath: String?
+        var secondMediaPath: String?
         var request: String?
         var targetX = 0.5
         var targetY = 0.5
         var registryPath = FileManager.default.currentDirectoryPath + "/registry/effects"
+        var dissolveFrames = 12
 
         var index = 0
         while index < arguments.count {
@@ -114,6 +127,7 @@ struct FCPCommandConsoleStandaloneExportCLI {
                 guard let parsed = EffectID(identifier: value) else { throw CLIError.unknownEffect(value) }
                 effectID = parsed
             case "--media": mediaPath = value
+            case "--second-media", "--incoming": secondMediaPath = value
             case "--request": request = value
             case "--target-x":
                 guard let parsed = Double(value) else { throw CLIError.invalidNumber(value) }
@@ -122,6 +136,9 @@ struct FCPCommandConsoleStandaloneExportCLI {
                 guard let parsed = Double(value) else { throw CLIError.invalidNumber(value) }
                 targetY = parsed
             case "--registry": registryPath = value
+            case "--dissolve-frames":
+                guard let parsed = Int(value) else { throw CLIError.invalidNumber(value) }
+                dissolveFrames = parsed
             default: throw CLIError.usage
             }
             index += 2
@@ -134,11 +151,94 @@ struct FCPCommandConsoleStandaloneExportCLI {
         return Configuration(
             effectID: effectID,
             mediaPath: mediaPath,
+            secondMediaPath: secondMediaPath,
             request: request ?? defaultRequest(for: effectID),
             targetX: targetX,
             targetY: targetY,
-            registryPath: registryPath
+            registryPath: registryPath,
+            dissolveFrames: dissolveFrames
         )
+    }
+
+    /// Builds the selection the validator expects.
+    ///
+    /// A dissolve is the interesting case. The validator requires a
+    /// frame-quantized boundary, matching left/right source ranges, and enough
+    /// handle on both sides for the requested duration — which is the same
+    /// invariant the emitter enforces and the same one the director-control
+    /// contract demands. The clips are butt-joined at the boundary and the
+    /// handle is carved out of each clip's *unused* source, so the visible cut
+    /// never moves to make room.
+    private static func makeSelection(
+        effectID: EffectID,
+        first: LocalMediaAsset,
+        second: LocalMediaAsset?,
+        dissolveFrames: Int
+    ) throws -> SelectionToken {
+        let rate = 30
+        guard effectID == .naturalDissolve, let second else {
+            return SelectionToken(
+                selectionType: .singleClip,
+                clipIDs: [first.itemID],
+                sourceIdentities: [first.sourceIdentity],
+                revision: "standalone-1",
+                sourceDurationFrames: first.durationSeconds.map { Int(($0 * Double(rate)).rounded()) }
+            )
+        }
+
+        let leftSource = Int(((first.durationSeconds ?? 8) * Double(rate)).rounded())
+        let rightSource = Int(((second.durationSeconds ?? 8) * Double(rate)).rounded())
+        let handle = max(1, Int(ceil(Double(dissolveFrames) / 2.0)))
+        guard leftSource > handle, rightSource > handle else {
+            throw CLIError.insufficientHandle(handle)
+        }
+
+        // Left clip gives up its tail as handle; right clip gives up its head.
+        let leftVisibleEnd = leftSource - handle
+        let boundary = leftVisibleEnd
+        let rightVisibleFrames = rightSource - handle
+
+        return SelectionToken(
+            selectionType: .twoAdjacentClips,
+            clipIDs: [first.itemID, second.itemID],
+            sourceIdentities: [first.sourceIdentity, second.sourceIdentity],
+            revision: "standalone-1",
+            startFrame: 0,
+            endFrame: boundary + rightVisibleFrames,
+            sourceDurationFrames: leftSource,
+            sourceRangeStartFrame: 0,
+            sourceRangeEndFrame: leftVisibleEnd,
+            leftSourceDurationFrames: leftSource,
+            rightSourceDurationFrames: rightSource,
+            leftSourceRangeStartFrame: 0,
+            leftSourceRangeEndFrame: leftVisibleEnd,
+            rightSourceRangeStartFrame: handle,
+            rightSourceRangeEndFrame: rightSource,
+            leftClipEndFrame: boundary,
+            rightClipStartFrame: boundary,
+            boundaryFrame: boundary,
+            frameRate: rate,
+            handleBeforeFrames: handle,
+            handleAfterFrames: handle,
+            adjacent: true
+        )
+    }
+
+    /// Maps admitted media onto the roles each effect expects.
+    ///
+    /// A dissolve wants outgoing/incoming; old television wants a base plus an
+    /// overlay in the incoming slot. Getting this wrong produces a confusing
+    /// "no admitted media for role" rather than a useful message.
+    private static func mediaRoles(
+        effectID: EffectID,
+        first: LocalMediaAsset,
+        second: LocalMediaAsset?
+    ) -> [LocalMediaRole: LocalMediaAsset] {
+        guard let second else { return [.primary: first] }
+        switch effectID {
+        case .naturalDissolve: return [.outgoing: first, .incoming: second]
+        default: return [.primary: first, .incoming: second]
+        }
     }
 
     private static func defaultRequest(for effectID: EffectID) -> String {
@@ -152,7 +252,7 @@ struct FCPCommandConsoleStandaloneExportCLI {
 
     private static var usage: String {
         """
-        usage: fcpcommandconsole-standalone-export --media PATH
+        usage: fcpcommandconsole-standalone-export --media PATH [--second-media PATH]
                                                   [--effect motion.living_still|native.targeted_rotate_zoom]
                                                   [--request TEXT] [--target-x N] [--target-y N]
                                                   [--registry PATH]

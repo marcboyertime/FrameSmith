@@ -3,34 +3,97 @@
   "version": 1,
   "name": "Old television / CRT treatment",
   "domain": "look",
-  "status": "unsupported",
+  "status": "experimental",
   "summary": "A desaturated, flickering base with a connected overlay in a blend mode, evoking a CRT display.",
-  "creativeJobs": ["place a moment in the past", "suggest a mediated or recorded image", "add texture to a clean source"],
-  "intentTags": ["expressive", "thematic", "texture", "period", "bold"],
-  "mediaPrerequisites": ["a base clip", "an overlay texture"],
+  "creativeJobs": [
+    "place a moment in the past",
+    "suggest a mediated or recorded image",
+    "add texture to a clean source"
+  ],
+  "intentTags": [
+    "expressive",
+    "thematic",
+    "texture",
+    "period",
+    "bold"
+  ],
+  "mediaPrerequisites": [
+    "a base clip",
+    "an overlay texture"
+  ],
   "lockedStructureEffect": "none",
   "construction": {
-    "preferredBackends": ["native_fcpxml"],
-    "requiredCapabilities": ["asset_admission", "opacity_keyframes", "native_color_adjustment", "connected_overlay_layers"],
-    "previewFidelity": "none"
+    "preferredBackends": [
+      "native_fcpxml"
+    ],
+    "requiredCapabilities": [
+      "asset_admission",
+      "opacity_keyframes",
+      "native_color_adjustment",
+      "connected_overlay_layers"
+    ],
+    "previewFidelity": "shared_construction"
   },
   "parameters": [
-    {"key": "overlayOpacity", "type": "float", "range": [0, 1], "liveness": "unavailable"},
-    {"key": "flickerStrength", "type": "float", "range": [0, 1], "liveness": "unavailable"}
+    {
+      "key": "overlayOpacity",
+      "type": "float",
+      "range": [
+        0,
+        1
+      ],
+      "liveness": "live"
+    },
+    {
+      "key": "flickerStrength",
+      "type": "float",
+      "range": [
+        0,
+        1
+      ],
+      "liveness": "live"
+    }
   ],
-  "qualityChecks": ["flicker reads as a display artefact rather than a render error", "the overlay does not obscure a protected region", "blend mode survives the round trip"],
-  "failureModes": ["flicker fast enough to raise a photosensitivity concern", "an overlay offset measured against the timeline instead of the parent clip, which silently misplaces it"],
-  "safety": ["check against the three-flashes-per-second threshold before shipping any flicker"],
-  "editability": ["final_cut_native"],
+  "qualityChecks": [
+    "flicker reads as a display artefact rather than a render error",
+    "the overlay does not obscure a protected region",
+    "blend mode survives the round trip"
+  ],
+  "failureModes": [
+    "flicker fast enough to raise a photosensitivity concern",
+    "an overlay offset measured against the timeline instead of the parent clip, which silently misplaces it"
+  ],
+  "safety": [
+    "check against the three-flashes-per-second threshold before shipping any flicker"
+  ],
+  "editability": [
+    "final_cut_native"
+  ],
   "provenance": [
-    {"sourceId": "APPLE-FCP-029", "claim": "Final Cut supports blend modes on connected clips", "sourceRole": "technical_authority", "confidence": "official_documentation"},
-    {"sourceId": "docs/CONNECTED_LAYERS_GROUND_TRUTH.md", "claim": "a connected clip is a child of the spine asset-clip with lane=1 and a parent-relative offset; blend mode is written as an index-and-name string", "confidence": "direct_evidence"},
-    {"sourceId": "W3C-SAFETY-001", "claim": "content should not flash more than three times per second", "sourceRole": "safety_standard", "confidence": "official_documentation"}
+    {
+      "sourceId": "APPLE-FCP-029",
+      "claim": "Final Cut supports blend modes on connected clips",
+      "sourceRole": "technical_authority",
+      "confidence": "official_documentation"
+    },
+    {
+      "sourceId": "docs/CONNECTED_LAYERS_GROUND_TRUTH.md",
+      "claim": "a connected clip is a child of the spine asset-clip with lane=1 and a parent-relative offset; blend mode is written as an index-and-name string",
+      "confidence": "direct_evidence"
+    },
+    {
+      "sourceId": "W3C-SAFETY-001",
+      "claim": "content should not flash more than three times per second",
+      "sourceRole": "safety_standard",
+      "confidence": "official_documentation"
+    }
   ],
   "validation": {
-    "implemented": false,
+    "implemented": true,
     "visuallyVerified": false,
-    "finalCutEvidence": ["f92bbd703ba0efcf4300d3fc4f4f28a32d4acc3cd0926b77a863d9b29ad46da2"],
-    "notes": "All four contracts are admitted and the probe construction returns intact, but no production emitter generalises it from plan values. Also: only the Overlay blend mode has ever been observed."
+    "finalCutEvidence": [
+      "f92bbd703ba0efcf4300d3fc4f4f28a32d4acc3cd0926b77a863d9b29ad46da2"
+    ],
+    "notes": "A production emitter exists as of 2026-08-07: animated flicker in the param form, a Color Adjustments filter, and an optional connected overlay with a parent-relative offset. Not yet validated: not imported into Final Cut. Two known gaps - only the Overlay blend mode has ever been observed, and the plan role model carries no overlay asset, so the CLI can currently only produce the base treatment."
   }
 }

@@ -207,14 +207,26 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         }
     }
 
-    /// The two effects with admitted contracts but no production emitter must
-    /// read as unsupported, not as available.
-    func testDissolveAndOldTelevisionReadAsUnsupported() throws {
+    /// Both gained production emitters on 2026-08-07, so they moved from
+    /// `unsupported` to `experimental` — implemented, not yet imported into
+    /// Final Cut.
+    ///
+    /// The distinction is the whole point of having four statuses. An emitter
+    /// existing is not evidence that Final Cut accepts what it emits; the five
+    /// silently-wrong constructions this project has already caught were all
+    /// DTD-valid. Neither may be offered until a generated document has come
+    /// back from a real import.
+    func testDissolveAndOldTelevisionAreExperimentalNotYetValidated() throws {
         let loaded = try catalog()
         for id in ["transition.dissolve.short_natural.v1", "look.crt.old_television.v1"] {
             let card = try XCTUnwrap(loaded.card(id: id))
-            XCTAssertEqual(card.status, .unsupported, "\(id) has no production emitter yet")
-            XCTAssertFalse(card.isExecutable(admittedCapabilities: admittedCapabilities))
+            XCTAssertEqual(card.status, .experimental, "\(id) has an emitter but no import evidence")
+            XCTAssertTrue(card.validation.implemented, "\(id) should record that an emitter exists")
+            XCTAssertFalse(card.validation.visuallyVerified, "\(id) has not been imported into Final Cut")
+            XCTAssertFalse(
+                card.isExecutable(admittedCapabilities: admittedCapabilities),
+                "\(id) must not be offered until it has been verified"
+            )
         }
     }
 

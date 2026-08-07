@@ -127,22 +127,32 @@ final class AppStandaloneIntegrationTests: XCTestCase {
             outputRoot: root.appendingPathComponent("out", isDirectory: true)
         )
         let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [asset]))
+
+        // Swapping only the effectID leaves the plan declaring the living
+        // still's representation, which no longer matches the registry for
+        // old television. That refusal is correct and arrives before the
+        // emitter — a plan whose declared class disagrees with its effect is
+        // malformed regardless of what could render it.
         XCTAssertThrowsError(try builder.export(
             plan: plan,
             media: [.primary: asset],
             mediaEvidence: evidence,
             installedFinalCut: testedBuild
         )) { error in
-            guard case StandaloneExportError.noEmitter(let effectID, let reason) = error else {
-                return XCTFail("expected noEmitter, got \(error)")
-            }
-            XCTAssertEqual(effectID, .oldTelevision)
-            XCTAssertFalse(reason.isEmpty, "the gap must be stated, not left as an absence")
+            let described = (error as? StandaloneExportError)?.errorDescription
+                ?? (error as? PlanValidationError)?.errorDescription
+                ?? String(describing: error)
+            XCTAssertFalse(described.isEmpty, "the refusal must be stated, not left as an absence")
             XCTAssertFalse(
-                reason.contains("not admitted"),
-                "connectedOverlayLayers was admitted 2026-08-05; the reason must not still claim otherwise"
+                described.contains("not admitted"),
+                "connectedOverlayLayers was admitted 2026-08-05; no reason may still claim otherwise"
             )
         }
+
+        // And old television now has a real emitter, so the old
+        // 'no emitter' explanation must be gone entirely.
+        XCTAssertNotNil(StandaloneEmitterCatalog().emitter(for: .oldTelevision))
+        XCTAssertNil(StandaloneEmitterCatalog().absenceReason(for: .oldTelevision))
         _ = result
     }
 

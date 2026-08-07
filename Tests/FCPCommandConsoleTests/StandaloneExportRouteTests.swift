@@ -152,23 +152,38 @@ final class StandaloneExportRouteTests: XCTestCase {
 
     // MARK: - Gaps are stated, not papered over
 
-    /// `look.old_television` has an admitted-contract gap; `transition.natural_dissolve`
-    /// has an emitter gap. Both must fail with a reason a reader can act on.
-    func testEffectsWithoutAnEmitterFailWithAStatedReason() throws {
+    /// Both effects gained production emitters on 2026-08-07, so this no longer
+    /// tests a missing emitter — it tests that an effect which cannot run *for
+    /// its own reasons* still explains itself.
+    ///
+    /// A dissolve given one clip cannot be built at all, and neither can one
+    /// whose clips lack handle. The refusal has to name the cause rather than
+    /// failing blank, because the user's next move differs completely between
+    /// "add a second clip" and "shorten the transition".
+    func testEffectsThatCannotRunStillExplainThemselves() throws {
         let asset = try makeAsset()
         let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [asset]))
 
-        for effect in [EffectID.naturalDissolve, .oldTelevision] {
-            let plan = try makePlan(effect, asset: asset)
-            XCTAssertThrowsError(try builder().export(
-                plan: plan, media: [.primary: asset], mediaEvidence: evidence, installedFinalCut: testedBuild
-            ), effect.rawValue) { error in
-                let described = (error as? StandaloneExportError)?.errorDescription ?? ""
-                XCTAssertFalse(described.isEmpty, "\(effect.rawValue) must explain itself")
-            }
+        // A dissolve with only a primary clip: no incoming media to dissolve to.
+        let dissolvePlan = try makePlan(.naturalDissolve, asset: asset)
+        XCTAssertThrowsError(try builder().export(
+            plan: dissolvePlan, media: [.primary: asset], mediaEvidence: evidence, installedFinalCut: testedBuild
+        )) { error in
+            let described = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            XCTAssertFalse(described.isEmpty, "a one-clip dissolve must explain itself")
             XCTAssertFalse(
-                StandaloneFCPXMLExportBuilder.missingEmitterReason(for: effect).isEmpty,
-                "\(effect.rawValue) must state why it has no emitter"
+                described.lowercased().contains("no standalone emitter"),
+                "the dissolve has an emitter now; the refusal should be about the missing clip, got: \(described)"
+            )
+        }
+
+        // Every effect now has a registered emitter; a catalog missing one still
+        // reports an actionable reason rather than an empty string.
+        for effect in EffectID.allCases {
+            XCTAssertNotNil(StandaloneEmitterCatalog().emitter(for: effect), "\(effect.rawValue) should have a production emitter")
+            XCTAssertFalse(
+                StandaloneEmitterCatalog(emitters: []).absenceReason(for: effect)?.isEmpty ?? true,
+                "\(effect.rawValue) must state why an empty catalog cannot serve it"
             )
         }
     }
