@@ -85,4 +85,21 @@ final class ParameterTruthRegressionTests: XCTestCase {
         let television = try session.plan(request: "old television", primary: first, outgoing: nil, incoming: nil, target: nil)
         for result in [dissolve, television] { XCTAssertFalse(result.standaloneExportDecision.allowed); XCTAssertEqual(result.standaloneExportDecision.reason, StandaloneEmitterCatalog().absenceReason(for: result.plan.effectID)); XCTAssertEqual(result.standaloneExportDecision.reason, StandaloneFCPXMLExportBuilder.missingEmitterReason(for: result.plan.effectID)) }
     }
+
+    func testResetAllCreativePreservesBaselineAndIdentity() throws {
+        let media = asset(); let session = LocalMediaPlannerSession(registry: try registry())
+        let original = try session.plan(request: "living still", primary: media, outgoing: nil, incoming: nil, target: nil)
+        let service = LocalMediaPlanRevisionService(registry: try registry(), schemaValidator: try PlanSchemaValidator(schemaURL: root().appendingPathComponent("schemas/effect-plan.schema.json")))
+        let edited = try service.revise(original, patch: ["durationSeconds": .number(6), "panX": .number(0.2)])
+        let reset = try service.resetAllCreative(edited)
+        XCTAssertNotEqual(reset.plan.operationID, edited.plan.operationID); XCTAssertEqual(reset.plan.originalRequest, original.plan.originalRequest); XCTAssertEqual(reset.selection, original.selection); XCTAssertEqual(reset.inputs, original.inputs); XCTAssertEqual(reset.baselineParameters, original.baselineParameters)
+        for definition in try registry().definition(for: .livingStill).parameters where (definition.presentation ?? .failClosed).exposure.isEditable { XCTAssertEqual(reset.plan.parameters[definition.name], original.baselineParameters[definition.name]) }
+        XCTAssertEqual(reset.admission, .current(reset.plan))
+    }
+
+    func testMetadataDriftIsRejectedBeforeExportConstruction() throws {
+        let media = asset(); var plan = try self.plan(.livingStill, asset: media)
+        plan.representation = .layeredMedia
+        XCTAssertThrowsError(try ValidatedPlanExecution(registry: try registry()).validate(plan: plan, media: [.primary: media]))
+    }
 }
