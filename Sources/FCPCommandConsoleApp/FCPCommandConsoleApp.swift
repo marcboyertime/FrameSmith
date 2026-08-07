@@ -543,6 +543,8 @@ private final class AppModel: ObservableObject {
 
 private struct ContentView: View {
     @StateObject private var model = AppModel()
+    @State private var wantsSecondClip = false
+    @State private var wantsOverlay = false
 
     var body: some View {
         // Scrolls because the content is taller than the window at any
@@ -557,114 +559,193 @@ private struct ContentView: View {
         }
     }
 
-    private var content: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // This banner said "Final Cut export and editability are
-            // unverified" and "previews do not render an effect" until
-            // 2026-08-06. Both were true when written and neither is now, so
-            // it was understating the tool as badly as an overclaim would have
-            // overstated it. It states what is actually true instead.
-            Text("GENERATES NEW PROJECTS — NEVER MODIFIES YOUR TIMELINE")
-                .font(.headline)
-                .foregroundStyle(.orange)
-            Text("FrameSmith writes a new Final Cut project from your media, which you import by hand. It never opens Final Cut, reads an existing timeline, or changes one. Source media is never modified.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
-            TextEditor(text: $model.command)
-                .font(.body)
-                .frame(height: 78)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
-                .accessibilityLabel("Effect command")
+    // MARK: - Chrome
 
-            HStack(alignment: .top, spacing: 12) {
-                MediaSlotView(role: .primary, media: model.primary, loading: model.loadingRole == .primary, onOpen: { openPanel(for: .primary) }, onDrop: { urls in admit(urls, as: .primary) }, onClear: { model.clear(.primary) })
-                MediaSlotView(role: .outgoing, media: model.outgoing, loading: model.loadingRole == .outgoing, onOpen: { openPanel(for: .outgoing) }, onDrop: { urls in admit(urls, as: .outgoing) }, onClear: { model.clear(.outgoing) })
-                MediaSlotView(role: .incoming, media: model.incoming, loading: model.loadingRole == .incoming, onOpen: { openPanel(for: .incoming) }, onDrop: { urls in admit(urls, as: .incoming) }, onClear: { model.clear(.incoming) })
+    /// The safety promise stays, but as a quiet pill rather than an orange
+    /// all-caps banner and a paragraph. It is a standing property of the tool,
+    /// not news — shouting it on every launch trains the user to skip it.
+    private var header: some View {
+        HStack(spacing: 10) {
+            Text("FrameSmith").font(.system(size: 20, weight: .semibold))
+            Text("New projects only")
+                .font(.caption2.weight(.medium))
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill(.quaternary))
+                .help("FrameSmith writes a new Final Cut project from your media, which you import by hand. It never opens Final Cut, reads an existing timeline, or changes one. Source media is never modified.")
+            Spacer()
+            if let build = model.installedFinalCut {
+                Label("Final Cut \(build.shortVersion)", systemImage: "checkmark.seal")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .help(model.finalCutStatus)
+            } else {
+                Label("No Final Cut", systemImage: "exclamationmark.triangle")
+                    .font(.caption2).foregroundStyle(.orange)
+                    .help(model.finalCutStatus)
             }
+        }
+    }
+
+    /// Only the slots that are in play.
+    ///
+    /// Three permanently-empty drop zones made the window look like a form to
+    /// fill in. Most work needs one clip, so the extra roles appear on request
+    /// and disappear again when emptied.
+    private var mediaSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                MediaSlotView(role: .primary, media: model.primary, loading: model.loadingRole == .primary,
+                              onOpen: { openPanel(for: .primary) }, onDrop: { admit($0, as: .primary) },
+                              onClear: { model.clear(.primary) })
+                if showsSecondClip {
+                    MediaSlotView(role: .outgoing, media: model.outgoing, loading: model.loadingRole == .outgoing,
+                                  onOpen: { openPanel(for: .outgoing) }, onDrop: { admit($0, as: .outgoing) },
+                                  onClear: { model.clear(.outgoing); collapseIfEmpty() })
+                    MediaSlotView(role: .incoming, media: model.incoming, loading: model.loadingRole == .incoming,
+                                  onOpen: { openPanel(for: .incoming) }, onDrop: { admit($0, as: .incoming) },
+                                  onClear: { model.clear(.incoming); collapseIfEmpty() })
+                }
+                if showsOverlay {
+                    MediaSlotView(role: .overlay, media: model.overlay, loading: model.loadingRole == .overlay,
+                                  onOpen: { openPanel(for: .overlay) }, onDrop: { admit($0, as: .overlay) },
+                                  onClear: { model.clear(.overlay); collapseIfEmpty() })
+                }
+            }
+            HStack(spacing: 14) {
+                if !showsSecondClip {
+                    Button { wantsSecondClip = true } label: {
+                        Label("Add clips for a transition", systemImage: "plus")
+                    }.buttonStyle(.borderless).font(.caption)
+                }
+                if !showsOverlay {
+                    Button { wantsOverlay = true } label: {
+                        Label("Add an overlay texture", systemImage: "plus")
+                    }.buttonStyle(.borderless).font(.caption)
+                }
+            }
+        }
+    }
+
+    private var showsSecondClip: Bool { wantsSecondClip || model.outgoing != nil || model.incoming != nil }
+    private var showsOverlay: Bool { wantsOverlay || model.overlay != nil }
+
+    private func collapseIfEmpty() {
+        if model.outgoing == nil && model.incoming == nil { wantsSecondClip = false }
+        if model.overlay == nil { wantsOverlay = false }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            header
+
+            // Placeholder rather than a paragraph: the field says what to do
+            // by example, which needs no explanatory sentence above it.
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $model.command)
+                    .font(.system(size: 14))
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(height: 64)
+                if model.command.isEmpty {
+                    Text("Describe the look you want…")
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 16)
+                        .allowsHitTesting(false)
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.4)))
+            .accessibilityLabel("Effect command")
+
+            mediaSection
 
             if let media = model.primary ?? model.outgoing {
                 TargetPicker(media: media, target: $model.target)
-                    .frame(height: 220)
+                    .frame(height: 200)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
             }
 
-            HStack {
-                Button("Plan") { model.plan() }
-                    .keyboardShortcut(.return, modifiers: [.command])
-                Button("Clear") { model.clearAll() }
-                if model.loadingRole != nil {
-                    Button("Cancel") { model.cancelAdmission() }
+            HStack(spacing: 10) {
+                Button {
+                    model.plan()
+                } label: {
+                    Text("Plan").frame(minWidth: 60)
                 }
-                if model.isSavingPackage {
-                    Button(model.isCancellingPackage ? "Cancelling…" : "Cancel Save") { model.cancelPackage() }
-                        .disabled(model.isCancellingPackage)
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.return, modifiers: [.command])
+
+                Button {
+                    model.surpriseMe()
+                } label: {
+                    Label(model.isGeneratingOptions ? "Thinking…" : "Surprise Me", systemImage: "sparkles")
                 }
+                .disabled(model.isGeneratingOptions || (model.primary == nil && model.outgoing == nil))
+                .help("Up to three different treatments. Your clips and timing stay exactly as you set them.")
+
+                Spacer()
+
                 if let result = model.result {
-                    Button(model.isSavingPackage ? "Saving Local Package…" : "Save Local Plan Package") { model.savePackage() }
+                    Button("Package") { model.savePackage() }
                         .disabled(!result.inertPackageDecision.allowed || model.isSavingPackage)
                         .help(result.inertPackageDecision.reason)
-                }
-                if let result = model.result {
-                    let standalone = result.standaloneExportDecision
-                    Button(model.isExportingProject ? "Generating…" : "Generate Final Cut Project…") {
+                    Button {
                         model.exportFinalCutProject()
+                    } label: {
+                        Label(model.isExportingProject ? "Generating…" : "Create Project", systemImage: "film")
                     }
-                    .disabled(!standalone.allowed || model.isExportingProject)
-                    .help(standalone.allowed
-                          ? "Writes a new Final Cut project you import by hand. Nothing existing is opened or changed."
-                          : standalone.reason)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!result.standaloneExportDecision.allowed || model.isExportingProject)
+                    .help(result.standaloneExportDecision.allowed
+                          ? "Writes a new Final Cut project you import by hand."
+                          : result.standaloneExportDecision.reason)
                 }
-                // Optional, and deliberately beside the normal flow rather than
-                // replacing it: Surprise Me is an alternative way in, not the
-                // way in.
-                Button(model.isGeneratingOptions ? "Thinking…" : "Surprise Me") { model.surpriseMe() }
-                    .disabled(model.isGeneratingOptions || (model.primary == nil && model.outgoing == nil))
-                    .help("Shows up to three different treatments. Your clips and timing stay exactly as you set them.")
+
+                if model.loadingRole != nil {
+                    Button("Cancel") { model.cancelAdmission() }.buttonStyle(.borderless)
+                }
+                Button {
+                    model.clearAll()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .buttonStyle(.borderless)
+                .help("Clear everything")
             }
 
             if let set = model.treatmentOptions { TreatmentOptionsView(set: set, model: model) }
 
-            // The two Final Cut claims, kept visually apart because they are
-            // different claims and not two grades of the same one. Generating a
-            // new project is something the app can do; modifying a timeline it
-            // has never seen is not, and never will be from local media alone.
-            VStack(alignment: .leading, spacing: 4) {
-                Text(model.finalCutStatus)
+            // Only surfaced when something is actually blocked. The Final Cut
+            // build and the never-modifies promise both live in the header now;
+            // restating them down here every launch was noise, and noise is how
+            // a genuine blocker gets missed.
+            if let result = model.result, !result.standaloneExportDecision.allowed {
+                Label(result.standaloneExportDecision.reason, systemImage: "exclamationmark.triangle")
                     .font(.caption)
-                    .foregroundStyle(model.installedFinalCut == nil ? .orange : .secondary)
-                if let result = model.result {
-                    if !result.standaloneExportDecision.allowed {
-                        Label(result.standaloneExportDecision.reason, systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                            .textSelection(.enabled)
-                    }
-                    Text("Modifying an existing timeline is unavailable: \(result.fcpxmlExportDecision.reason)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
+                    .foregroundStyle(.orange)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if let error = model.errorMessage {
-                Text(error).foregroundStyle(.red).textSelection(.enabled)
+                Label(error, systemImage: "xmark.octagon")
+                    .font(.caption).foregroundStyle(.red).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if let notice = model.noticeMessage {
-                Text(notice).foregroundStyle(.orange).textSelection(.enabled)
+                Label(notice, systemImage: "info.circle")
+                    .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if let channels = model.previewChannels, let media = model.primary {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Effect preview").font(.headline)
-                    EffectPreview(media: media, channels: channels)
-                }
+                EffectPreview(media: media, channels: channels)
             } else if model.result != nil {
                 // A plan with no preview is a stated gap, not a blank space.
                 // The export button reports the same absence with its own
                 // reason; leaving nothing here would read as "no effect".
-                Text("No preview for this effect yet — it has no emitter, so nothing can be shown or generated from it.")
+                Label("No preview for this effect yet", systemImage: "eye.slash")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
+                    .help("This effect has no emitter, so nothing can be shown or generated from it.")
             }
             if let result = model.result {
                 ParameterInspector(result: result, definitions: model.parameterDefinitions(for: result), revise: model.revise, reportValidation: model.reportValidation)
@@ -795,22 +876,47 @@ private struct MediaSlotView: View {
     let onDrop: ([URL]) -> Void
     let onClear: () -> Void
 
+    @State private var isTargeted = false
+
+    private var title: String {
+        switch role {
+        case .primary: return "Clip"
+        case .outgoing: return "From"
+        case .incoming: return "To"
+        case .overlay: return "Overlay"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(role.rawValue.uppercased()).font(.caption.weight(.semibold))
             Group {
                 if let media {
                     SourcePreview(media: media)
                 } else {
-                    Text("Drop a local movie or still here")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .foregroundStyle(.secondary)
+                    // An icon and one word, rather than a sentence in every box.
+                    VStack(spacing: 6) {
+                        Image(systemName: loading ? "hourglass" : "photo.on.rectangle.angled")
+                            .font(.system(size: 22, weight: .light))
+                        Text(loading ? "Reading…" : title)
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if !loading { onOpen() } }
                 }
             }
-            .frame(height: 130)
-            .background(.quaternary)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+            .frame(height: 120)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(.quaternary.opacity(isTargeted ? 0.9 : 0.35))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isTargeted ? Color.accentColor : .clear, lineWidth: 2)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isTargeted) { providers in
                 guard let provider = providers.first else { return false }
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.fileURL.identifier) { data, _ in
                     guard let data, let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
@@ -818,13 +924,20 @@ private struct MediaSlotView: View {
                 }
                 return true
             }
+
             if let media {
-                Text("\(media.kind.rawValue) · \(media.dimensions.width)×\(media.dimensions.height)")
-                    .font(.caption)
-                Text(media.canonicalPath).font(.caption2).lineLimit(1).truncationMode(.middle)
-                Button("Remove", action: onClear).font(.caption)
-            } else {
-                Button(loading ? "Reading…" : "Open…", action: onOpen).disabled(loading)
+                HStack(spacing: 6) {
+                    Text(media.url.lastPathComponent)
+                        .font(.caption2).lineLimit(1).truncationMode(.middle)
+                        // The full path and dimensions are still available,
+                        // just not occupying two permanent lines per slot.
+                        .help("\(media.canonicalPath)\n\(media.kind.rawValue) · \(media.dimensions.width)×\(media.dimensions.height)")
+                    Spacer()
+                    Button(action: onClear) { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.tertiary)
+                        .help("Remove")
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -874,8 +987,18 @@ private struct TargetPicker: View {
                 target = try? AspectFitPointMapper.target(for: MediaPoint(x: value.location.x, y: value.location.y), media: mediaSize, in: container)
             })
         }
-        .overlay(alignment: .topLeading) {
-            Text("Optional target point — letterbox clicks are rejected").font(.caption).padding(5).background(.thinMaterial)
+        .overlay(alignment: .bottom) {
+            // The hint retires once it has been acted on. Leaving instructions
+            // on screen forever is how a UI ends up shouting at people who
+            // already know.
+            if target == nil {
+                Text("Click to set a focal point")
+                    .font(.caption2)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Capsule().fill(.thinMaterial))
+                    .padding(.bottom, 8)
+                    .allowsHitTesting(false)
+            }
         }
     }
 }
@@ -1124,81 +1247,109 @@ private struct TreatmentOptionsView: View {
     @State private var showingRejected = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Divider()
-            Text("Treatment options").font(.headline)
-            Text("Your clips and timing are locked. These options change only the treatment.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Label("Options", systemImage: "sparkles").font(.headline)
+                // Stated once for the whole set, not repeated on every card:
+                // it is a property of the feature, and three copies of the same
+                // reassurance reads as anxiety rather than confidence.
+                Text("Your clips and timing are locked")
+                    .font(.caption2)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Capsule().fill(.quaternary))
+                    .help("Every option preserves your clips, their order, every edit point and duration, and audio sync. Only the treatment changes.")
+                Spacer()
+            }
 
             if let shortfall = set.shortfallExplanation {
                 Text(shortfall)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                    .font(.caption2).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             ForEach(set.options) { option in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(option.name).font(.subheadline).bold()
-                        Spacer()
-                        if model.appliedTreatment?.id == option.id {
-                            Text("Applied").font(.caption).foregroundStyle(.green)
-                        }
-                    }
-                    Text(option.idea).font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    ForEach(option.changes, id: \.self) { line in
-                        Text("• " + line).font(.caption2).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    // What is preserved, restated per card because this is the
-                    // reassurance the director-control contract asks for.
-                    Text("Preserved: " + option.preserved.joined(separator: " · "))
-                        .font(.caption2).foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
-                        Label(editabilityLabel(option.editability), systemImage: "slider.horizontal.3")
-                            .font(.caption2)
-                        if option.previewFidelity == .indicative {
-                            Label("Preview approximate", systemImage: "exclamationmark.triangle")
-                                .font(.caption2).foregroundStyle(.orange)
-                        }
-                        Label(costLabel(option), systemImage: "clock").font(.caption2)
-                    }
-                    HStack {
-                        Button("Use This") { model.useTreatment(option) }
-                            .disabled(model.appliedTreatment?.id == option.id)
-                        Text(option.techniqueCardIDs.joined(separator: ", "))
-                            .font(.caption2).foregroundStyle(.tertiary)
-                    }
+                OptionCard(option: option, isApplied: model.appliedTreatment?.id == option.id) {
+                    model.useTreatment(option)
                 }
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
             }
 
             if !set.rejected.isEmpty {
-                DisclosureGroup("Why some options are not here (\(set.rejected.count))", isExpanded: $showingRejected) {
-                    ForEach(Array(set.rejected.enumerated()), id: \.offset) { _, entry in
-                        Text("• " + entry.explanation).font(.caption2).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                DisclosureGroup(isExpanded: $showingRejected) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(set.rejected.enumerated()), id: \.offset) { _, entry in
+                            Text(entry.explanation)
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
+                    .padding(.top, 4)
+                } label: {
+                    Text("\(set.rejected.count) not shown").font(.caption2).foregroundStyle(.secondary)
                 }
-                .font(.caption)
             }
         }
     }
+}
 
-    private func editabilityLabel(_ value: TreatmentEditability) -> String {
-        switch value {
-        case .finalCutNative: return "Editable in Final Cut"
-        case .framesmithRegeneration: return "Adjust by regenerating"
-        case .fixed: return "Fixed once made"
+/// One option. Name, one line, and the two badges that actually change a
+/// decision — everything else is a tooltip.
+private struct OptionCard: View {
+    let option: TreatmentPlan
+    let isApplied: Bool
+    let use: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(option.name).font(.system(size: 13, weight: .semibold))
+                    if option.previewFidelity == .indicative {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2).foregroundStyle(.orange)
+                            .help("Preview shows direction only — the exact strength is not verified.")
+                    }
+                    if option.editability == .framesmithRegeneration {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .help("Adjust by regenerating in FrameSmith rather than in Final Cut.")
+                    }
+                }
+                Text(option.idea)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if isApplied {
+                Label("Applied", systemImage: "checkmark")
+                    .font(.caption2).foregroundStyle(.green)
+            } else {
+                Button("Use", action: use)
+                    .controlSize(.small)
+                    .opacity(hovering ? 1 : 0.75)
+            }
         }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.quaternary.opacity(hovering || isApplied ? 0.5 : 0.28))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(isApplied ? Color.green.opacity(0.5) : .clear, lineWidth: 1)
+        )
+        .onHover { hovering = $0 }
+        // The detail that used to be printed on the card is here instead, so
+        // it is one hover away rather than permanently in the way.
+        .help(detail)
     }
 
-    private func costLabel(_ option: TreatmentPlan) -> String {
-        let latency = option.estimatedLatency == .instant ? "Instant" : String(describing: option.estimatedLatency).capitalized
-        return option.monetary == .free ? "\(latency) · free · local" : "\(latency) · paid"
+    private var detail: String {
+        var lines = option.changes
+        lines.append("Preserved: " + option.preserved.joined(separator: " · "))
+        lines.append("Technique: " + option.techniqueCardIDs.joined(separator: ", "))
+        return lines.joined(separator: "\n")
     }
 }
