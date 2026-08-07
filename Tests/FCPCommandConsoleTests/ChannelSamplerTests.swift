@@ -196,3 +196,32 @@ final class ChannelSamplerTests: XCTestCase {
         XCTAssertEqual(channels.frameHeight, 1080)
     }
 }
+
+/// Pins the rotation convention observed 2026-08-06.
+///
+/// Final Cut's positive rotation is **counterclockwise**, established by
+/// comparing frame 0 and frame 119 of the imported rotate/zoom project: the
+/// colour-bar boundaries end with their tops left of their bottoms, and the
+/// rainbow diagonal flips from sloping down-right to up-right. Both features
+/// agree, so it is not an artefact of reading one edge.
+///
+/// The sampler carries Final Cut's sign unchanged; the renderer negates,
+/// because SwiftUI's `rotationEffect` is clockwise-positive. Keeping the sign
+/// unflipped here means the state reads the same as the exported XML.
+extension ChannelSamplerTests {
+    func testSamplerCarriesFinalCutsRotationSignUnchanged() {
+        let channel = NativeFCPXMLTransformChannel(
+            rotation: [NativeFCPXMLKeyframe(time: .seconds(0), value: "30")]
+        )
+        let state = NativeFCPXMLChannelSampler(frameHeight: 1080).state(
+            transform: channel,
+            opacity: NativeFCPXMLOpacityChannel(),
+            atClipSeconds: 0,
+            origin: .movieFromZero
+        )
+        XCTAssertEqual(
+            state.rotationDegrees, 30, accuracy: 1e-9,
+            "the sampler must report Final Cut's value; only the renderer negates"
+        )
+    }
+}

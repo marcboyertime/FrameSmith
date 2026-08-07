@@ -722,6 +722,9 @@ private struct EffectPreview: View {
                             .scaledToFit()
                             .saturation(indicativeSaturation)
                             .scaleEffect(comparing ? 1 : state.scale)
+                            // Negated: Final Cut's positive rotation is
+                            // counterclockwise (observed 2026-08-06) while
+                            // SwiftUI's rotationEffect is clockwise-positive.
                             .rotationEffect(.degrees(comparing ? 0 : -state.rotationDegrees))
                             .offset(
                                 x: comparing ? 0 : state.offsetX * ratio,
@@ -781,9 +784,6 @@ private struct EffectPreview: View {
             if channels.saturation != nil {
                 badge(.indicative, "Colour direction only — the Saturation mapping is unobserved, so the amount shown is not trustworthy.")
             }
-            Text("Rotation direction is unverified against Final Cut.")
-                .font(.caption2)
-                .foregroundStyle(.orange)
         }
     }
 

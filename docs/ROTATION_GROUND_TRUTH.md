@@ -244,8 +244,26 @@ is now confirmed on `position`, `anchor`, `rotation`, and `adjust-blend/amount`.
    anchor.
 2. **Does rotation wrap or accumulate past 360°?** Only 0→45 was exercised. A
    multi-turn spin is a separate observation.
-3. **Rotation direction sign.** 45 produced a visibly clockwise result in the
-   viewer, but the mapping of sign to direction was not systematically checked.
+3. ~~**Rotation direction sign.**~~ **Settled 2026-08-06: positive rotation is
+   counterclockwise.**
+
+   Checked without editing anything, by comparing two frames of the already
+   imported rotate/zoom project: frame 0 where rotation is `0`, and frame 119
+   where it is `30`.
+
+   | | Frame 0 (`0°`) | Frame 119 (`30°`) |
+   | --- | --- | --- |
+   | colour-bar boundaries | vertical | tops **left** of bottoms |
+   | rainbow diagonal | slopes down to the right | slopes **up** to the right |
+
+   A vertical line whose top moves left has rotated counterclockwise, and the
+   diagonal's slope flipping sign agrees. Both features move the same way, so
+   this is not an artefact of reading one edge.
+
+   This matters for the preview: SwiftUI's `rotationEffect` is
+   **clockwise**-positive, so rendering Final Cut's rotation requires negating
+   it. `NativeFCPXMLChannelState.rotationDegrees` carries Final Cut's sign and
+   the view negates at the point of use.
 
 ## After the capture
 
