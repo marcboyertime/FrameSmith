@@ -737,7 +737,6 @@ private struct PlanSummary: View {
             Text("Schema \(plan.schemaVersion) local plan").font(.headline)
             Text("Effect: \(plan.effectID.rawValue) · Representation: \(plan.representation.rawValue)")
             Text("Parameters: \(plan.parameters.keys.sorted().joined(separator: ", "))")
-            Text("Editable: \(plan.editableProperties.map(\.name).joined(separator: ", "))")
             Text("Fallback: \(plan.fallback)")
             Text(result.localPreviewDecision.reason).foregroundStyle(.secondary)
         }

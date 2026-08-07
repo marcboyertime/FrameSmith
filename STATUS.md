@@ -3,11 +3,12 @@
 ## Current implementation checkpoint
 
 Phase 1 is complete at the current repository checkpoint. `swift test` and
-`make test` pass **213 tests**; the latter also reports
+`make test` pass **215 tests**; the latter also reports
 `core audit: registry=4 schema=json-ok forbidden-patterns=0`. `swift build -c
-release` also passes. This task did not reinstall or launch the app, so no
-previous installed artifact, signature, process, or resource snapshot should be
-treated as freshly verified.
+release` also passes. The installed app was rebuilt/reinstalled and its code
+signature and resource parity were verified. Compliant installed-UI acceptance
+remains pending: the approved Computer Use channel is unavailable, and project
+policy forbids scripted UI control.
 
 FrameSmith is the product name; existing repository, package, bundle, and
 command identifiers remain `FCPCommandConsole`.
