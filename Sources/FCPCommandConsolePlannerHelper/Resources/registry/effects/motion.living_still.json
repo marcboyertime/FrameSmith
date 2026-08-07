@@ -15,11 +15,11 @@
     {"name":"opacityStart","type":"number","defaultValue":1.0,"minimum":0.0,"maximum":1.0,"presentation":{"label":"Start opacity","explanation":"Opening opacity sent to the shared channel.","group":"advanced","exposure":"runtime_editable"}},
     {"name":"opacityEnd","type":"number","defaultValue":0.0,"minimum":0.0,"maximum":1.0,"presentation":{"label":"End opacity","explanation":"Closing opacity; it cannot exceed start opacity.","group":"advanced","exposure":"runtime_editable"}},
     {"name":"fadeDurationSeconds","type":"number","defaultValue":0.35,"minimum":0.05,"maximum":2.0,"presentation":{"label":"Fade duration","explanation":"Frame-quantized final fade duration.","units":"seconds","group":"advanced","exposure":"runtime_editable"}},
-    {"name":"preserveOriginal","type":"boolean","defaultValue":true},
-    {"name":"nativeFallbackEnabled","type":"boolean","defaultValue":true},
-    {"name":"depthFlowStatus","type":"string","defaultValue":"deferred-unavailable","allowedValues":["deferred-unavailable"]},
-    {"name":"motionMethod","type":"string","defaultValue":"native-push-in-pan","allowedValues":["native-push-in-pan"]},
-    {"name":"easing","type":"string","defaultValue":"ease_in_out","allowedValues":["linear","ease_in","ease_out","ease_in_out"]}
+    {"name":"preserveOriginal","type":"boolean","defaultValue":true,"presentation":{"label":"Preserve original","explanation":"The native construction always preserves the source.","group":"internal","exposure":"invariant_read_only"}},
+    {"name":"nativeFallbackEnabled","type":"boolean","defaultValue":true,"presentation":{"label":"Native fallback","explanation":"This admitted native construction is mandatory.","group":"internal","exposure":"invariant_read_only"}},
+    {"name":"depthFlowStatus","type":"string","defaultValue":"deferred-unavailable","allowedValues":["deferred-unavailable"],"presentation":{"label":"DepthFlow status","explanation":"DepthFlow is not implemented.","group":"internal","exposure":"invariant_read_only"}},
+    {"name":"motionMethod","type":"string","defaultValue":"native-push-in-pan","allowedValues":["native-push-in-pan"],"presentation":{"label":"Motion method","explanation":"The captured native push-in/pan method is fixed.","group":"internal","exposure":"invariant_read_only"}},
+    {"name":"easing","type":"string","defaultValue":"ease_in_out","allowedValues":["linear","ease_in","ease_out","ease_in_out"],"presentation":{"label":"Easing","explanation":"No FCPXML easing encoding is emitted.","group":"advanced","exposure":"unsupported_read_only"}}
   ],
   "backend": "native",
   "editableProperties": [

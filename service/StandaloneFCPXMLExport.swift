@@ -135,8 +135,8 @@ public struct LivingStillStandaloneEmitter: StandaloneEffectEmitter {
             opacity: .fade(
                 fadeStartFrame: max(0, durationFrames - fadeFrames),
                 endFrame: final,
-                rate: rate
-                , startOpacity: composition.opacityKeyframes.first?.opacity ?? 1,
+                rate: rate,
+                startOpacity: composition.opacityKeyframes.first?.opacity ?? 1,
                 endOpacity: composition.opacityKeyframes.last?.opacity ?? 0
             ),
             // Captured one-point adapter: no arbitrary colorEnrichment mapping.

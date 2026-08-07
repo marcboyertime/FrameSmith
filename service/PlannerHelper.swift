@@ -636,7 +636,7 @@ public struct PlannerHelperResources {
 
     private static let expectedHashes: [String: String] = [
         "registry/effects/look.old_television.json": "30eb462e577cd97a55988fe8cb04ccc9ede1df828c8e31584a204b83e4d65d12",
-        "registry/effects/motion.living_still.json": "d49a950bcc1bd7663175b08c584851fcc11c021be28515429ebde2ced88571b1",
+        "registry/effects/motion.living_still.json": "70224f52497c745fd32326ef34f77cfdc11687f7ceb862a1f463c09e1239e38f",
         "registry/effects/native.targeted_rotate_zoom.json": "20d511f53cf1f5e33d554357e4806ded15b6de564a4912558fb4ff05e5d57cbd",
         "registry/effects/transition.natural_dissolve.json": "2766bd77d5c128e8e699f46ba84dd0548cf215afd49d5a9d681dac3632010058",
         "schemas/effect-plan.schema.json": "4387255973853dabba3d1ab62eb94bbb7e8e649a5516733ea3508a586520bf01"
