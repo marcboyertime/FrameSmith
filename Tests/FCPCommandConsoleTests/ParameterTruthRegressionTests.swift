@@ -86,6 +86,19 @@ final class ParameterTruthRegressionTests: XCTestCase {
         for result in [dissolve, television] { XCTAssertFalse(result.standaloneExportDecision.allowed); XCTAssertEqual(result.standaloneExportDecision.reason, StandaloneEmitterCatalog().absenceReason(for: result.plan.effectID)); XCTAssertEqual(result.standaloneExportDecision.reason, StandaloneFCPXMLExportBuilder.missingEmitterReason(for: result.plan.effectID)) }
     }
 
+    func testTwoInputMediaMustMatchTokenIdentityOrder() throws {
+        let outgoing = asset(id: "a"); let incoming = asset(id: "b")
+        let session = LocalMediaPlannerSession(registry: try registry())
+        let result = try session.plan(request: "natural dissolve", primary: nil, outgoing: outgoing, incoming: incoming, target: nil)
+        let execution = ValidatedPlanExecution(registry: try registry())
+        try execution.validate(plan: result.plan, media: [.outgoing: outgoing, .incoming: incoming])
+        XCTAssertThrowsError(try execution.validate(plan: result.plan, media: [.outgoing: incoming, .incoming: outgoing]))
+
+        var missingIdentity = result.plan
+        missingIdentity.selectionToken.sourceIdentities.removeLast()
+        XCTAssertThrowsError(try execution.validate(plan: missingIdentity, media: [.outgoing: outgoing, .incoming: incoming]))
+    }
+
     func testResetAllCreativePreservesBaselineAndIdentity() throws {
         let media = asset(); let session = LocalMediaPlannerSession(registry: try registry())
         let original = try session.plan(request: "living still", primary: media, outgoing: nil, incoming: nil, target: nil)

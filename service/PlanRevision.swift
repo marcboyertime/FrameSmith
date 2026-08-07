@@ -44,7 +44,6 @@ public struct LocalMediaPlanRevisionService {
         do { admission = try EffectPlanAdmission.decode(encoded) } catch { throw PlanRevisionError.invalid(error.localizedDescription) }
 
         let assets = Dictionary(uniqueKeysWithValues: result.selection.slots.map { ($0.role, $0.media) })
-        guard assets.values.allSatisfy({ asset in result.plan.selectionToken.sourceIdentities.contains(asset.sourceIdentity) }) else { throw PlanRevisionError.invalid("selection media correspondence failed") }
         do { try ValidatedPlanExecution(registry: registry, catalog: catalog).validate(plan: plan, media: assets) } catch { throw PlanRevisionError.invalid(error.localizedDescription) }
         let evidence = AdmittedLocalMediaEvidence(admittedAssets: result.selection.slots.map(\.media))
         let standalone: CapabilityDecision
