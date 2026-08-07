@@ -396,9 +396,28 @@ What is left cannot be done in code alone.
    same question answered by differencing two screenshots is a number.
 4. Keep generated output local and canonical under runtime directories only.
 5. Preserve hashes and provenance for provenance and rollback confidence.
-6. No remote Git actions.
-7. No paid-generation calls unless explicitly approved.
+6. **Pushing to `origin` is permitted** (authorized 2026-08-06). Commit locally
+   as you go and push when work reaches a coherent state. Still no force-push to
+   a shared branch, no history rewriting, and no destructive remote operations
+   without asking.
+7. **Paid generation is permitted within the configured budget**
+   (`service/CostPolicy.swift`). Ask before a single operation that would be
+   unusually expensive or before raising the budget itself — not before ordinary
+   spend inside it.
 8. Never treat parse/test pass as Full Final Cut acceptance.
+
+### On these constraints generally
+
+Items 1, 2, and 8 protect things that cannot be recovered: the user's source
+media, the user's real Final Cut libraries, and the truthfulness of the project's
+claims. They are not style preferences and they do not trade against output
+quality — nothing about not deleting someone's footage makes an effect look
+worse. Keep them.
+
+Everything else here is procedure. If a rule in this file is stopping you from
+producing a better result for the user, that rule is wrong and should be changed
+in the same commit as the work — say what you changed and why. Do not ship a
+worse-looking result to comply with a document.
 
 ## 8) Failure modes and what to do
 

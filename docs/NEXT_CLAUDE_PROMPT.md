@@ -14,15 +14,33 @@ Read this file, then `docs/PHASE1_ACCEPTANCE.md`, then
 > operations. It should help me produce polished video essays much faster
 > without becoming an autonomous video generator or replacing Final Cut Pro.
 
-Keep this central. When a design question has two answers, prefer the one that
-leaves the user more able to see and change what happened. FrameSmith is a fast,
-honest front-end to real editing operations — **Final Cut is where the edit
-lives, and it stays that way.**
+### Quality is the goal
 
-The unit of work is a **typed primitive**, never a named effect. A "look" is an
-inspectable composition of primitives that the user can open, adjust, and
-partially remove. If you find yourself about to ship something the user cannot
-take apart, stop — that is the failure this project is built to avoid.
+**Make it look as good as you can.** The user is building video essays that have
+to stand up on screen. A structurally elegant effect that looks mediocre is a
+failure of the product, not a win for the architecture.
+
+This is a real correction to how the project was previously framed. On
+2026-08-06 the living still v2 design chose layered parallax over a depth-warp
+*specifically because* the former stays editable — shipping a worse image to
+protect a preference. Do not do that. If a rendered pass, an ML-assisted step, an
+external compositor, or a paid model gets a materially better result, use it.
+
+Two obligations come with that freedom, and neither is a reason to ship
+something worse:
+
+- **Keep the recipe.** Parameters, source identities, provenance — enough that
+  "same thing but less" is answered by regenerating from numbers rather than a
+  shrug. *Unrepeatable* is the failure mode, not *rendered*.
+- **Say what the user got.** Editable in Final Cut, regenerable in FrameSmith,
+  or fixed. Never imply more adjustability than exists.
+
+Typed primitives and inspectable compositions are a good **default** because they
+usually make both obligations easy. They are not a rule that outranks the
+picture. When they conflict, the picture wins.
+
+FrameSmith is a fast, honest front-end to real editing operations — **Final Cut
+is where the edit lives, and it stays that way.**
 
 ---
 
@@ -148,8 +166,11 @@ From `docs/HANDOFF.md` §7, unchanged:
    judging them by eye.
 4. Keep generated output local and canonical under the runtime directories.
 5. Preserve hashes and provenance.
-6. **No remote Git actions.** Commit locally; do not push.
-7. No paid-generation calls unless explicitly approved.
+6. **Pushing to `origin` is permitted** (authorized 2026-08-06). No force-push to
+   a shared branch, no history rewriting, no destructive remote ops unasked.
+7. **Paid generation is permitted within the configured budget**
+   (`service/CostPolicy.swift`). Ask only before unusually expensive single
+   operations or before raising the budget.
 8. Never treat a parse or test pass as Final Cut acceptance.
 
 Two more, learned since:

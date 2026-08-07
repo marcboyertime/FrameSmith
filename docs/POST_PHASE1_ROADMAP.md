@@ -28,19 +28,28 @@ answerable to them:
 The last one sets the ceiling deliberately. FrameSmith is a **fast, honest
 front-end to real editing operations**. Final Cut remains where the edit lives.
 
-### The failure this roadmap is designed to avoid
+### The goal
 
-The tempting shape for a tool like this is a menu of named looks — "VHS",
-"noir", "glitch" — each implemented as whatever produced an acceptable frame.
-That shape collapses within a month of real use, because the second request is
-always *"same thing but less"*, and a flattened one-off has no *less*.
+**Make the best-looking result the user asked for.** That is the point of the
+product, and it outranks every structural preference in this document. If a
+technique produces a materially better image, use it — layered, rendered,
+ML-assisted, external compositor, whatever wins.
 
-So: typed primitives and inspectable compositions remain the preferred unit of
-work. Useful editability is a priority, not an absolute veto on quality. When a
-layered, rendered, or ML-assisted construction wins materially, it may ship if
-FrameSmith retains enough revision data, parameters, source identities, and
-provenance for the user to understand and revise the operation. A flattened
-result without that retained record is not acceptable.
+Two things to get right while doing that, neither of which is a reason to ship
+something worse:
+
+1. **Keep the recipe.** Retain the parameters, source identities, revision data,
+   and provenance that let the operation be understood and regenerated at a
+   different strength. The failure mode worth avoiding is not "rendered" — it is
+   *unrepeatable*. A tool whose answer to "same thing but less" is "regenerate
+   it from these numbers" is fine. A tool whose answer is "I don't know what I
+   did" is not.
+2. **Say what the user got.** Editable in Final Cut, regenerable in FrameSmith,
+   or fixed. Never imply more adjustability than exists.
+
+Typed primitives and inspectable compositions remain a good default because they
+usually make both of those easy — not because structure is worth more than the
+picture. When they conflict, the picture wins and the recipe gets recorded.
 
 ---
 
@@ -310,13 +319,19 @@ order**. Nothing else. It must be possible to:
 - remove any one of them and keep the rest;
 - save the result as a new recipe.
 
-**Do not turn recipes into unexplained flattened filters.** If a recipe can only
-be delivered as a baked render, it does not ship in C — it goes back to B as a
-missing primitive.
+**A recipe that can only be delivered as a render still ships** — as long as its
+parameters survive so the user can regenerate it dimmer, stronger, or without one
+of its parts. "Unexplained" is the failure, not "rendered".
 
-This is also the honest test of Phase B. "Handheld drift" should be position +
-rotation keyframes with noise; if it cannot be expressed that way, rotation is
-missing, and that is a B problem surfacing in C.
+Prefer expressing a recipe as primitives when that gets you the same image,
+because it makes the adjust-one-part case trivial. But if VHS looks genuinely
+better as a shader pass than as a stack of native primitives, ship the shader
+pass, expose its parameters, and move on. Do not withhold a good-looking result
+to protect an architectural preference.
+
+Where a recipe *does* decompose cleanly, that is still worth noticing as a signal
+about Phase B: "handheld drift" as position + rotation keyframes with noise means
+those primitives are pulling their weight.
 
 ---
 
@@ -372,16 +387,44 @@ before building anything else in D.**
 
 **Goal:** a transition/compositing adapter with an explicit preference order.
 
-### Preference order
+### Result first, then editability
 
-1. **Native FCPXML** — fully editable in Final Cut
-2. **Editable Motion/FxPlug-style effect** — editable, external
-3. **Preserved external editable composition** — editable elsewhere, round-trippable
-4. **Baked render** — last resort
+**Pick the approach that produces the best result. Then tell the user what they
+got.**
 
-The adapter picks the highest tier the operation and admitted contracts allow,
-and **records which tier it used** in provenance. The user must be able to see
-that a given transition was baked rather than native.
+This used to be a strict preference order with native FCPXML always winning and
+a baked render as "last resort". That rule cost real quality: the living still
+v2 design chose layered parallax over a depth-warp specifically because the
+former stays editable, even though the latter looks considerably better. That
+is the wrong trade to make on the user's behalf.
+
+The tiers still exist, but as a **description of what you produced**, not a
+ranking you must climb:
+
+| Tier | Editable where | Use when |
+| --- | --- | --- |
+| Native FCPXML | in Final Cut | it genuinely looks as good |
+| Motion/FxPlug template | in Final Cut | native can't express it |
+| External composition | elsewhere, round-trippable | the look needs a real compositor |
+| Rendered layer | nowhere — regenerate to change | the result is materially better |
+
+Choosing a lower tier for a better-looking result is **correct**, not a
+compromise. What is not acceptable is doing it silently.
+
+### The obligation that replaces the preference order
+
+Every operation records, in provenance and in the UI:
+
+- what tier it used;
+- whether the user can adjust it in Final Cut, adjust it in FrameSmith by
+  regenerating, or not at all;
+- if it is rendered, the exact parameters that produced it, so regenerating with
+  a tweak is always possible.
+
+A rendered layer that the user can regenerate at a different strength is a
+perfectly good outcome. A rendered layer whose settings are lost is not — that
+is the only version of "baked" worth refusing, and the fix is to keep the recipe,
+not to avoid the render.
 
 ### Candidates to evaluate
 
@@ -573,20 +616,29 @@ for visual-quality evaluation or broad compatibility claims.
 Recorded plainly, because these are the realistic failure modes and naming them
 is cheaper than rediscovering them:
 
-1. **Shipping a recipe that cannot be taken apart.** The moment one look is a
-   baked special case, the primitive library stops being the product and becomes
-   overhead. Phase C is where this pressure will be strongest.
-2. **Admitting a contract on a passing probe alone.** A probe shows Final Cut
+1. **Shipping results that look mediocre because a cleaner approach existed.**
+   This is now listed first deliberately. The user is making video essays that
+   have to hold up on screen; an elegant architecture that produces a flat image
+   has failed at the only thing that matters. Structural preferences lose to the
+   picture.
+2. **Shipping a recipe that cannot be *regenerated*.** Note the change: not
+   "cannot be taken apart". A rendered look whose parameters are retained is
+   fine — the user asks for less and gets less. A look whose settings are gone
+   is the real failure, because there is no path back to a different version.
+3. **Admitting a contract on a passing probe alone.** A probe shows Final Cut
    accepted *one* construction. The profile must stay narrow, versioned, and
    honest about what each pass did not establish.
-3. **Letting the standalone route drift into a mutation claim.** It generates a
+4. **Letting the standalone route drift into a mutation claim.** It generates a
    new project. If the UI ever implies it edited the user's timeline, the
    distinction the gate enforces becomes a lie the product tells.
-4. **Building portal, or any flagship effect, before its primitives.** Named
-   explicitly in Phase E because it is the most likely single instance.
-5. **Reaching for generation because it is faster than solving the editing
-   problem.** The Final Phase rule exists for this exact temptation.
+5. **Claiming more adjustability than exists.** Rendered is fine; rendered while
+   the UI implies it is editable is not.
 6. **Optimizing for effect count over editorial speed.** For a video essay, the
    bottleneck is assembling and cutting, not the look. Phase G addresses the
    actual bottleneck and should not be perpetually deferred behind more visible
    work.
+
+Note what is *not* on this list any more: reaching for generation, rendering
+instead of emitting native, or building a flagship effect before its primitives.
+Those are engineering judgement calls, not failures. Make them on the merits of
+the result.
