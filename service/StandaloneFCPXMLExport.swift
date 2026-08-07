@@ -13,6 +13,7 @@ public enum StandaloneExportError: Error, LocalizedError, Equatable {
     case unconfirmedTarget
     case wrongMediaKind(String)
     case sourceDurationExceeded
+    case registryUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -28,6 +29,7 @@ public enum StandaloneExportError: Error, LocalizedError, Equatable {
         case .unconfirmedTarget: return "A confirmed, in-bounds target point is required; refusing to substitute the frame centre for a point the user did not confirm"
         case .wrongMediaKind(let reason): return reason
         case .sourceDurationExceeded: return "The requested frame-quantized duration exceeds the admitted movie duration"
+        case .registryUnavailable: return "Standalone export requires a validated effect registry"
         }
     }
 }
@@ -349,18 +351,22 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
     public let fcpxmlVersion: String
     public let emitters: [EffectID: any StandaloneEffectEmitter]
     public let catalog: StandaloneEmitterCatalog
+    /// Injected by installed callers so export never relies on checkout paths.
+    public let registry: EffectRegistry?
 
     public init(
         gate: CapabilityGate,
         outputRoot: URL = StandaloneFCPXMLExportBuilder.defaultOutputRoot,
         fcpxmlVersion: String = StandaloneFCPXMLExportBuilder.preferredFCPXMLVersion,
-        emitters: [any StandaloneEffectEmitter] = [LivingStillStandaloneEmitter(), TargetedRotateZoomStandaloneEmitter()]
+        emitters: [any StandaloneEffectEmitter] = [LivingStillStandaloneEmitter(), TargetedRotateZoomStandaloneEmitter()],
+        registry: EffectRegistry? = nil
     ) {
         self.gate = gate
         self.outputRoot = outputRoot
         self.fcpxmlVersion = fcpxmlVersion
         self.catalog = StandaloneEmitterCatalog(emitters: emitters)
         self.emitters = catalog.emitters
+        self.registry = registry
     }
 
     /// Why an effect has no emitter yet. Stated rather than left as an absence,
@@ -402,10 +408,12 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
            !(plan.normalizedPoint?.confirmed == true && plan.normalizedPoint?.isInNormalizedBounds == true) {
             throw StandaloneExportError.unconfirmedTarget
         }
-        // When source registry is available, reject malformed hybrids before
-        // capability or emitter work. Emitter-specific checks remain a second
-        // boundary for packaged/runtime callers without a checkout registry.
-        if let registry = try? EffectRegistry.discover() { try PlanValidator(registry: registry).validate(plan) }
+        // Export is never allowed to skip semantic validation. CLI/checkouts
+        // may discover the registry; installed callers inject their bundle copy.
+        guard let registry = registry ?? (try? EffectRegistry.discover()) else {
+            throw StandaloneExportError.registryUnavailable
+        }
+        try ValidatedPlanExecution(registry: registry, catalog: catalog).validate(plan: plan, media: media)
         // 1. The gate, in full. Nothing below runs on a refused plan.
         do {
             try gate.require(plan, capability: .standaloneFCPXMLExport, mediaEvidence: mediaEvidence)

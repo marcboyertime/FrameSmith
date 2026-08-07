@@ -309,6 +309,11 @@ private final class AppModel: ObservableObject {
         let plan = result.plan
         let gate = capabilityGate
         let installed = installedFinalCut
+        guard let exportRegistry = try? EffectRegistry.load(from: appResource(named: "registry/effects")) else {
+            errorMessage = "The bundled effect registry could not be validated."
+            isExportingProject = false
+            return
+        }
 
         Task { [weak self] in
             let outcome: Result<StandaloneFCPXMLExportBuilder.Package, Error> = await Task.detached(priority: .userInitiated) {
@@ -324,7 +329,7 @@ private final class AppModel: ObservableObject {
                     for (index, entry) in ordered.enumerated() {
                         media[entry.role] = admitted.assets[index]
                     }
-                    let builder = StandaloneFCPXMLExportBuilder(gate: gate)
+                    let builder = StandaloneFCPXMLExportBuilder(gate: gate, registry: exportRegistry)
                     return .success(try builder.export(
                         plan: plan,
                         media: media,
