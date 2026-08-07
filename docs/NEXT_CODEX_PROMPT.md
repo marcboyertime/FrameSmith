@@ -1,5 +1,7 @@
 # Next implementation prompt
 
+Phase 1 is complete. Preserve the parameter-truth path: registry metadata → validated plan → shared channels → preview/FCPXML. Do not claim unsupported easing or arbitrary color calibration; Living Still v2 and unavailable Natural Dissolve/Old Television emitters remain future work. New Final Cut generation must continue to create a new project and never modify an existing timeline.
+
 Start by reading `docs/HANDOFF.md`, `STATUS.md`, current Git state, and the
 current test evidence. Work on `standalone-app`; do not revive stale copied-app
 or private-runtime assumptions.

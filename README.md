@@ -1,4 +1,6 @@
-# FCPCommandConsole
+# FrameSmith
+
+FrameSmith (repository and bundle identifiers remain FCPCommandConsole) now creates a **new** Final Cut project from admitted local media; it never modifies a timeline. Real emitter-backed preview/export currently cover Living Still and Targeted Rotate + Zoom. Natural Dissolve and Old Television are honestly unavailable pending generalized emitters. Registry controls distinguish exact supported edits, approximate edits, invariants, and unsupported values; Living Still color is indicative only and fixed to captured Saturation 25.
 
 FCPCommandConsole is a private, local macOS planner with a standalone SwiftUI
 app. It accepts local stills/movies read-only, creates schema-versioned plans,

@@ -1,5 +1,9 @@
 # FCPCommandConsole status
 
+## Parameter-truth milestone — complete implementation checkpoint
+
+Living Still and Targeted Rotate + Zoom now emit shared plan-driven channels to preview and FCPXML. Generation creates a new project only; it never modifies a Final Cut timeline. Two emitters are available and two effects remain explicitly unavailable. Supported edits are labelled from registry metadata; unsupported/invariant values remain read-only. Living Still v2 remains unimplemented and quality-first behavior takes priority over native purity. Current verification: 205 Swift tests passed, `make test` reports `registry=4 schema=json-ok forbidden-patterns=0`.
+
 Checkpoint refreshed 2026-08-03 from local evidence. The code checkpoint is
 commit `c282b0f` on branch `standalone-app`, which added the local-filesystem
 hardening described in `docs/HANDOFF.md` section 4b.

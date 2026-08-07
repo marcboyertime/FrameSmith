@@ -1,8 +1,6 @@
 # FrameSmith — post-Phase-1 roadmap
 
-Status: **planning only.** Nothing in Phases A–G or the Final Phase may be
-implemented until the current phase closes. See
-[Gate: what "current phase complete" means](#gate-what-current-phase-complete-means).
+Status: **Phase 1 complete.** Living Still and Targeted Rotate + Zoom have real emitter-backed previews and new-project FCPXML export; Natural Dissolve and Old Television remain unavailable rather than simulated. Future work remains quality-first: Living Still v2, rendered/ML/generative options, and professional expansion are possible only with fresh evidence.
 
 The repository is still named `FCPCommandConsole`. **FrameSmith** is the product
 name used throughout this document; renaming is a Phase A chore, not a

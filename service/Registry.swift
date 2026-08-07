@@ -23,12 +23,34 @@ public struct EffectRegistry: Sendable {
 
     public init(definitions: [EffectDefinition]) throws {
         var result: [EffectID: EffectDefinition] = [:]
-        for definition in definitions {
+        for rawDefinition in definitions {
+            var definition = rawDefinition
+            // A legacy JSON record without presentation remains explicitly
+            // classified as unsupported after loading; it cannot become an
+            // editable control merely through omission.
+            definition.parameters = definition.parameters.map { parameter in
+                var parameter = parameter
+                if parameter.presentation == nil {
+                    parameter.presentation = ParameterPresentation(
+                        label: Self.humanLabel(parameter.name),
+                        explanation: "No emitter-backed editable mapping is declared for this parameter.",
+                        group: .`internal`, exposure: .unsupportedReadOnly)
+                }
+                return parameter
+            }
             guard result[definition.identifier] == nil else { throw RegistryError.duplicateIdentifier(definition.identifier) }
             try Self.validate(definition)
             result[definition.identifier] = definition
         }
         self.definitions = result
+    }
+
+    private static func humanLabel(_ name: String) -> String {
+        name.unicodeScalars.enumerated().reduce(into: "") { result, item in
+            let character = Character(String(item.element))
+            if item.offset > 0, CharacterSet.uppercaseLetters.contains(item.element) { result.append(" ") }
+            result.append(character)
+        }.prefix(1).uppercased() + name.dropFirst()
     }
 
     private static func validate(_ definition: EffectDefinition) throws {
