@@ -274,7 +274,9 @@ public struct NativeFCPXMLTransformChannel: Equatable, Sendable {
         let start = NativeFCPXMLStillTiming.keyframeTime(frame: startFrame, rate: rate)
         let end = NativeFCPXMLStillTiming.keyframeTime(frame: endFrame, rate: rate)
         let endX = NativeFCPXMLTransformUnits.position(fromWidthFraction: panXFraction, width: width, height: height)
-        let endY = NativeFCPXMLTransformUnits.position(fromWidthFraction: panYFraction, width: width, height: height)
+        // Vertical plan values are fractions of height (not width) and use
+        // screen-positive-down coordinates, so this helper also flips sign.
+        let endY = NativeFCPXMLTransformUnits.positionY(fromHeightFraction: panYFraction, height: height)
 
         let positionX = [
             NativeFCPXMLKeyframe(time: start, value: NativeFCPXMLNumber.string(0)),

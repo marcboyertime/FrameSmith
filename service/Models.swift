@@ -560,8 +560,11 @@ public struct ParameterDefinition: Codable, Equatable, Sendable {
     public var maximum: Double?
     public var allowedValues: [ParameterValue]?
     public var description: String?
+    /// Presentation and liveness are registry facts, never inferred from the
+    /// existence of a JSON parameter.  Old registries decode fail-closed.
+    public var presentation: ParameterPresentation?
 
-    public init(name: String, type: String, defaultValue: ParameterValue? = nil, minimum: Double? = nil, maximum: Double? = nil, allowedValues: [ParameterValue]? = nil, description: String? = nil) {
+    public init(name: String, type: String, defaultValue: ParameterValue? = nil, minimum: Double? = nil, maximum: Double? = nil, allowedValues: [ParameterValue]? = nil, description: String? = nil, presentation: ParameterPresentation? = nil) {
         self.name = name
         self.type = type
         self.defaultValue = defaultValue
@@ -569,7 +572,39 @@ public struct ParameterDefinition: Codable, Equatable, Sendable {
         self.maximum = maximum
         self.allowedValues = allowedValues
         self.description = description
+        self.presentation = presentation
     }
+}
+
+/// Whether a parameter can truthfully be changed in the current construction.
+public enum ParameterExposure: String, Codable, CaseIterable, Sendable {
+    case runtimeEditable = "runtime_editable"
+    case approximateEditable = "approximate_editable"
+    case invariantReadOnly = "invariant_read_only"
+    case unsupportedReadOnly = "unsupported_read_only"
+
+    public var isEditable: Bool { self == .runtimeEditable || self == .approximateEditable }
+}
+
+public enum ParameterGroup: String, Codable, CaseIterable, Sendable {
+    case basic, advanced
+    case `internal`
+}
+
+public struct ParameterPresentation: Codable, Equatable, Sendable {
+    public var label: String
+    public var explanation: String
+    public var units: String?
+    public var group: ParameterGroup
+    public var exposure: ParameterExposure
+
+    public init(label: String, explanation: String, units: String? = nil, group: ParameterGroup = .basic, exposure: ParameterExposure) {
+        self.label = label; self.explanation = explanation; self.units = units; self.group = group; self.exposure = exposure
+    }
+
+    /// Missing metadata is deliberately read-only. This allows a caller to
+    /// inspect a legacy definition without accidentally offering an edit.
+    public static let failClosed = ParameterPresentation(label: "Unavailable parameter", explanation: "This registry does not declare a supported control.", group: .`internal`, exposure: .unsupportedReadOnly)
 }
 
 public struct GeneratedAssetDefinition: Codable, Equatable, Sendable {

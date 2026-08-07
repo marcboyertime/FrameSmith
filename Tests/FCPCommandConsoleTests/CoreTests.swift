@@ -113,7 +113,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(targeted.parameters["rotationStartDegrees"]?.numberValue, 0)
         XCTAssertEqual(targeted.parameters["rotationEndDegrees"]?.numberValue, 12)
         XCTAssertEqual(targeted.parameters["easing"]?.stringValue, "ease_in_out")
-        XCTAssertEqual(targeted.parameters["direction"]?.stringValue, "clockwise")
+        XCTAssertEqual(targeted.parameters["direction"]?.stringValue, "counterclockwise")
 
         let oldTV = try planner.plan(request: "Make this look like old black-and-white television footage with static, grain, scanlines, and subtle image instability.", selection: selection())
         XCTAssertEqual(oldTV.effectID, .oldTelevision)

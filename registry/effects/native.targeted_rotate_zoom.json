@@ -6,13 +6,13 @@
   "inputCount": 1,
   "representation": "fcpxml_native",
   "parameters": [
-    {"name":"durationSeconds","type":"number","defaultValue":4.0,"minimum":0.1,"maximum":30.0,"description":"bounded keyframe duration"},
-    {"name":"scaleStart","type":"number","defaultValue":1.0,"minimum":0.1,"maximum":4.0},
-    {"name":"scaleEnd","type":"number","defaultValue":1.3,"minimum":0.1,"maximum":4.0},
-    {"name":"rotationStartDegrees","type":"number","defaultValue":0.0,"minimum":-180.0,"maximum":180.0},
-    {"name":"rotationEndDegrees","type":"number","defaultValue":12.0,"minimum":-180.0,"maximum":180.0},
-    {"name":"direction","type":"string","defaultValue":"clockwise","allowedValues":["clockwise","counterclockwise"]},
-    {"name":"easing","type":"string","defaultValue":"ease_in_out","allowedValues":["linear","ease_in","ease_out","ease_in_out"]}
+    {"name":"durationSeconds","type":"number","defaultValue":4.0,"minimum":0.1,"maximum":30.0,"description":"bounded keyframe duration","presentation":{"label":"Duration","explanation":"Frame-quantized transform duration.","units":"seconds","group":"basic","exposure":"runtime_editable"}},
+    {"name":"scaleStart","type":"number","defaultValue":1.0,"minimum":0.1,"maximum":4.0,"presentation":{"label":"Start scale","explanation":"Opening transform scale.","group":"basic","exposure":"runtime_editable"}},
+    {"name":"scaleEnd","type":"number","defaultValue":1.3,"minimum":0.1,"maximum":4.0,"presentation":{"label":"End scale","explanation":"Closing transform scale.","group":"basic","exposure":"runtime_editable"}},
+    {"name":"rotationStartDegrees","type":"number","defaultValue":0.0,"minimum":-180.0,"maximum":180.0,"presentation":{"label":"Start rotation","explanation":"Signed Final Cut degrees; positive is counterclockwise.","units":"degrees","group":"advanced","exposure":"runtime_editable"}},
+    {"name":"rotationEndDegrees","type":"number","defaultValue":12.0,"minimum":-180.0,"maximum":180.0,"presentation":{"label":"End rotation","explanation":"Signed Final Cut degrees; positive is counterclockwise.","units":"degrees","group":"advanced","exposure":"runtime_editable"}},
+    {"name":"direction","type":"string","defaultValue":"counterclockwise","allowedValues":["clockwise","counterclockwise"],"presentation":{"label":"Direction","explanation":"Derived compatibility metadata from signed rotation, not directly editable.","group":"internal","exposure":"invariant_read_only"}},
+    {"name":"easing","type":"string","defaultValue":"ease_in_out","allowedValues":["linear","ease_in","ease_out","ease_in_out"],"presentation":{"label":"Easing","explanation":"No established FCPXML easing encoding is emitted.","group":"advanced","exposure":"unsupported_read_only"}}
   ],
   "backend": "native",
   "editableProperties": [
@@ -21,7 +21,7 @@
     {"name":"scaleEnd","valueType":"number","minimum":0.1,"maximum":4.0,"defaultValue":1.3,"keyframeable":true},
     {"name":"rotationStartDegrees","valueType":"number","minimum":-180.0,"maximum":180.0,"defaultValue":0.0,"keyframeable":true},
     {"name":"rotationEndDegrees","valueType":"number","minimum":-180.0,"maximum":180.0,"defaultValue":12.0,"keyframeable":true},
-    {"name":"direction","valueType":"string","defaultValue":"clockwise","keyframeable":false},
+    {"name":"direction","valueType":"string","defaultValue":"counterclockwise","keyframeable":false},
     {"name":"easing","valueType":"string","defaultValue":"ease_in_out","keyframeable":false},
     {"name":"anchorX","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":0.5,"keyframeable":false},
     {"name":"anchorY","valueType":"number","minimum":0.0,"maximum":1.0,"defaultValue":0.5,"keyframeable":false},

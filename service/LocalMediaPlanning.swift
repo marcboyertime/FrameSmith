@@ -77,6 +77,9 @@ public struct LocalMediaPlanningResult: Equatable, Sendable {
     /// that conflated the two would show the user a refusal for the thing they
     /// can actually do.
     public let standaloneExportDecision: CapabilityDecision
+    /// Original registry-planned values. Revisions never overwrite this, so
+    /// reset has an unambiguous meaning after several edits.
+    public let baselineParameters: [String: ParameterValue]
 
     public init(
         plan: EffectPlan,
@@ -90,7 +93,8 @@ public struct LocalMediaPlanningResult: Equatable, Sendable {
             capability: .standaloneFCPXMLExport,
             allowed: false,
             reason: "Standalone export was not evaluated for this plan"
-        )
+        ),
+        baselineParameters: [String: ParameterValue]? = nil
     ) {
         self.plan = plan
         self.admission = admission
@@ -100,6 +104,7 @@ public struct LocalMediaPlanningResult: Equatable, Sendable {
         self.inertPackageDecision = inertPackageDecision
         self.fcpxmlExportDecision = fcpxmlExportDecision
         self.standaloneExportDecision = standaloneExportDecision
+        self.baselineParameters = baselineParameters ?? plan.parameters
     }
 
     /// Reports the first way the live inputs have drifted from the ones this
@@ -135,7 +140,10 @@ public struct LocalMediaPlannerSession {
         // description of media; it is not proof any of it was admitted.
         let admittedAssets = [primary, outgoing, incoming].compactMap { $0 }
         let standaloneDecision: CapabilityDecision
-        if let mediaEvidence = AdmittedLocalMediaEvidence(admittedAssets: admittedAssets) {
+        let catalog = StandaloneEmitterCatalog()
+        if let reason = catalog.absenceReason(for: effectPlan.effectID) {
+            standaloneDecision = CapabilityDecision(capability: .standaloneFCPXMLExport, allowed: false, reason: reason)
+        } else if let mediaEvidence = AdmittedLocalMediaEvidence(admittedAssets: admittedAssets) {
             standaloneDecision = capabilityGate.decision(
                 for: admission,
                 capability: .standaloneFCPXMLExport,

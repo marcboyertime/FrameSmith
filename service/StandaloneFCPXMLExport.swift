@@ -11,6 +11,8 @@ public enum StandaloneExportError: Error, LocalizedError, Equatable {
     case dtdValidationFailed(String)
     case invalidRecipe(String)
     case unconfirmedTarget
+    case wrongMediaKind(String)
+    case sourceDurationExceeded
 
     public var errorDescription: String? {
         switch self {
@@ -24,6 +26,8 @@ public enum StandaloneExportError: Error, LocalizedError, Equatable {
         case .dtdValidationFailed(let detail): return "FCPXML DTD validation failed: \(detail)"
         case .invalidRecipe(let detail): return "Could not build the transform recipe: \(detail)"
         case .unconfirmedTarget: return "A confirmed, in-bounds target point is required; refusing to substitute the frame centre for a point the user did not confirm"
+        case .wrongMediaKind(let reason): return reason
+        case .sourceDurationExceeded: return "The requested frame-quantized duration exceeds the admitted movie duration"
         }
     }
 }
@@ -103,29 +107,40 @@ public struct LivingStillStandaloneEmitter: StandaloneEffectEmitter {
         media: [LocalMediaRole: LocalMediaAsset]
     ) throws -> NativeFCPXMLEffectChannels {
         guard let asset = media[.primary] else { throw StandaloneExportError.missingMedia(.primary) }
+        guard asset.kind == .still else { throw StandaloneExportError.wrongMediaKind("Living Still requires admitted still media") }
         let rate = NativeFCPXMLFrameRate.thirty
         let width = asset.dimensions.width
         let height = asset.dimensions.height
-        let durationFrames = LivingStillProbeTimeline.durationFrames
+        let composition: LivingStillComposition
+        do { composition = try LivingStillCompositionBuilder.build(from: plan) }
+        catch { throw StandaloneExportError.invalidRecipe(error.localizedDescription) }
+        let durationFrames = max(1, rate.frames(seconds: composition.durationSeconds))
+        let fadeFrames = max(0, min(durationFrames, rate.frames(seconds: composition.fadeDurationSeconds)))
+        let final = durationFrames - 1
+        let start = composition.transformKeyframes[0]
+        let end = composition.transformKeyframes[1]
 
         return NativeFCPXMLEffectChannels(
             transform: .pushInAndPan(
                 startFrame: 0,
-                endFrame: durationFrames - 1,
+                endFrame: final,
                 rate: rate,
-                panXFraction: LivingStillProbeTimeline.panXFraction,
-                panYFraction: LivingStillProbeTimeline.panYFraction,
-                scaleStart: LivingStillProbeTimeline.scaleStart,
-                scaleEnd: LivingStillProbeTimeline.scaleEnd,
+                panXFraction: end.panX,
+                panYFraction: end.panY,
+                scaleStart: start.scale,
+                scaleEnd: end.scale,
                 width: width,
                 height: height
             ),
             opacity: .fade(
-                fadeStartFrame: LivingStillProbeTimeline.fadeStartFrame,
-                endFrame: durationFrames - 1,
+                fadeStartFrame: max(0, durationFrames - fadeFrames),
+                endFrame: final,
                 rate: rate
+                , startOpacity: composition.opacityKeyframes.first?.opacity ?? 1,
+                endOpacity: composition.opacityKeyframes.last?.opacity ?? 0
             ),
-            saturation: LivingStillProbeTimeline.saturation,
+            // Captured one-point adapter: no arbitrary colorEnrichment mapping.
+            saturation: NativeFCPXMLColorAdjustments.capturedLivingStillSaturation,
             durationSeconds: Double(durationFrames) / Double(rate.framesPerSecond),
             origin: .still,
             frameWidth: width,
@@ -145,7 +160,6 @@ public struct LivingStillStandaloneEmitter: StandaloneEffectEmitter {
         let rate = NativeFCPXMLFrameRate.thirty
         let width = asset.dimensions.width
         let height = asset.dimensions.height
-        let durationFrames = LivingStillProbeTimeline.durationFrames
 
         let resources = NativeFCPXMLStillResources(
             sequenceFormatID: "r1",
@@ -161,14 +175,14 @@ public struct LivingStillStandaloneEmitter: StandaloneEffectEmitter {
         let built = try channels(plan: plan, media: media)
         let transform = built.transform
         let opacity = built.opacity
-        let colorFilter = NativeFCPXMLColorAdjustments.filterNode(ref: "r4", saturation: built.saturation ?? LivingStillProbeTimeline.saturation)
+        let colorFilter = NativeFCPXMLColorAdjustments.filterNode(ref: "r4", saturation: built.saturation ?? NativeFCPXMLColorAdjustments.capturedLivingStillSaturation)
 
         var children: [NativeFCPXMLNode] = []
         if let node = transform.node { children.append(node) }
         if let node = opacity.node { children.append(node) }
         children.append(colorFilter)
 
-        let duration = rate.time(frames: durationFrames)
+        let duration = rate.time(frames: max(1, rate.frames(seconds: built.durationSeconds)))
         let video = resources.videoNode(offset: .zero, duration: duration, children: children)
         let name = StandaloneFCPXMLExportBuilder.projectName(for: plan)
         return NativeFCPXMLDocument(
@@ -208,17 +222,32 @@ public struct TargetedRotateZoomStandaloneEmitter: StandaloneEffectEmitter {
         guard let point = plan.normalizedPoint, point.confirmed, point.isInNormalizedBounds else {
             throw StandaloneExportError.unconfirmedTarget
         }
-        let durationFrames = NativeEffectProbeTimeline.durationFrames
+        guard let durationSeconds = plan.parameters["durationSeconds"]?.numberValue, durationSeconds.isFinite else { throw StandaloneExportError.invalidRecipe("durationSeconds is missing") }
+        let expectedKeys: Set<String> = ["durationSeconds", "scaleStart", "scaleEnd", "rotationStartDegrees", "rotationEndDegrees", "direction", "easing"]
+        guard Set(plan.parameters.keys) == expectedKeys else { throw StandaloneExportError.invalidRecipe("targeted parameters must exactly match the registry") }
+        let durationFrames = max(1, rate.frames(seconds: durationSeconds))
+        if asset.kind == .movie, let sourceSeconds = asset.durationSeconds, durationFrames > rate.frames(seconds: sourceSeconds) {
+            throw StandaloneExportError.sourceDurationExceeded
+        }
+        guard let scaleStart = plan.parameters["scaleStart"]?.numberValue,
+              let scaleEnd = plan.parameters["scaleEnd"]?.numberValue,
+              let rotationStart = plan.parameters["rotationStartDegrees"]?.numberValue,
+              let rotationEnd = plan.parameters["rotationEndDegrees"]?.numberValue else { throw StandaloneExportError.invalidRecipe("targeted parameters are missing") }
+        guard [scaleStart, scaleEnd, rotationStart, rotationEnd].allSatisfy(\.isFinite),
+              plan.parameters["easing"] == .string(Easing.easeInOut.rawValue),
+              plan.parameters["direction"] == .string(rotationEnd - rotationStart > 0 ? "counterclockwise" : "clockwise") else {
+            throw StandaloneExportError.invalidRecipe("targeted metadata or signed rotation compatibility is invalid")
+        }
 
         let recipe: TargetedTransformKeyframeRecipe
         do {
             recipe = try TargetedTransformKeyframeRecipe(
                 source: Point2D(x: point.x, y: point.y),
                 durationSeconds: Double(durationFrames) / Double(rate.framesPerSecond),
-                scaleStart: NativeEffectProbeTimeline.scaleStart,
-                scaleEnd: NativeEffectProbeTimeline.scaleEnd,
-                rotationStartDegrees: NativeEffectProbeTimeline.rotationStartDegrees,
-                rotationEndDegrees: NativeEffectProbeTimeline.rotationEndDegrees
+                scaleStart: scaleStart,
+                scaleEnd: scaleEnd,
+                rotationStartDegrees: rotationStart,
+                rotationEndDegrees: rotationEnd
             )
         } catch {
             throw StandaloneExportError.invalidRecipe(String(describing: error))
@@ -256,10 +285,11 @@ public struct TargetedRotateZoomStandaloneEmitter: StandaloneEffectEmitter {
         let rate = NativeFCPXMLFrameRate.thirty
         let width = asset.dimensions.width
         let height = asset.dimensions.height
-        let durationFrames = NativeEffectProbeTimeline.durationFrames
+        let built = try channels(plan: plan, media: media)
+        let durationFrames = max(1, rate.frames(seconds: built.durationSeconds))
 
         // Built from the shared construction, never re-derived here.
-        let transform = try channels(plan: plan, media: media).transform
+        let transform = built.transform
         let duration = rate.time(frames: durationFrames)
         let name = StandaloneFCPXMLExportBuilder.projectName(for: plan)
 
@@ -318,6 +348,7 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
     public let outputRoot: URL
     public let fcpxmlVersion: String
     public let emitters: [EffectID: any StandaloneEffectEmitter]
+    public let catalog: StandaloneEmitterCatalog
 
     public init(
         gate: CapabilityGate,
@@ -328,24 +359,14 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         self.gate = gate
         self.outputRoot = outputRoot
         self.fcpxmlVersion = fcpxmlVersion
-        self.emitters = Dictionary(uniqueKeysWithValues: emitters.map { ($0.effectID, $0) })
+        self.catalog = StandaloneEmitterCatalog(emitters: emitters)
+        self.emitters = catalog.emitters
     }
 
     /// Why an effect has no emitter yet. Stated rather than left as an absence,
     /// so the gap is legible in the error a caller sees.
     public static func missingEmitterReason(for effectID: EffectID) -> String {
-        switch effectID {
-        case .naturalDissolve:
-            return "the dissolve construction needs two adjacent clips and a centred transition; the admitted construction lives in FCPXMLRoundTripSpikeBuilder and has not been generalised to arbitrary plan values"
-        case .oldTelevision:
-            // connectedOverlayLayers was admitted 2026-08-05, so the gate no
-            // longer blocks this. What is missing is an emitter that composes
-            // a spine clip, a connected overlay, and a colour filter from
-            // arbitrary plan values rather than the probe's fixed timeline.
-            return "the connected-overlay construction is admitted, but no emitter generalises it from plan values yet; NativeEffectProbeBuilder builds one fixed timeline, not an arbitrary one"
-        case .livingStill, .targetedRotateZoom:
-            return "an emitter exists"
-        }
+        StandaloneEmitterCatalog().absenceReason(for: effectID) ?? "an emitter exists"
     }
 
     public static func projectName(for plan: EffectPlan) -> String {
@@ -372,6 +393,19 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         installedFinalCut: FinalCutVersionIdentity? = InstalledFinalCutVersionReader().read(),
         generatedAt: Date = Date()
     ) throws -> Package {
+        // State a catalog absence before semantic validation, so unavailable
+        // effects always receive their actionable reason.
+        guard let emitter = catalog.emitter(for: plan.effectID) else {
+            throw StandaloneExportError.noEmitter(plan.effectID, reason: Self.missingEmitterReason(for: plan.effectID))
+        }
+        if plan.effectID == .targetedRotateZoom,
+           !(plan.normalizedPoint?.confirmed == true && plan.normalizedPoint?.isInNormalizedBounds == true) {
+            throw StandaloneExportError.unconfirmedTarget
+        }
+        // When source registry is available, reject malformed hybrids before
+        // capability or emitter work. Emitter-specific checks remain a second
+        // boundary for packaged/runtime callers without a checkout registry.
+        if let registry = try? EffectRegistry.discover() { try PlanValidator(registry: registry).validate(plan) }
         // 1. The gate, in full. Nothing below runs on a refused plan.
         do {
             try gate.require(plan, capability: .standaloneFCPXMLExport, mediaEvidence: mediaEvidence)
@@ -381,10 +415,6 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
 
         // 2. An emitter must exist. A gate pass without one is a real gap, not
         //    something to paper over with a partial document.
-        guard let emitter = emitters[plan.effectID] else {
-            throw StandaloneExportError.noEmitter(plan.effectID, reason: Self.missingEmitterReason(for: plan.effectID))
-        }
-
         try validateOutputRoot(outputRoot)
         let fileManager = FileManager.default
         let packageRoot = outputRoot.appendingPathComponent(plan.operationID.uuidString, isDirectory: true)

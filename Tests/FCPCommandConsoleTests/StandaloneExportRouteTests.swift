@@ -60,6 +60,14 @@ final class StandaloneExportRouteTests: XCTestCase {
             target: Target.confirmed(x: 0.7, y: 0.35)
         )
         plan.effectID = effectID
+        let definition = try registry().definition(for: effectID)
+        plan.parameters = Dictionary(uniqueKeysWithValues: definition.parameters.compactMap { parameter in parameter.defaultValue.map { (parameter.name, $0) } })
+        plan.representation = definition.representation
+        plan.editableProperties = definition.editableProperties
+        plan.generatedAssets = definition.generatedAssets
+        plan.previewStrategy = definition.preview
+        plan.verification = definition.verification
+        plan.fallback = definition.fallback
         plan.selectionToken.origin = .localMedia
         return plan
     }

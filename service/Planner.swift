@@ -143,11 +143,12 @@ public struct DeterministicPlanner: Sendable {
         if definition.identifier == .targetedRotateZoom {
             if let seconds = firstNumber(in: lower, pattern: #"([0-9]+(?:\.[0-9]+)?)\s*(?:seconds?|secs?|s)\b"#) { parameters["durationSeconds"] = .number(min(30, max(0.1, seconds))) }
             if let rotation = firstNumber(in: lower, pattern: #"([0-9]+(?:\.[0-9]+)?)\s*(?:degrees?|deg)\b"#) {
-                let signed = lower.contains("counterclockwise") || lower.contains("counter-clockwise") ? -rotation : rotation
+                let signed = lower.contains("counterclockwise") || lower.contains("counter-clockwise") ? rotation : -rotation
                 parameters["rotationEndDegrees"] = .number(min(180, max(-180, signed)))
             }
-            if lower.contains("counterclockwise") || lower.contains("counter-clockwise") { parameters["direction"] = .string("counterclockwise") }
-            if lower.contains("clockwise") && !lower.contains("counterclockwise") { parameters["direction"] = .string("clockwise") }
+            let start = parameters["rotationStartDegrees"]?.numberValue ?? 0
+            let end = parameters["rotationEndDegrees"]?.numberValue ?? 0
+            parameters["direction"] = .string(end - start > 0 ? "counterclockwise" : "clockwise")
         }
         if definition.identifier == .oldTelevision && (lower.contains("scanline") || lower.contains("scan line")) { parameters["kind"] = .string("scanline") }
         if definition.identifier == .livingStill {
@@ -237,12 +238,45 @@ public struct PlanValidator: Sendable {
         if let key = unsafeKeys.first { throw PlanValidationError.duplicateUnsafeField(key) }
 
         let definitionByName = Dictionary(uniqueKeysWithValues: definition.parameters.map { ($0.name, $0) })
+        guard Set(plan.parameters.keys) == Set(definitionByName.keys) else {
+            throw PlanValidationError.invalidParameter("parameter keys must exactly match the registry")
+        }
         for (name, value) in plan.parameters {
             guard let parameter = definitionByName[name] else { throw PlanValidationError.invalidParameter("unknown parameter \(name)") }
             try validate(value: value, definition: parameter)
         }
         try validateSelection(plan.selectionToken, for: definition, parameters: plan.parameters)
         if definition.identifier == .targetedRotateZoom, plan.normalizedPoint == nil { throw PlanValidationError.invalidTarget("targeted rotate+zoom requires an explicit point") }
+        try validateEffectSpecific(plan, definition: definition)
+    }
+
+    private func validateEffectSpecific(_ plan: EffectPlan, definition: EffectDefinition) throws {
+        func number(_ name: String) throws -> Double {
+            guard let value = plan.parameters[name]?.numberValue, value.isFinite else { throw PlanValidationError.invalidParameter("\(name) must be finite number") }
+            return value
+        }
+        func requireCanonical(_ name: String) throws {
+            guard let parameter = definition.parameters.first(where: { $0.name == name }), plan.parameters[name] == parameter.defaultValue else {
+                throw PlanValidationError.invalidParameter("\(name) is read-only and must remain the canonical registry default")
+            }
+        }
+        switch plan.effectID {
+        case .livingStill:
+            guard try number("pushInScaleEnd") >= number("pushInScaleStart") else { throw PlanValidationError.invalidParameter("push-in end scale must not be below start scale") }
+            guard try number("opacityEnd") <= number("opacityStart") else { throw PlanValidationError.invalidParameter("fade end opacity must not exceed start opacity") }
+            guard try number("fadeDurationSeconds") <= number("durationSeconds") else { throw PlanValidationError.invalidParameter("fade duration exceeds movement duration") }
+            try requireCanonical("easing"); try requireCanonical("colorEnrichment")
+            try requireCanonical("preserveOriginal"); try requireCanonical("nativeFallbackEnabled")
+            try requireCanonical("depthFlowStatus"); try requireCanonical("motionMethod")
+        case .targetedRotateZoom:
+            let delta = try number("rotationEndDegrees") - number("rotationStartDegrees")
+            // Zero is deterministic clockwise for schema-v2 compatibility.
+            let expected = delta > 0 ? "counterclockwise" : "clockwise"
+            guard plan.parameters["direction"] == .string(expected) else { throw PlanValidationError.invalidParameter("direction must agree with signed rotation delta") }
+            try requireCanonical("easing")
+        case .naturalDissolve, .oldTelevision:
+            break
+        }
     }
 
     private func validate(value: ParameterValue, definition: ParameterDefinition) throws {

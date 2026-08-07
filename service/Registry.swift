@@ -25,9 +25,65 @@ public struct EffectRegistry: Sendable {
         var result: [EffectID: EffectDefinition] = [:]
         for definition in definitions {
             guard result[definition.identifier] == nil else { throw RegistryError.duplicateIdentifier(definition.identifier) }
+            try Self.validate(definition)
             result[definition.identifier] = definition
         }
         self.definitions = result
+    }
+
+    private static func validate(_ definition: EffectDefinition) throws {
+        var names = Set<String>()
+        for parameter in definition.parameters {
+            guard !parameter.name.isEmpty, names.insert(parameter.name).inserted else {
+                throw RegistryError.invalidFile(URL(fileURLWithPath: definition.identifier.rawValue), "parameter names must be unique and non-empty")
+            }
+            guard ["number", "float", "integer", "string", "boolean"].contains(parameter.type) else {
+                throw RegistryError.invalidFile(URL(fileURLWithPath: definition.identifier.rawValue), "unsupported parameter type \(parameter.type)")
+            }
+            if let minimum = parameter.minimum { guard minimum.isFinite else { throw RegistryError.invalidFile(URL(fileURLWithPath: definition.identifier.rawValue), "non-finite minimum for \(parameter.name)") } }
+            if let maximum = parameter.maximum { guard maximum.isFinite else { throw RegistryError.invalidFile(URL(fileURLWithPath: definition.identifier.rawValue), "non-finite maximum for \(parameter.name)") } }
+            if let minimum = parameter.minimum, let maximum = parameter.maximum, minimum > maximum {
+                throw RegistryError.invalidFile(URL(fileURLWithPath: definition.identifier.rawValue), "incoherent bounds for \(parameter.name)")
+            }
+            guard let value = parameter.defaultValue else {
+                throw RegistryError.invalidFile(URL(fileURLWithPath: definition.identifier.rawValue), "missing default for \(parameter.name)")
+            }
+            try validate(value: value, parameter: parameter, effect: definition.identifier)
+            if let allowed = parameter.allowedValues {
+                guard !allowed.isEmpty, allowed.contains(value) else {
+                    throw RegistryError.invalidFile(URL(fileURLWithPath: definition.identifier.rawValue), "allowed values must include default for \(parameter.name)")
+                }
+                for candidate in allowed { try validateType(candidate, parameter: parameter, effect: definition.identifier) }
+            }
+            let presentation = parameter.presentation ?? .failClosed
+            guard !presentation.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    !presentation.explanation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw RegistryError.invalidFile(URL(fileURLWithPath: definition.identifier.rawValue), "presentation requires label and explanation for \(parameter.name)")
+            }
+            if presentation.exposure.isEditable {
+                guard parameter.type == "number" || parameter.type == "float" || parameter.type == "integer" || parameter.type == "string" || parameter.type == "boolean" else {
+                    throw RegistryError.invalidFile(URL(fileURLWithPath: definition.identifier.rawValue), "editable parameter has no supported control")
+                }
+            }
+        }
+    }
+
+    private static func validate(value: ParameterValue, parameter: ParameterDefinition, effect: EffectID) throws {
+        try validateType(value, parameter: parameter, effect: effect)
+        if let n = value.numberValue {
+            guard n.isFinite, parameter.minimum.map({ n >= $0 }) ?? true, parameter.maximum.map({ n <= $0 }) ?? true else {
+                throw RegistryError.invalidFile(URL(fileURLWithPath: effect.rawValue), "default out of bounds for \(parameter.name)")
+            }
+        }
+    }
+
+    private static func validateType(_ value: ParameterValue, parameter: ParameterDefinition, effect: EffectID) throws {
+        let okay: Bool
+        switch (parameter.type, value) {
+        case ("number", .number), ("number", .integer), ("float", .number), ("float", .integer), ("integer", .integer), ("string", .string), ("boolean", .boolean): okay = true
+        default: okay = false
+        }
+        guard okay else { throw RegistryError.invalidFile(URL(fileURLWithPath: effect.rawValue), "wrong default/value type for \(parameter.name)") }
     }
 
     public var all: [EffectDefinition] { EffectID.allCases.compactMap { definitions[$0] } }

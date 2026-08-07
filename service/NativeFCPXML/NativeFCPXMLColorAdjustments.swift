@@ -23,6 +23,9 @@ import Foundation
 /// question. This emitter carries them because the first probe reproduces the
 /// observed construction; dropping them is a later, separate experiment.
 public enum NativeFCPXMLColorAdjustments {
+    /// One captured Final Cut construction. It is intentionally an adapter,
+    /// not a conversion from the abstract legacy colorEnrichment descriptor.
+    public static let capturedLivingStillSaturation: Double = 25
     public static let effectName = "Color Adjustments"
     public static let effectUID = "FxPlug:7E2022A5-202B-4EEB-A311-AC2B585D01B0"
 
