@@ -3,7 +3,7 @@
   "version": 1,
   "name": "Short natural dissolve",
   "domain": "transition",
-  "status": "experimental",
+  "status": "validated",
   "summary": "A brief cross dissolve centred on an existing edit point, built from available source handles.",
   "creativeJobs": [
     "soften a hard cut",
@@ -72,10 +72,14 @@
   ],
   "validation": {
     "implemented": true,
-    "visuallyVerified": false,
+    "visuallyVerified": true,
     "finalCutEvidence": [
-      "d76a5635baad6050ef2f80c3592cc4f6ee63a2a1112575ebddc10ca4d0e3ae1f"
+      "d76a5635baad6050ef2f80c3592cc4f6ee63a2a1112575ebddc10ca4d0e3ae1f",
+      "91b607fc4f6920d35139d1335288ba295fdcb7572c5f3bf9d9ef56e938c360fd"
     ],
-    "notes": "A production emitter exists as of 2026-08-07 and reproduces all four admitted construction rules: a real effect resource, a filter-video referencing it, the centred offset, and butt-joined clips. Verified against a generated package whose transition sits at offset 7s for a 7.5s cut with a 1s duration. Not yet validated: the generated document has not been imported into Final Cut, so nothing confirms it renders or stays editable. Insufficient handle is a refusal, never a trim - the edit point does not move."
+    "notes": "Generalized emitter admitted 2026-08-07. A package generated from plan values imported without error and returned intact: transition offset 7s, duration 1s, all four filter-video params byte-identical, the Cross Dissolve UID preserved, no enabled=0, and the clips still butt-joined at 22500/3000s with 15 frames of handle on the incoming side. Final Cut added its own FFAudioTransition companion, the same behaviour the original probe showed. Not established: edge-dragging, durations other than 1s, and stills as dissolve inputs.",
+    "verifiedOn": [
+      "clip-a.mov and clip-b.mov colour bars, 8s each"
+    ]
   }
 }

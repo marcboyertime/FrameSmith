@@ -207,27 +207,36 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         }
     }
 
-    /// Both gained production emitters on 2026-08-07, so they moved from
-    /// `unsupported` to `experimental` — implemented, not yet imported into
-    /// Final Cut.
+    /// Both travelled the full path on 2026-08-07: `unsupported` → emitter
+    /// built → `experimental` → generated package imported and returned intact
+    /// → `validated`.
     ///
-    /// The distinction is the whole point of having four statuses. An emitter
-    /// existing is not evidence that Final Cut accepts what it emits; the five
-    /// silently-wrong constructions this project has already caught were all
-    /// DTD-valid. Neither may be offered until a generated document has come
-    /// back from a real import.
-    func testDissolveAndOldTelevisionAreExperimentalNotYetValidated() throws {
+    /// The intermediate stop mattered. An emitter existing is not evidence that
+    /// Final Cut accepts what it emits — every silently-wrong construction this
+    /// project has caught was DTD-valid — so neither was offerable until a
+    /// document *it produced* came back from a real import.
+    func testDissolveAndOldTelevisionAreValidatedByRoundTripEvidence() throws {
         let loaded = try catalog()
         for id in ["transition.dissolve.short_natural.v1", "look.crt.old_television.v1"] {
             let card = try XCTUnwrap(loaded.card(id: id))
-            XCTAssertEqual(card.status, .experimental, "\(id) has an emitter but no import evidence")
-            XCTAssertTrue(card.validation.implemented, "\(id) should record that an emitter exists")
-            XCTAssertFalse(card.validation.visuallyVerified, "\(id) has not been imported into Final Cut")
-            XCTAssertFalse(
+            XCTAssertEqual(card.status, .validated, id)
+            XCTAssertTrue(card.validation.implemented, id)
+            XCTAssertTrue(card.validation.visuallyVerified, id)
+            XCTAssertFalse(card.validation.finalCutEvidence?.isEmpty ?? true, "\(id) must cite returned artifacts")
+            XCTAssertTrue(
                 card.isExecutable(admittedCapabilities: admittedCapabilities),
-                "\(id) must not be offered until it has been verified"
+                "\(id) should now be offerable under the current profile"
             )
         }
+    }
+
+    /// The old television emitter was admitted for its **base treatment only**.
+    /// Its connected overlay was not exercised by that pass, and the card has
+    /// to keep saying so rather than letting the promotion imply full coverage.
+    func testOldTelevisionRecordsThatItsOverlayWasNotExercised() throws {
+        let card = try XCTUnwrap(catalog().card(id: "look.crt.old_television.v1"))
+        let notes = card.validation.notes ?? ""
+        XCTAssertTrue(notes.contains("overlay was NOT exercised"), "the untested overlay must stay visible: \(notes)")
     }
 
     /// Colour is admitted as a construction but has no measured mapping, so the

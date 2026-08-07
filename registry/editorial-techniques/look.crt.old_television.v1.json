@@ -3,7 +3,7 @@
   "version": 1,
   "name": "Old television / CRT treatment",
   "domain": "look",
-  "status": "experimental",
+  "status": "validated",
   "summary": "A desaturated, flickering base with a connected overlay in a blend mode, evoking a CRT display.",
   "creativeJobs": [
     "place a moment in the past",
@@ -90,10 +90,14 @@
   ],
   "validation": {
     "implemented": true,
-    "visuallyVerified": false,
+    "visuallyVerified": true,
     "finalCutEvidence": [
-      "f92bbd703ba0efcf4300d3fc4f4f28a32d4acc3cd0926b77a863d9b29ad46da2"
+      "f92bbd703ba0efcf4300d3fc4f4f28a32d4acc3cd0926b77a863d9b29ad46da2",
+      "22402588484c63c974f6ab4f787d6d016f34f2f4c303d3cd3219bdc96a4c090c"
     ],
-    "notes": "A production emitter exists as of 2026-08-07: animated flicker in the param form, a Color Adjustments filter, and an optional connected overlay with a parent-relative offset. Not yet validated: not imported into Final Cut. Two known gaps - only the Overlay blend mode has ever been observed, and the plan role model carries no overlay asset, so the CLI can currently only produce the base treatment."
+    "notes": "Generalized emitter admitted 2026-08-07 for the base treatment. A generated package imported without error and returned intact: the three-keyframe flicker in the animated param form with movie-origin times, and the Color Adjustments filter with its UID and payloads preserved. Not established: the connected overlay was NOT exercised in this pass because the plan role model carries no overlay asset, so lane, parent-relative offset, and blend mode remain admitted only from the earlier probe rather than from this emitter. Only the Overlay blend mode has ever been observed.",
+    "verifiedOn": [
+      "clip-a.mov colour bars, base treatment without an overlay"
+    ]
   }
 }
