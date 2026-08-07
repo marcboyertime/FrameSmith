@@ -45,6 +45,18 @@ public enum AspectFitPointMappingError: Error, LocalizedError, Equatable, Sendab
 }
 
 public enum AspectFitPointMapper {
+    /// The rect the media occupies, **centred** in its container.
+    ///
+    /// Centring is an assumption this mapper makes about the caller's layout,
+    /// not something it can observe. A view that draws the media anywhere else
+    /// will map every click wrong — and it fails silently in the worst
+    /// direction: points over the visible image resolve to letterbox and get
+    /// rejected, so the user clicks and simply nothing happens.
+    ///
+    /// That shipped once. SwiftUI's `GeometryReader` aligns content
+    /// top-leading by default, so the target picker drew a portrait image hard
+    /// left while this computed it in the middle. Callers must fill the
+    /// container they measure.
     public static func displayedRect(media: MediaSize, in container: MediaSize) throws -> MediaRect {
         try validate(media: media, container: container)
         let scale = min(container.width / media.width, container.height / media.height)

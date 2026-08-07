@@ -578,6 +578,13 @@ private struct TargetPicker: View {
                     Circle().stroke(.yellow, lineWidth: 3).frame(width: 18, height: 18).position(x: point.x, y: point.y)
                 }
             }
+            // Must fill the reader. `AspectFitPointMapper` computes the
+            // displayed rect as *centred* in the container, but GeometryReader
+            // aligns its content top-leading by default — so without this the
+            // image is drawn hard left while the mapper believes it is in the
+            // middle. Every click on the visible image then resolves to
+            // letterbox, is rejected, and produces no target at all.
+            .frame(width: container.width, height: container.height)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onEnded { value in
                 target = try? AspectFitPointMapper.target(for: MediaPoint(x: value.location.x, y: value.location.y), media: mediaSize, in: container)

@@ -225,3 +225,52 @@ extension ChannelSamplerTests {
         )
     }
 }
+
+/// Regression: the target picker drew its image top-left while the mapper
+/// computed it centred, so clicks on the visible image were rejected as
+/// letterbox and no target was ever set. Found by manual testing 2026-08-06.
+///
+/// The mapper was correct; the view was not. These pin the contract the view
+/// has to satisfy, so the assumption is at least written down where a future
+/// caller will meet it.
+final class AspectFitCentringTests: XCTestCase {
+    /// A portrait image in a wide container leaves letterbox on both sides,
+    /// and the displayed rect must sit in the middle of it.
+    func testPortraitMediaIsCentredInAWideContainer() throws {
+        let media = MediaSize(width: 276, height: 361)
+        let container = MediaSize(width: 880, height: 220)
+        let rect = try AspectFitPointMapper.displayedRect(media: media, in: container)
+
+        let expectedWidth = 220.0 * 276.0 / 361.0
+        XCTAssertEqual(rect.size.height, 220, accuracy: 0.001)
+        XCTAssertEqual(rect.size.width, expectedWidth, accuracy: 0.001)
+        XCTAssertEqual(rect.origin.x, (880 - expectedWidth) / 2, accuracy: 0.001)
+        XCTAssertGreaterThan(rect.origin.x, 1, "there must be letterbox to the left of a centred portrait image")
+    }
+
+    /// The exact failure the user hit: a click where a top-left-aligned view
+    /// draws the image is letterbox as far as the mapper is concerned.
+    func testClickWhereATopLeftAlignedViewWouldDrawIsRejected() {
+        let media = MediaSize(width: 276, height: 361)
+        let container = MediaSize(width: 880, height: 220)
+        // Middle of the image if it were drawn flush left.
+        let asDrawnWhenBuggy = MediaPoint(x: 84, y: 110)
+
+        XCTAssertThrowsError(
+            try AspectFitPointMapper.target(for: asDrawnWhenBuggy, media: media, in: container)
+        ) { error in
+            XCTAssertEqual(error as? AspectFitPointMappingError, .outsideDisplayedMedia)
+        }
+    }
+
+    /// The same click resolves once the view fills the container it measured.
+    func testCentredClickResolvesToATarget() throws {
+        let media = MediaSize(width: 276, height: 361)
+        let container = MediaSize(width: 880, height: 220)
+        let centre = MediaPoint(x: 440, y: 110)
+
+        let target = try AspectFitPointMapper.target(for: centre, media: media, in: container)
+        XCTAssertEqual(target.x, 0.5, accuracy: 0.001)
+        XCTAssertEqual(target.y, 0.5, accuracy: 0.001)
+    }
+}
