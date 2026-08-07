@@ -1,0 +1,21 @@
+{
+  "id": "analysis.compositing.alpha_premultiplication.v1",
+  "version": 1,
+  "name": "Alpha and premultiplication check",
+  "domain": "analysis",
+  "status": "reference_only",
+  "summary": "Verify alpha interpretation so composited layers do not show dark or bright fringing.",
+  "creativeJobs": ["keep composited overlays clean"],
+  "intentTags": ["technical", "finishing", "compositing"],
+  "mediaPrerequisites": ["a layer carrying an alpha channel"],
+  "lockedStructureEffect": "none",
+  "construction": {"preferredBackends": ["none"], "requiredCapabilities": ["compositing"], "previewFidelity": "none"},
+  "parameters": [],
+  "qualityChecks": ["no dark fringe on light backgrounds", "no bright fringe on dark backgrounds", "edges hold up at the strongest intended opacity"],
+  "failureModes": ["treating straight alpha as premultiplied or the reverse", "fringing visible only against certain backgrounds and missed in review"],
+  "editability": ["none"],
+  "provenance": [
+    {"sourceId": "APPLE-FCP-029", "claim": "blend modes determine how a layer combines with what is beneath it", "sourceRole": "technical_authority", "confidence": "official_documentation"}
+  ],
+  "validation": {"implemented": false, "visuallyVerified": false, "notes": "Becomes load-bearing as soon as any overlay or masked treatment ships."}
+}

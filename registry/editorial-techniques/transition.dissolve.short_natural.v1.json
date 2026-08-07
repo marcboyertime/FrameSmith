@@ -1,0 +1,34 @@
+{
+  "id": "transition.dissolve.short_natural.v1",
+  "version": 1,
+  "name": "Short natural dissolve",
+  "domain": "transition",
+  "status": "unsupported",
+  "summary": "A brief cross dissolve centred on an existing edit point, built from available source handles.",
+  "creativeJobs": ["soften a hard cut", "signal a small time passage", "join two related shots"],
+  "intentTags": ["quiet", "invisible", "motivated"],
+  "mediaPrerequisites": ["two adjacent clips butt-joined at the cut", "unused source beyond the cut on both sides to serve as handles"],
+  "refusalConditions": ["insufficient handle on either side — the edit point must not move to make room"],
+  "lockedStructureEffect": "none",
+  "construction": {
+    "preferredBackends": ["native_fcpxml"],
+    "requiredCapabilities": ["asset_admission", "cross_dissolve_transition"],
+    "previewFidelity": "none"
+  },
+  "parameters": [
+    {"key": "durationFrames", "type": "int", "unit": "frames", "range": [2, 120], "liveness": "unavailable"}
+  ],
+  "qualityChecks": ["the locked edit point does not move", "handles are sufficient on both sides", "the transition stays centred on the cut"],
+  "failureModes": ["overlapping the clips, which is DTD-valid and silently re-flowed by Final Cut", "consuming handle the user needed elsewhere"],
+  "editability": ["final_cut_native"],
+  "provenance": [
+    {"sourceId": "APPLE-FCP-012", "claim": "Final Cut transition movement depends on available media handles", "sourceRole": "technical_authority", "confidence": "official_documentation"},
+    {"sourceId": "docs/ROUNDTRIP_MANUAL_PASS.md", "claim": "the cross dissolve construction requires a real effect resource, a filter-video reference, offset at cut minus duration/2, and butt-joined clips", "confidence": "direct_evidence"}
+  ],
+  "validation": {
+    "implemented": false,
+    "visuallyVerified": false,
+    "finalCutEvidence": ["d76a5635baad6050ef2f80c3592cc4f6ee63a2a1112575ebddc10ca4d0e3ae1f"],
+    "notes": "The CONTRACT is admitted and duration-editable, but no production emitter generalises it from plan values. FCPXMLRoundTripSpikeBuilder builds one fixed probe timeline. Until an emitter exists this cannot be offered."
+  }
+}

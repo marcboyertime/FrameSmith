@@ -1,0 +1,31 @@
+{
+  "id": "process.review.representative_bakeoff.v1",
+  "version": 1,
+  "name": "Representative-media bakeoff",
+  "domain": "process",
+  "status": "reference_only",
+  "summary": "Review a treatment across deliberately varied media before calling it good.",
+  "creativeJobs": ["validate a technique before shipping it"],
+  "intentTags": ["process", "verification"],
+  "mediaPrerequisites": ["a portrait, a painting, a landscape with depth planes, architecture, and a difficult-edge subject"],
+  "lockedStructureEffect": "none",
+  "construction": {"preferredBackends": ["none"], "requiredCapabilities": [], "previewFidelity": "none"},
+  "parameters": [],
+  "qualityChecks": [
+    "compared against source and against the current baseline",
+    "parameter differences large enough that liveness is obvious",
+    "key frames and short loops inspected for jitter, warping, halos, cropping, banding, and final-frame behaviour",
+    "audio comparisons loudness-matched",
+    "results recorded with parameters and provenance"
+  ],
+  "failureModes": [
+    "reviewing one flattering image and generalising",
+    "differences too small to see, which proves nothing about whether the control works",
+    "declaring a pass from automated tests alone"
+  ],
+  "editability": ["none"],
+  "provenance": [
+    {"sourceId": "docs/editorial-intelligence/QUALITY_RUBRIC.md", "claim": "visual and sonic gates require representative media review rather than automated tests alone", "confidence": "direct_evidence"}
+  ],
+  "validation": {"implemented": false, "visuallyVerified": false, "notes": "Process card. Manual testing has already found two bugs the automated suite could not, which is the argument for it."}
+}

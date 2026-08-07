@@ -1,0 +1,145 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://framesmith.local/schemas/technique-card.schema.json",
+  "title": "FrameSmith technique card",
+  "description": "A compact, provenance-bearing craft record. Retrieved selectively rather than loaded wholesale. A card is executable only when its status is 'validated' AND its required capabilities are currently admitted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "version", "name", "domain", "status", "summary",
+    "creativeJobs", "intentTags", "mediaPrerequisites",
+    "lockedStructureEffect", "construction", "parameters",
+    "qualityChecks", "failureModes", "editability", "provenance", "validation"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+\\.v[0-9]+$",
+      "description": "Stable dotted identifier ending in a version segment, e.g. motion.still.quiet_push.v1"
+    },
+    "version": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "domain": {
+      "type": "string",
+      "enum": ["motion", "transition", "look", "typography", "audio", "safety", "analysis", "process"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["validated", "experimental", "reference_only", "unsupported"],
+      "description": "validated = implemented AND visually verified through the shared construction. A source describing a technique never justifies 'validated'."
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "creativeJobs": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "intentTags": { "type": "array", "items": { "type": "string" } },
+    "mediaPrerequisites": { "type": "array", "items": { "type": "string" } },
+    "refusalConditions": { "type": "array", "items": { "type": "string" } },
+    "lockedStructureEffect": {
+      "type": "string",
+      "enum": ["none", "requires_authorization"],
+      "description": "'none' means the technique is treatment-only. Anything else may not be offered by Surprise Me."
+    },
+    "construction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preferredBackends", "requiredCapabilities", "previewFidelity"],
+      "properties": {
+        "preferredBackends": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["native_fcpxml", "motion_template", "metal", "external_composition", "baked_render", "none"] },
+          "minItems": 1
+        },
+        "fallbackBackends": { "type": "array", "items": { "type": "string" } },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Semantic contract names or capability identifiers that must be admitted."
+        },
+        "requiredEffectID": { "type": "string" },
+        "previewFidelity": {
+          "type": "string",
+          "enum": ["shared_construction", "approximate", "indicative", "none"],
+          "description": "shared_construction = preview samples the same channels that export. indicative = direction only, magnitude unverified."
+        }
+      }
+    },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "type"],
+        "properties": {
+          "key": { "type": "string" },
+          "type": { "type": "string", "enum": ["float", "int", "bool", "enum", "point", "duration"] },
+          "unit": { "type": "string" },
+          "range": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+          "default": {},
+          "liveness": {
+            "type": "string",
+            "enum": ["live", "invariant", "unsupported", "unavailable"],
+            "description": "Must agree with docs/PARAMETER_LIVENESS.md. A card may not present an unsupported control as live."
+          }
+        }
+      }
+    },
+    "qualityChecks": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "failureModes": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "safety": { "type": "array", "items": { "type": "string" } },
+    "editability": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["final_cut_native", "framesmith_regeneration", "source_composition", "none"] },
+      "minItems": 1
+    },
+    "expectedCost": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "latency": { "type": "string", "enum": ["instant", "seconds", "minutes", "long"] },
+        "monetary": { "type": "string", "enum": ["free", "paid"] },
+        "privacy": { "type": "string", "enum": ["local_only", "uploads_media"] }
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sourceId", "claim"],
+        "properties": {
+          "sourceId": { "type": "string", "description": "An id present in docs/editorial-intelligence/sources.csv, or a repository evidence path." },
+          "claim": { "type": "string", "minLength": 1, "description": "The specific thing this source supports — not a general topic reference." },
+          "sourceRole": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["direct_evidence", "official_documentation", "practitioner_consensus", "single_source", "disputed"] }
+        }
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description"],
+        "properties": {
+          "description": { "type": "string" },
+          "sourceIds": { "type": "array", "items": { "type": "string" } },
+          "resolution": { "type": "string" }
+        }
+      },
+      "description": "Preserved disagreement between sources. Do not flatten into a fake rule."
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implemented", "visuallyVerified"],
+      "properties": {
+        "implemented": { "type": "boolean", "description": "A real construction exists that this card maps to." },
+        "visuallyVerified": { "type": "boolean", "description": "Reviewed on representative media, not merely tested." },
+        "finalCutEvidence": { "type": "array", "items": { "type": "string" }, "description": "Returned-artifact digests or worksheet paths." },
+        "verifiedOn": { "type": "array", "items": { "type": "string" }, "description": "Media the card was reviewed against." },
+        "notes": { "type": "string" }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "typography.readability.captions.v1",
+  "version": 1,
+  "name": "Caption and on-screen text readability",
+  "domain": "typography",
+  "status": "reference_only",
+  "summary": "Contrast, size, duration, and safe-area rules that keep text legible and accessible.",
+  "creativeJobs": ["make on-screen text readable", "provide accessible captions"],
+  "intentTags": ["clarity", "accessibility", "finishing"],
+  "mediaPrerequisites": ["text content to place"],
+  "lockedStructureEffect": "none",
+  "construction": {"preferredBackends": ["none"], "requiredCapabilities": ["typography"], "previewFidelity": "none"},
+  "parameters": [],
+  "qualityChecks": ["contrast ratio meets the accessibility minimum against the busiest frame behind it", "text dwells long enough to be read at a normal rate", "text sits inside the title-safe area", "captions do not obscure a protected region"],
+  "failureModes": ["contrast measured against an average frame rather than the worst one", "text that survives a still check but is illegible over motion"],
+  "editability": ["none"],
+  "provenance": [
+    {"sourceId": "W3C-A11Y-001", "claim": "text requires a minimum contrast ratio against its background to be accessible", "sourceRole": "safety_and_accessibility_standard", "confidence": "official_documentation"},
+    {"sourceId": "W3C-A11Y-002", "claim": "captions provide an equivalent for audio content", "sourceRole": "safety_and_accessibility_authority", "confidence": "official_documentation"},
+    {"sourceId": "APPLE-FCP-031", "claim": "Final Cut can create closed captions natively", "sourceRole": "technical_authority", "confidence": "official_documentation"}
+  ],
+  "validation": {"implemented": false, "visuallyVerified": false, "notes": "No typography capability exists yet."}
+}

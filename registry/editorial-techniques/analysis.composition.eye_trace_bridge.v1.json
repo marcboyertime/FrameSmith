@@ -1,0 +1,21 @@
+{
+  "id": "analysis.composition.eye_trace_bridge.v1",
+  "version": 1,
+  "name": "Eye-trace bridge analysis",
+  "domain": "analysis",
+  "status": "reference_only",
+  "summary": "Compare the focal position at the end of one shot and the start of the next to choose a transition that respects where the eye already is.",
+  "creativeJobs": ["choose a motivated transition", "decide whether a cut needs help at all"],
+  "intentTags": ["motivated", "invisible", "analysis"],
+  "mediaPrerequisites": ["two adjacent clips", "a focal estimate for the outgoing and incoming frames"],
+  "lockedStructureEffect": "none",
+  "construction": {"preferredBackends": ["none"], "requiredCapabilities": ["focal_analysis"], "previewFidelity": "none"},
+  "parameters": [],
+  "qualityChecks": ["focal estimate matches where a viewer actually looks", "the recommendation changes when the focal points are near versus far apart"],
+  "failureModes": ["treating a saliency estimate as ground truth about attention", "recommending a transition where a plain cut is stronger"],
+  "editability": ["none"],
+  "provenance": [
+    {"sourceId": "APPLE-FCP-014", "claim": "Final Cut provides transitions intended to smooth otherwise jarring cuts", "sourceRole": "technical_authority", "confidence": "official_documentation"}
+  ],
+  "validation": {"implemented": false, "visuallyVerified": false, "notes": "Requires focal analysis FrameSmith does not have. Listed because it is the analysis that should PRECEDE offering a transition, and offering transitions without it is guessing."}
+}

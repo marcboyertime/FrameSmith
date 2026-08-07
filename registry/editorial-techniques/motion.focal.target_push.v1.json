@@ -1,0 +1,52 @@
+{
+  "id": "motion.focal.target_push.v1",
+  "version": 1,
+  "name": "Focal target push and rotate",
+  "domain": "motion",
+  "status": "validated",
+  "summary": "Scale and rotate while compensating position so a chosen point converges toward frame centre.",
+  "creativeJobs": ["direct the eye to a specific subject", "reveal a detail", "add unease with a slow canted move"],
+  "intentTags": ["expressive", "directed", "emphasis", "eye-trace", "thematic"],
+  "mediaPrerequisites": ["a confirmed normalized target point inside the displayed media"],
+  "refusalConditions": ["target point unconfirmed — a zoom toward centre is a different effect from the one requested", "requested duration exceeds an admitted movie source duration"],
+  "lockedStructureEffect": "none",
+  "construction": {
+    "preferredBackends": ["native_fcpxml"],
+    "requiredCapabilities": ["asset_admission", "transform_keyframes"],
+    "requiredEffectID": "native.targeted_rotate_zoom",
+    "previewFidelity": "shared_construction"
+  },
+  "parameters": [
+    {"key": "durationSeconds", "type": "duration", "unit": "s", "range": [1, 30], "liveness": "live"},
+    {"key": "scaleStart", "type": "float", "range": [1.0, 3.0], "liveness": "live"},
+    {"key": "scaleEnd", "type": "float", "range": [1.0, 3.0], "liveness": "live"},
+    {"key": "rotationStartDegrees", "type": "float", "unit": "deg", "range": [-45, 45], "liveness": "live"},
+    {"key": "rotationEndDegrees", "type": "float", "unit": "deg", "range": [-45, 45], "liveness": "live"}
+  ],
+  "qualityChecks": [
+    "the target point actually converges toward centre across the move",
+    "rotation direction matches intent — positive Final Cut rotation is counterclockwise",
+    "no source edge enters frame at the widest point of the move",
+    "final keyframe remains addressable"
+  ],
+  "failureModes": [
+    "defaulting an unconfirmed target to centre, which silently ignores the request",
+    "sign error on the vertical axis sending the move the wrong way",
+    "rotation large enough to expose frame corners"
+  ],
+  "editability": ["final_cut_native", "framesmith_regeneration"],
+  "expectedCost": {"latency": "instant", "monetary": "free", "privacy": "local_only"},
+  "provenance": [
+    {"sourceId": "APPLE-FCP-008", "claim": "Final Cut animates transform parameters with keyframes", "sourceRole": "technical_authority", "confidence": "official_documentation"},
+    {"sourceId": "docs/ROTATION_GROUND_TRUTH.md", "claim": "rotation is a single param in plain degrees; anchor is a paired attribute; movie keyframes start at 0s rather than the stills 3600s origin", "confidence": "direct_evidence"},
+    {"sourceId": "docs/NATIVE_EFFECT_ADMISSION_PASS.md", "claim": "the generated rotation, scale and compensating position track is admitted and the rotation keyframe is editable", "confidence": "direct_evidence"}
+  ],
+  "validation": {
+    "implemented": true,
+    "visuallyVerified": true,
+    "finalCutEvidence": ["5c7f74df72bfd69f0e86e2e94f32b4494d3de4bd244bf83fc0feef02a204e6de"],
+    "verifiedOn": ["clip-a.mov colour bars", "user-supplied dali.jpeg with a confirmed target"],
+    "notes": "Rotation edited 12 to 30 degrees in the isolated app and returned as 30 with scale, position and keyframe count unchanged."
+  },
+  "notes": "Targeting is done by position compensation rather than by moving the anchor, because animated position is observed and an animated anchor is not."
+}
