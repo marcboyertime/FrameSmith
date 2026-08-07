@@ -9,7 +9,10 @@ struct FCPCommandConsoleApp: App {
     var body: some Scene {
         WindowGroup("FCPCommandConsole") {
             ContentView()
-                .frame(minWidth: 900, minHeight: 680)
+                // Opens tall enough to show the preview and its controls
+                // without scrolling on a normal display. The content scrolls
+                // regardless, so a smaller window degrades rather than clips.
+                .frame(minWidth: 900, idealWidth: 1000, minHeight: 680, idealHeight: 980)
         }
     }
 }
@@ -371,6 +374,19 @@ private struct ContentView: View {
     @StateObject private var model = AppModel()
 
     var body: some View {
+        // Scrolls because the content is taller than the window at any
+        // reasonable default size, and grew again when the effect preview
+        // landed. Without this it simply clips: the slider, the compare
+        // button, and the fidelity badges sit below the fold with nothing to
+        // indicate they exist, so the window looks broken rather than full.
+        ScrollView {
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 14) {
             // This banner said "Final Cut export and editability are
             // unverified" and "previews do not render an effect" until
@@ -483,9 +499,7 @@ private struct ContentView: View {
             if let project = model.exportedProject {
                 GeneratedProjectSummary(package: project)
             }
-            Spacer(minLength: 0)
         }
-        .padding()
     }
 
     private func openPanel(for role: LocalMediaRole) {
