@@ -32,7 +32,7 @@ comparative image-quality bakeoff has been run.
 ## Current implementation checkpoint
 
 Phase 1 is complete at the current repository checkpoint. `swift test` and
-`make test` pass **215 tests**; the latter also reports
+`make test` pass **282 tests**; the latter also reports
 `core audit: registry=4 schema=json-ok forbidden-patterns=0`. `swift build -c
 release` also passes. The installed app was rebuilt/reinstalled and its code
 signature and resource parity were verified.
@@ -56,8 +56,11 @@ command identifiers remain `FCPCommandConsole`.
 | --- | --- |
 | Local SwiftUI workflow | Admits local stills/movies read-only, computes source identities, plans locally, and provides a revision inspector. |
 | New-project output | Standalone export creates a new Final Cut project package and never mutates an existing timeline. |
-| Production standalone emitters | Living Still and Targeted Rotate + Zoom. Their shared channels drive preview and FCPXML. |
-| Explicitly unavailable effects | Natural Dissolve and Old Television, pending their own generalized emitters. |
+| Production standalone emitters | All four effects. Their shared channels drive both preview and FCPXML. |
+| Emitter coverage gaps | Old Television's connected overlay is unexercised by its emitter — the plan role model carries no overlay asset, so only the base flicker/colour treatment can be generated. |
+| Editorial structure lock | Ordered media, timing, retiming, sync, and protected regions are machine-checked before planning, preview, and export. |
+| Technique cards | 11 provenance-bearing cards, 5 validated and 6 reference-only; only validated cards whose capabilities are admitted may be offered. |
+| Surprise Me | Up to three materially different treatments for one shipped scenario; never changes clips, order, timing, or sync. |
 | Parameter liveness | Registry metadata classifies every parameter as editable, approximate, invariant, or unsupported/read-only; unsupported controls are not made editable by omission. |
 | Inert local package | Copies admitted bytes and plan/provenance only; it is not FCPXML, an effect render, or an importability claim. |
 
@@ -72,8 +75,12 @@ identity.
 Living Still supports its declared duration, scale, pan, opacity, and fade
 controls. Targeted Rotate + Zoom supports declared duration, scale, and signed
 rotation with a confirmed normalized target. Movie duration overflow is refused
-both while planning and revising. Natural Dissolve and Old Television have
-catalogued unavailable reasons shared by preview and export.
+both while planning and revising.
+
+Natural Dissolve and Old Television gained generalized emitters on 2026-08-07
+and were admitted by real import. The dissolve refuses rather than adapts when
+handle is insufficient: the requested duration is never shortened and the edit
+point is never moved to make an effect fit.
 
 Color and easing remain intentionally bounded. Living Still uses a captured
 Saturation 25 construction as an indicative adapter; no arbitrary color
@@ -91,17 +98,24 @@ quality, or compatibility with another Final Cut build.
 
 All outputs preserve the non-mutation boundary: no UI automation, AppleScript,
 Accessibility control, timeline selection inference, or modification of user
-libraries is part of FrameSmith. Source media and production libraries remain
+libraries is part of **the shipped product**. (Development-time GUI automation
+of the isolated Final Cut copy is permitted and is how the evidence above was
+gathered; it is not a runtime capability of FrameSmith.) Source media and production libraries remain
 untouched. A passing package, DTD validation, or unit test is not by itself a
 broad perceptual or future-version acceptance claim.
 
 ## Remaining limitations and next work
 
-The next milestone is to productionize Natural Dissolve and Old Television
-through the same registry → validated plan → shared channels → preview/FCPXML
-architecture. Their emitters need focused evidence and regression coverage;
-they must not be simulated as currently available. Effect stacking, history,
-and additional primitives remain future work.
+Natural Dissolve and Old Television are now production emitters admitted by
+returned evidence, so that milestone is closed.
+
+The next work, in rough value order: give Old Television's overlay a real plan
+role so its connected layer can be generated and admitted; measure a
+creative-language-to-parameter mapping for colour so it stops being indicative
+only; run the representative-media bakeoff in
+`process.review.representative_bakeoff.v1` for comparative image quality; and
+widen Surprise Me beyond the single-still scenario. Effect stacking, history,
+masking, tracking, typography, and audio remain future work.
 
 Living Still v2 is not being started by this checkpoint. Revisit it only under
 the quality-first doctrine: useful editability is preferred, but a layered,
