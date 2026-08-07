@@ -5,8 +5,8 @@ import XCTest
 final class ParameterTruthRegressionTests: XCTestCase {
     private func root() -> URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() }
     private func registry() throws -> EffectRegistry { try EffectRegistry.load(from: root().appendingPathComponent("registry/effects")) }
-    private func asset(kind: LocalMediaKind = .still, duration: Double? = nil) -> LocalMediaAsset {
-        LocalMediaAsset(itemID: "a", url: URL(fileURLWithPath: "/tmp/a.png"), kind: kind, dimensions: .init(width: 1920, height: 1080), durationSeconds: duration, frameRate: 30, hasAudio: false, canonicalPath: "/tmp/a.png", sha256: String(repeating: "a", count: 64))
+    private func asset(kind: LocalMediaKind = .still, duration: Double? = nil, id: String = "a") -> LocalMediaAsset {
+        LocalMediaAsset(itemID: id, url: URL(fileURLWithPath: "/tmp/\(id).png"), kind: kind, dimensions: .init(width: 1920, height: 1080), durationSeconds: duration, frameRate: 30, hasAudio: false, canonicalPath: "/tmp/\(id).png", sha256: String(repeating: id, count: 64))
     }
     private func plan(_ id: EffectID, asset: LocalMediaAsset, target: Target? = nil) throws -> EffectPlan {
         let definition = try registry().definition(for: id)
@@ -69,5 +69,20 @@ final class ParameterTruthRegressionTests: XCTestCase {
         XCTAssertThrowsError(try service.revise(result, patch: ["preserveOriginal": .boolean(false)])); XCTAssertThrowsError(try service.revise(result, patch: ["unknown": .number(1)]))
         XCTAssertThrowsError(try LocalMediaPlanRevisionService(registry: try registry()).revise(result, patch: ["panY": .number(0.1)]))
         let reset = try service.reset(revised, parameter: "panY"); XCTAssertEqual(reset.plan.parameters["panY"], result.baselineParameters["panY"])
+    }
+
+    func testInitialAndRevisionMovieOverflowRefuseWithoutChangingOldResult() throws {
+        let movie = asset(kind: .movie, duration: 5); let session = LocalMediaPlannerSession(registry: try registry())
+        XCTAssertThrowsError(try session.plan(request: "targeted rotate zoom for 6 seconds", primary: movie, outgoing: nil, incoming: nil, target: .confirmed(x: 0.5, y: 0.5)))
+        let valid = try session.plan(request: "targeted rotate zoom", primary: movie, outgoing: nil, incoming: nil, target: .confirmed(x: 0.5, y: 0.5))
+        let service = LocalMediaPlanRevisionService(registry: try registry(), schemaValidator: try PlanSchemaValidator(schemaURL: root().appendingPathComponent("schemas/effect-plan.schema.json")))
+        XCTAssertThrowsError(try service.revise(valid, patch: ["durationSeconds": .number(6)])); XCTAssertEqual(valid.plan.parameters["durationSeconds"]?.numberValue, 4)
+    }
+
+    func testUnavailablePlanningUsesCatalogReason() throws {
+        let session = LocalMediaPlannerSession(registry: try registry()); let first = asset(); let second = asset(id: "b")
+        let dissolve = try session.plan(request: "natural dissolve", primary: nil, outgoing: first, incoming: second, target: nil)
+        let television = try session.plan(request: "old television", primary: first, outgoing: nil, incoming: nil, target: nil)
+        for result in [dissolve, television] { XCTAssertFalse(result.standaloneExportDecision.allowed); XCTAssertEqual(result.standaloneExportDecision.reason, StandaloneEmitterCatalog().absenceReason(for: result.plan.effectID)); XCTAssertEqual(result.standaloneExportDecision.reason, StandaloneFCPXMLExportBuilder.missingEmitterReason(for: result.plan.effectID)) }
     }
 }
