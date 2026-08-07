@@ -6,9 +6,19 @@ Phase 1 is complete at the current repository checkpoint. `swift test` and
 `make test` pass **215 tests**; the latter also reports
 `core audit: registry=4 schema=json-ok forbidden-patterns=0`. `swift build -c
 release` also passes. The installed app was rebuilt/reinstalled and its code
-signature and resource parity were verified. Compliant installed-UI acceptance
-remains pending: the approved Computer Use channel is unavailable, and project
-policy forbids scripted UI control.
+signature and resource parity were verified.
+
+Installed-UI acceptance is **partially confirmed by hand** (2026-08-06): media
+admission, the target picker, planning, standalone generation, and the effect
+preview were all exercised in the running app by the user, which found two bugs
+tests could not — silently rejected target clicks and content clipping below the
+fold. The parameter inspector's controls have not yet been exercised that way.
+
+Note for anyone reading an older copy of this file: it previously said "project
+policy forbids scripted UI control". That has not been true since 2026-08-05 —
+HANDOFF §7 constraint 3 permits GUI automation of the **isolated** Final Cut
+copy and of the reviewed app, and every Phase 1 admission and editability pass
+was driven that way.
 
 FrameSmith is the product name; existing repository, package, bundle, and
 command identifiers remain `FCPCommandConsole`.

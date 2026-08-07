@@ -36,3 +36,41 @@ revision data and provenance.
 Start by reading `STATUS.md`, `docs/PARAMETER_LIVENESS.md`,
 `docs/HANDOFF.md`, current Git state, and the current test evidence. Work on
 `standalone-app`; do not revive stale copied-app or private-runtime assumptions.
+
+## Constraint updates you may be working from a stale copy of
+
+Three project rules changed after this prompt was first written. Check
+`docs/HANDOFF.md` §7 for the authoritative list, but in short:
+
+1. **GUI automation of the isolated Final Cut copy and of the reviewed app is
+   permitted** (2026-08-05). Every Phase 1 admission and editability pass was
+   driven that way. Drive the UI yourself rather than handing worksheets to the
+   user — but never record a refusal as a finding without a screenshot of the UI
+   state that refused it, because a missed click and a greyed-out control both
+   produce "the value didn't change".
+2. **Pushing to `origin` is permitted** (2026-08-06). No force-push to a shared
+   branch, no history rewriting.
+3. **Paid generation is permitted within the configured budget**
+   (`service/CostPolicy.swift`).
+
+## Quality outranks structure
+
+Also updated 2026-08-06, and it bears directly on the "keep parameter truth
+intact" instruction above — those two are compatible, but the emphasis has
+moved.
+
+Parameter truth is about **not lying**: a control is editable only when the
+emitted construction has a verified mapping. That still holds exactly as
+written.
+
+It is *not* a reason to ship a worse-looking result. If a rendered pass, an
+ML-assisted step, or an external compositor produces a materially better image
+than a native construction, use it — then record the parameters so it can be
+regenerated at a different strength, and state plainly that it is regenerable
+rather than Final-Cut-editable. The failure mode is *unrepeatable*, not
+*rendered*.
+
+The worked example: Living Still v2 was designed as layered parallax rather than
+a depth warp specifically because layers stay editable. Under the current
+doctrine that was the wrong call, and it should be reconsidered on the merits of
+the resulting image.
