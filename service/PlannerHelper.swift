@@ -638,7 +638,7 @@ public struct PlannerHelperResources {
         "registry/effects/look.old_television.json": "110bb4b1d350435f853b0016d0d5fc4ec65bfb3f44cdd9ca18e4d4daad5caf72",
         "registry/effects/motion.living_still.json": "d49a950bcc1bd7663175b08c584851fcc11c021be28515429ebde2ced88571b1",
         "registry/effects/native.targeted_rotate_zoom.json": "20d511f53cf1f5e33d554357e4806ded15b6de564a4912558fb4ff05e5d57cbd",
-        "registry/effects/transition.natural_dissolve.json": "4ad74486a4d5186843e2fa6c054ab232caefc04f5555b6bc43781898727e8636",
+        "registry/effects/transition.natural_dissolve.json": "2766bd77d5c128e8e699f46ba84dd0548cf215afd49d5a9d681dac3632010058",
         "schemas/effect-plan.schema.json": "4387255973853dabba3d1ab62eb94bbb7e8e649a5516733ea3508a586520bf01"
     ]
 

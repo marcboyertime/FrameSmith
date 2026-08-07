@@ -6,10 +6,10 @@
   "inputCount": 2,
   "representation": "fcpxml_native",
   "parameters": [
-    {"name":"durationFrames","type":"integer","defaultValue":12,"minimum":1,"maximum":120,"description":"frame-quantized transition duration"},
-    {"name":"easing","type":"string","defaultValue":"linear","allowedValues":["linear","ease_in","ease_out","ease_in_out"]},
-    {"name":"preserveAudio","type":"boolean","defaultValue":true},
-    {"name":"edgeBehavior","type":"string","defaultValue":"preserve-source-edges","allowedValues":["preserve-source-edges"]}
+    {"name":"durationFrames","type":"integer","defaultValue":12,"minimum":1,"maximum":120,"description":"frame-quantized transition duration","presentation":{"label":"Duration","explanation":"No generalized dissolve emitter is available.","units":"frames","group":"basic","exposure":"unsupported_read_only"}},
+    {"name":"easing","type":"string","defaultValue":"linear","allowedValues":["linear","ease_in","ease_out","ease_in_out"],"presentation":{"label":"Easing","explanation":"No generalized dissolve emitter is available.","group":"advanced","exposure":"unsupported_read_only"}},
+    {"name":"preserveAudio","type":"boolean","defaultValue":true,"presentation":{"label":"Preserve audio","explanation":"No generalized dissolve emitter is available.","group":"advanced","exposure":"unsupported_read_only"}},
+    {"name":"edgeBehavior","type":"string","defaultValue":"preserve-source-edges","allowedValues":["preserve-source-edges"],"presentation":{"label":"Edge behavior","explanation":"No generalized dissolve emitter is available.","group":"internal","exposure":"unsupported_read_only"}}
   ],
   "backend": "native",
   "editableProperties": [
