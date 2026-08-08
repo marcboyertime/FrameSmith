@@ -241,9 +241,9 @@ What is left cannot be done in code alone.
    properties: **static values are attributes on the effect element, animated
    values are `<param>` children.** An emitter must choose a shape per
    property *and* per animated-or-not; both wrong shapes are DTD-valid.
-   - living still movement/fade/color editability — **in progress.** There is
-     no emitter and was no prior revision, so the order was inverted: Final Cut
-     wrote the encoding first. **Ground truth captured 2026-08-04**, full
+   - living still movement/fade/color editability — **historical 2026-08-04
+     evidence stage.** Before its emitter existed, the order was inverted:
+     Final Cut wrote the encoding first. **Ground truth captured 2026-08-04**, full
      analysis in `docs/LIVING_STILL_GROUND_TRUTH.md`. Three findings that would
      each have produced a silently wrong emitter:
      1. `position` splits into nested `X`/`Y` sub-params with separate
@@ -341,16 +341,23 @@ What is left cannot be done in code alone.
    timeline; a test asserts that wording survives. Provenance records the exact
    Final Cut build whose profile authorised the export.
 
-   Emitters exist for `motion.living_still` and `native.targeted_rotate_zoom`.
-   The other two fail with a stated reason rather than an absence:
-   `transition.natural_dissolve` needs its two-clip construction generalised out
-   of `FCPXMLRoundTripSpikeBuilder`, and `look.old_television` has no admitted
-   `connectedOverlayLayers` contract so no export could be authorised even with
-   an emitter.
-5. Planning for what follows Phase 1 is written up in
-   `docs/POST_PHASE1_ROADMAP.md`, and the ordered work list for finishing this
-   phase is in `docs/NEXT_CLAUDE_PROMPT.md`. No post-Phase-1 implementation may
-   begin until the items in that list are complete.
+   This paragraph records the 2026-08-05 wiring checkpoint. Current HEAD has
+   production emitters for all four effects: `motion.living_still`,
+   `native.targeted_rotate_zoom`, `transition.natural_dissolve`, and
+   `look.old_television`. Their registered shared construction descriptors are
+   used for export; the app's current visual viewer does not render the
+   two-clip transition or connected-overlay descriptors. Old Television's
+   production contract is a native FCPXML base treatment plus an optional
+   admitted-still overlay, not generated FFmpeg/static/scanline assets.
+   Historical returned contracts do not establish every current emitter
+   instantiation, current app integration, the canonical 12-frame dissolve, or
+   the optional overlay. The remaining next gaps are a fresh real-Final-Cut
+   import for the canonical 12-frame dissolve, a real-Final-Cut/perceptual
+   exercise for Old Television's optional admitted-still overlay, and the
+   Living Still v2 depth-model acquisition decision.
+5. Current planning is in `docs/POST_PHASE1_ROADMAP.md`; the next gaps are the
+   canonical 12-frame dissolve import, the Old Television optional-overlay
+   evidence pass, and the Living Still v2 depth-model acquisition decision.
 
 ## 7) Evidence and safety constraints to preserve
 

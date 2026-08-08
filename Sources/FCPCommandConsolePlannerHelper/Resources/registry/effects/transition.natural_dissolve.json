@@ -6,18 +6,13 @@
   "inputCount": 2,
   "representation": "fcpxml_native",
   "parameters": [
-    {"name":"durationFrames","type":"integer","defaultValue":12,"minimum":1,"maximum":120,"description":"frame-quantized transition duration","presentation":{"label":"Duration","explanation":"No generalized dissolve emitter is available.","units":"frames","group":"basic","exposure":"unsupported_read_only"}},
-    {"name":"easing","type":"string","defaultValue":"linear","allowedValues":["linear","ease_in","ease_out","ease_in_out"],"presentation":{"label":"Easing","explanation":"No generalized dissolve emitter is available.","group":"advanced","exposure":"unsupported_read_only"}},
-    {"name":"preserveAudio","type":"boolean","defaultValue":true,"presentation":{"label":"Preserve audio","explanation":"No generalized dissolve emitter is available.","group":"advanced","exposure":"unsupported_read_only"}},
-    {"name":"edgeBehavior","type":"string","defaultValue":"preserve-source-edges","allowedValues":["preserve-source-edges"],"presentation":{"label":"Edge behavior","explanation":"No generalized dissolve emitter is available.","group":"internal","exposure":"unsupported_read_only"}}
+    {"name":"durationFrames","type":"integer","defaultValue":12,"minimum":1,"maximum":120,"description":"frame-quantized transition duration","presentation":{"label":"Duration","explanation":"A production emitter exists, but no verified user-editable durationFrames mapping is established.","units":"frames","group":"basic","exposure":"unsupported_read_only"}},
+    {"name":"easing","type":"string","defaultValue":"linear","allowedValues":["linear","ease_in","ease_out","ease_in_out"],"presentation":{"label":"Easing","explanation":"A production emitter exists, but no user-selectable FCPXML easing encoding is established.","group":"advanced","exposure":"unsupported_read_only"}},
+    {"name":"preserveAudio","type":"boolean","defaultValue":true,"presentation":{"label":"Preserve audio","explanation":"A production emitter exists; preserve-audio behavior is fixed by the admitted construction.","group":"advanced","exposure":"unsupported_read_only"}},
+    {"name":"edgeBehavior","type":"string","defaultValue":"preserve-source-edges","allowedValues":["preserve-source-edges"],"presentation":{"label":"Edge behavior","explanation":"A production emitter exists; source-edge behavior is fixed by the admitted construction.","group":"internal","exposure":"unsupported_read_only"}}
   ],
   "backend": "native",
-  "editableProperties": [
-    {"name":"durationFrames","valueType":"integer","minimum":1,"maximum":120,"defaultValue":12,"keyframeable":false},
-    {"name":"easing","valueType":"string","defaultValue":"linear","keyframeable":false},
-    {"name":"preserveAudio","valueType":"boolean","defaultValue":true,"keyframeable":false},
-    {"name":"edgeBehavior","valueType":"string","defaultValue":"preserve-source-edges","keyframeable":false}
-  ],
+  "editableProperties": [],
   "generatedAssets": [],
   "preview": "native-dissolve-preview",
   "verification": ["exactly two ordered adjacent spine clips", "frame-quantized boundary and explicit handles", "native transition backend declaration", "revision and source identities are current"],

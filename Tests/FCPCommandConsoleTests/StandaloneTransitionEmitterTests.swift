@@ -31,14 +31,29 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         )
     }
 
+    private let oldTelevisionDefaults: [String: ParameterValue] = [
+        "durationSeconds": .number(4),
+        "saturation": .number(25),
+        "flickerFloor": .number(0.82),
+        "overlayOpacity": .number(0.35),
+        "overlayStartSeconds": .number(1),
+        "overlayDurationSeconds": .number(2),
+        "blendMode": .string("overlay"),
+        "overlayTiming": .string("bounded-range"),
+        "overlayTransform": .string("identity")
+    ]
+
     private func plan(_ effect: EffectID, parameters: [String: ParameterValue] = [:]) -> EffectPlan {
         let source = SourceIdentity(itemID: "a", canonicalPath: "/tmp/a.mov", sha256: String(repeating: "a", count: 64))
+        let resolvedParameters = effect == .oldTelevision
+            ? oldTelevisionDefaults.merging(parameters) { _, override in override }
+            : parameters
         return EffectPlan(
             originalRequest: "test",
             confidence: 1,
             effectID: effect,
             selectionToken: SelectionToken(selectionType: .singleClip, clipIDs: ["a"], sourceIdentities: [source], revision: "r1"),
-            parameters: parameters,
+            parameters: resolvedParameters,
             representation: .fcpxmlNative,
             fallback: "none",
             preconditionRevision: "r1"
@@ -53,7 +68,7 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         let outgoing = movie("clip-a", digest: "a")
         let incoming = movie("clip-b", digest: "b")
         let xml = try NaturalDissolveStandaloneEmitter().emitDocument(
-            plan: plan(.naturalDissolve, parameters: ["durationSeconds": .number(1)]),
+            plan: plan(.naturalDissolve, parameters: ["durationFrames": .integer(12)]),
             media: [.outgoing: outgoing, .incoming: incoming],
             publishedMediaURLs: [.outgoing: outgoing.url, .incoming: incoming.url],
             version: "1.14"
@@ -63,12 +78,12 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         XCTAssertTrue(xml.contains(#"uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265""#), "missing effect resource UID")
         // Rule 2: a filter-video on the transition referencing it.
         XCTAssertTrue(xml.contains(#"<filter-video ref="r4""#), "transition must reference the effect resource")
-        // Rule 3: the centred offset. 8s clips, 30 frames of transition,
-        // handle 15 each side -> visible outgoing 225 frames, cut at 225,
-        // offset 225 - 15 = 210 frames = 21000/3000s.
-        XCTAssertTrue(xml.contains(#"<transition name="Cross Dissolve" offset="7s" duration="1s""#), xml)
+        // Rule 3: the centred offset. 8s clips and the canonical 12-frame
+        // transition leave a six-frame handle on each side: visible outgoing
+        // 234 frames, cut at 234, offset 228 = 22800/3000s.
+        XCTAssertTrue(xml.contains(#"<transition name="Cross Dissolve" offset="22800/3000s" duration="1200/3000s""#), xml)
         // Rule 4: butt-joined. The incoming clip's offset equals the cut.
-        XCTAssertTrue(xml.contains(#"offset="7s" start="500/1000s""#) || xml.contains(#"offset="7s""#), "incoming clip must butt-join at the cut")
+        XCTAssertTrue(xml.contains(#"offset="23400/3000s" start="600/3000s""#), "incoming clip must butt-join at the cut")
     }
 
     /// Revision 3's failure signature: overlapping clips are DTD-valid and are
@@ -78,7 +93,7 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         let incoming = movie("clip-b", digest: "b")
         let emitter = NaturalDissolveStandaloneEmitter()
         let channels = try emitter.channels(
-            plan: plan(.naturalDissolve, parameters: ["durationSeconds": .number(2)]),
+            plan: plan(.naturalDissolve, parameters: ["durationFrames": .integer(12)]),
             media: [.outgoing: outgoing, .incoming: incoming]
         )
         let transition = try XCTUnwrap(channels.transition)
@@ -88,6 +103,46 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
             Int((channels.durationSeconds * 30).rounded()),
             "clip lengths must sum to the sequence with no overlap"
         )
+    }
+
+    func testRegistryPlannedCanonicalDissolveDrivesChannelsAndXML() throws {
+        let registry = try registry()
+        let selection = SelectionToken(
+            selectionType: .twoAdjacentClips,
+            origin: .localMedia,
+            clipIDs: ["clip-a", "clip-b"],
+            sourceIdentities: [
+                SourceIdentity(itemID: "clip-a", canonicalPath: "/tmp/clip-a.mov", sha256: String(repeating: "a", count: 64)),
+                SourceIdentity(itemID: "clip-b", canonicalPath: "/tmp/clip-b.mov", sha256: String(repeating: "b", count: 64))
+            ],
+            revision: "r1",
+            startFrame: 0,
+            endFrame: 12,
+            sourceDurationFrames: 240,
+            handleBeforeFrames: 6,
+            handleAfterFrames: 6
+        )
+        let planned = try DeterministicPlanner(registry: registry).plan(
+            request: "Make this clip dissolve naturally into the next clip.",
+            selection: selection
+        )
+        let definition = try registry.definition(for: .naturalDissolve)
+        let canonical = Dictionary(uniqueKeysWithValues: definition.parameters.map { ($0.name, $0.defaultValue!) })
+        XCTAssertEqual(planned.parameters, canonical)
+        try PlanValidator(registry: registry).validate(planned)
+
+        let outgoing = movie("clip-a", digest: "a")
+        let incoming = movie("clip-b", digest: "b")
+        let emitter = NaturalDissolveStandaloneEmitter()
+        let channels = try emitter.channels(plan: planned, media: [.outgoing: outgoing, .incoming: incoming])
+        XCTAssertEqual(channels.transition?.durationFrames, 12)
+        let xml = try emitter.emitDocument(
+            plan: planned,
+            media: [.outgoing: outgoing, .incoming: incoming],
+            publishedMediaURLs: [.outgoing: outgoing.url, .incoming: incoming.url],
+            version: "1.14"
+        )
+        XCTAssertTrue(xml.contains(#"duration="1200/3000s""#), xml)
     }
 
     /// The director-control contract: an effect never moves an edit point to
@@ -133,12 +188,32 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         XCTAssertEqual(geometry.transitionOffsetFrames, geometry.cutFrame - geometry.transitionFrames / 2)
     }
 
-    func testDissolveNeedsTwoClips() {
+    func testDissolveRejectsMissingOrInvalidRegistryDurationFrames() {
         let single = movie("only", digest: "a")
         XCTAssertThrowsError(try NaturalDissolveStandaloneEmitter().channels(
             plan: plan(.naturalDissolve), media: [.primary: single]
         )) { error in
             XCTAssertEqual(error as? StandaloneCompositionError, .missingSecondClip)
+        }
+
+        let outgoing = movie("clip-a", digest: "a")
+        let incoming = movie("clip-b", digest: "b")
+        let invalidParameters: [[String: ParameterValue]] = [
+            [:],
+            ["durationFrames": .number(.infinity)],
+            ["durationFrames": .number(12.5)],
+            ["durationFrames": .integer(0)],
+            ["durationFrames": .integer(121)]
+        ]
+        for parameters in invalidParameters {
+            XCTAssertThrowsError(try NaturalDissolveStandaloneEmitter().channels(
+                plan: plan(.naturalDissolve, parameters: parameters),
+                media: [.outgoing: outgoing, .incoming: incoming]
+            )) { error in
+                guard case StandaloneExportError.invalidRecipe = error else {
+                    return XCTFail("expected invalid-recipe refusal, got \(error)")
+                }
+            }
         }
     }
 
@@ -179,6 +254,58 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         let descriptor = try XCTUnwrap(channels.overlay)
         XCTAssertEqual(descriptor.startFrameWithinParent, 30, "1s into a parent that starts at 0 is frame 30")
         XCTAssertEqual(descriptor.blendMode, .overlay)
+    }
+
+    func testRegistryPlannedOldTelevisionDrivesNativeBaseAndOptionalOverlay() throws {
+        let registry = try registry()
+        let selection = SelectionToken(
+            selectionType: .singleClip,
+            origin: .localMedia,
+            clipIDs: ["base"],
+            sourceIdentities: [SourceIdentity(itemID: "base", canonicalPath: "/tmp/base.mov", sha256: String(repeating: "a", count: 64))],
+            revision: "r1",
+            startFrame: 0,
+            endFrame: 120,
+            sourceDurationFrames: 240
+        )
+        let planned = try DeterministicPlanner(registry: registry).plan(request: "old television", selection: selection)
+        try PlanValidator(registry: registry).validate(planned)
+        XCTAssertTrue(planned.generatedAssets.isEmpty)
+
+        let base = movie("base", digest: "a")
+        let overlay = still("texture", digest: "t")
+        let emitter = OldTelevisionStandaloneEmitter()
+        let channels = try emitter.channels(plan: planned, media: [.primary: base, .overlay: overlay])
+        XCTAssertEqual(channels.durationSeconds, 4)
+        XCTAssertEqual(channels.saturation, 25)
+        XCTAssertEqual(channels.opacity.amount.map(\.value), ["1", "0.82", "1"])
+        let descriptor = try XCTUnwrap(channels.overlay)
+        XCTAssertEqual(descriptor.startFrameWithinParent, 30)
+        XCTAssertEqual(descriptor.durationFrames, 60)
+        XCTAssertEqual(descriptor.opacity, 0.35)
+        XCTAssertEqual(descriptor.blendMode, .overlay)
+
+        let xml = try emitter.emitDocument(
+            plan: planned,
+            media: [.primary: base, .overlay: overlay],
+            publishedMediaURLs: [.primary: base.url, .overlay: overlay.url],
+            version: "1.14"
+        )
+        XCTAssertTrue(xml.contains(#"<param name="Saturation" key="16" value="25"/>"#), xml)
+        XCTAssertTrue(xml.contains(#"value="0.82""#), xml)
+        XCTAssertTrue(xml.contains(#"<video ref="r3" lane="1" offset="1s" name="texture" start="3600s" duration="2s">"#), xml)
+        XCTAssertTrue(xml.contains(#"<adjust-blend amount="0.35" mode="14 (Overlay)"/>"#), xml)
+
+        var missing = planned
+        missing.parameters.removeValue(forKey: "saturation")
+        XCTAssertThrowsError(try emitter.channels(plan: missing, media: [.primary: base])) { error in
+            guard case StandaloneExportError.invalidRecipe = error else { return XCTFail("expected invalid recipe, got \(error)") }
+        }
+        var unknown = planned
+        unknown.parameters["unsupported"] = .number(1)
+        XCTAssertThrowsError(try emitter.channels(plan: unknown, media: [.primary: base])) { error in
+            guard case StandaloneExportError.invalidRecipe = error else { return XCTFail("expected invalid recipe, got \(error)") }
+        }
     }
 
     func testOverlayMayNotOutliveItsParentClip() {
@@ -225,7 +352,7 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         let outgoing = movie("clip-a", digest: "a")
         let incoming = movie("clip-b", digest: "b")
         let dissolve = NaturalDissolveStandaloneEmitter()
-        let dissolvePlan = plan(.naturalDissolve, parameters: ["durationSeconds": .number(1)])
+        let dissolvePlan = plan(.naturalDissolve, parameters: ["durationFrames": .integer(12)])
         let dissolveChannels = try dissolve.channels(plan: dissolvePlan, media: [.outgoing: outgoing, .incoming: incoming])
         let dissolveXML = try dissolve.emitDocument(
             plan: dissolvePlan, media: [.outgoing: outgoing, .incoming: incoming],

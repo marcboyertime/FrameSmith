@@ -126,6 +126,7 @@ public struct DeterministicPlanner: Sendable {
     private func parseBoundedParameters(from request: String, definition: EffectDefinition, into parameters: inout [String: ParameterValue]) {
         let lower = request.lowercased()
         for parameter in definition.parameters {
+            guard (parameter.presentation ?? .failClosed).exposure.isEditable else { continue }
             let key = parameter.name.lowercased()
             let synonyms = [key, key.replacingOccurrences(of: "_", with: " "), key.replacingOccurrences(of: "-", with: " ")]
             guard let synonym = synonyms.first(where: { lower.contains($0) }) else { continue }
@@ -138,8 +139,6 @@ public struct DeterministicPlanner: Sendable {
             default: parameters[parameter.name] = .number(bounded)
             }
         }
-        if definition.identifier == .naturalDissolve, lower.contains("ease in") { parameters["easing"] = .string(Easing.easeIn.rawValue) }
-        if definition.identifier == .naturalDissolve, lower.contains("ease out") { parameters["easing"] = .string(Easing.easeOut.rawValue) }
         if definition.identifier == .targetedRotateZoom {
             if let seconds = firstNumber(in: lower, pattern: #"([0-9]+(?:\.[0-9]+)?)\s*(?:seconds?|secs?|s)\b"#) { parameters["durationSeconds"] = .number(min(30, max(0.1, seconds))) }
             if let rotation = firstNumber(in: lower, pattern: #"([0-9]+(?:\.[0-9]+)?)\s*(?:degrees?|deg)\b"#) {
@@ -150,7 +149,6 @@ public struct DeterministicPlanner: Sendable {
             let end = parameters["rotationEndDegrees"]?.numberValue ?? 0
             parameters["direction"] = .string(end - start > 0 ? "counterclockwise" : "clockwise")
         }
-        if definition.identifier == .oldTelevision && (lower.contains("scanline") || lower.contains("scan line")) { parameters["kind"] = .string("scanline") }
         if definition.identifier == .livingStill {
             if let seconds = firstNumber(in: lower, pattern: #"([0-9]+(?:\.[0-9]+)?)\s*(?:seconds?|secs?|s)\b"#) {
                 let bounded = min(30, max(0.1, seconds))
@@ -244,6 +242,12 @@ public struct PlanValidator: Sendable {
         for (name, value) in plan.parameters {
             guard let parameter = definitionByName[name] else { throw PlanValidationError.invalidParameter("unknown parameter \(name)") }
             try validate(value: value, definition: parameter)
+            let exposure = (parameter.presentation ?? .failClosed).exposure
+            if !exposure.isEditable && !(definition.identifier == .targetedRotateZoom && name == "direction") {
+                guard value == parameter.defaultValue else {
+                    throw PlanValidationError.invalidParameter("\(name) is read-only and must remain the canonical registry default")
+                }
+            }
         }
         try validateSelection(plan.selectionToken, for: definition, parameters: plan.parameters)
         if definition.identifier == .targetedRotateZoom, plan.normalizedPoint == nil { throw PlanValidationError.invalidTarget("targeted rotate+zoom requires an explicit point") }

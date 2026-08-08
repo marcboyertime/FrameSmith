@@ -383,10 +383,10 @@ private final class AppModel: ObservableObject {
 
     /// The channels a preview samples — the same ones the export would emit.
     ///
-    /// Returns `nil` rather than surfacing an error: an effect with no emitter
-    /// is a known gap, not a fault in the plan, and the export button already
-    /// reports it with a stated reason. Failing the whole plan here would hide
-    /// a valid plan behind a missing preview.
+    /// Returns `nil` rather than surfacing an error when preview inputs or a
+    /// registered construction descriptor are unavailable. Failing the whole
+    /// plan here would hide a valid plan behind an unavailable visual viewer;
+    /// preview absence is not an emitter-availability claim.
     private func effectChannels(for planned: LocalMediaPlanningResult) -> NativeFCPXMLEffectChannels? {
         var media: [LocalMediaRole: LocalMediaAsset] = [:]
         media[.primary] = primary
@@ -818,14 +818,18 @@ private struct ContentView: View {
             }
             if let channels = model.previewChannels, let media = model.primary {
                 EffectPreview(media: media, channels: channels)
-            } else if model.result != nil {
-                // A plan with no preview is a stated gap, not a blank space.
-                // The export button reports the same absence with its own
-                // reason; leaving nothing here would read as "no effect".
-                Label("No preview for this effect yet", systemImage: "eye.slash")
+            } else if let channels = model.previewChannels, channels.transition != nil {
+                Label("This viewer does not render two-clip transition descriptors. The registered shared construction is used when export is allowed.", systemImage: "eye.slash")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .help("This effect has no emitter, so nothing can be shown or generated from it.")
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if model.result != nil {
+                // A plan with no visual viewer is a stated limitation, not a
+                // blank space or a claim that its emitter is absent.
+                Label("No visual preview is available for this plan. Export availability is decided separately.", systemImage: "eye.slash")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("The single-media viewer may be unavailable even when a registered export construction exists.")
             }
             if let result = model.result {
                 ParameterInspector(result: result, definitions: model.parameterDefinitions(for: result), revise: model.revise, reportValidation: model.reportValidation)
@@ -1271,6 +1275,12 @@ private struct EffectPreview: View {
                 .fixedSize(horizontal: false, vertical: true)
             if channels.saturation != nil {
                 badge(.indicative, "Colour direction only — the Saturation mapping is unobserved, so the amount shown is not trustworthy.")
+            }
+            if channels.overlay != nil {
+                Text("Connected overlay descriptor is not rendered in this viewer; export is authoritative for that layer.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

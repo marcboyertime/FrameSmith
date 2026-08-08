@@ -20,23 +20,28 @@ carrying the same editorial-structure fingerprint. Coverage, diversity
 reasoning, manual verification, and limitations are recorded in
 `docs/editorial-intelligence/BAKEOFF_AND_COVERAGE.md`.
 
-All four effects now have production emitters. Natural Dissolve and Old
-Television were generalized out of their probe builders and admitted by real
-import on 2026-08-07. Old Television subsequently gained an optional overlay
-plan role and a generated connected-overlay path. That implementation and its
-FCPXML construction are tested, but the changed overlay path has not yet had a
-fresh real-Final-Cut or perceptual exercise.
+All four effects now have production emitters. The 2026-08-07 real-Final-Cut
+import evidence covers the earlier one-second (30-frame) Natural Dissolve
+construction and the Old Television native base construction. The current registry
+plan uses canonical read-only `durationFrames=12`; its channels and FCPXML are
+construction-tested, but that exact route has not had a fresh real-Final-Cut
+import. Old Television has an optional admitted-still overlay plan role and
+native connected-overlay construction. That implementation and its FCPXML
+construction are tested, but the optional overlay path has not yet had a fresh
+real-Final-Cut or perceptual exercise.
 
 **Not claimed:** no creative-language-to-parameter mapping exists; colour is
 indicative only; no audio, typography, masking, or tracking; no fresh real-
-Final-Cut or perceptual exercise has covered Old Television's changed overlay
-path; and no frame-by-frame comparative image-quality bakeoff has been run.
+Final-Cut import has covered the current 12-frame Natural Dissolve route or Old
+Television's changed overlay path; and no frame-by-frame comparative
+image-quality bakeoff has been run.
 
 ## Current implementation checkpoint
 
 Phase 1 is complete at the current repository checkpoint. `swift test` and
-`make test` pass **290 tests**; the latter also reports `core audit: registry=4
-schema=json-ok forbidden-patterns=0 cards=11 (reference_only=6 validated=5)`.
+`swift test` reports **314 tests, 0 failures**; `make test` reports
+`core audit: registry=4 schema=json-ok strict-cards=valid treatment-contract=strict
+forbidden-patterns=0 cards=15 (reference_only=10 validated=5)`.
 `swift build -c release` also passes. The installed app was rebuilt/reinstalled
 and its code signature and resource parity were verified.
 
@@ -64,10 +69,10 @@ command identifiers remain `FCPCommandConsole`.
 | --- | --- |
 | Local SwiftUI workflow | Admits local stills/movies read-only, computes source identities, plans locally, and provides a revision inspector. |
 | New-project output | Standalone export creates a new Final Cut project package and never mutates an existing timeline. |
-| Production standalone emitters | All four effects. Their shared channels drive both preview and FCPXML. |
-| Old Television overlay | The plan model now carries an optional admitted-still overlay and the emitter generates its connected layer; the changed path remains unevaluated by a fresh real-Final-Cut or perceptual pass. |
+| Production standalone emitters | All four effects export through shared construction descriptors. The visual viewer renders only Living Still and Targeted Rotate + Zoom single-media transform/opacity/color channels; it does not render Natural Dissolve transitions or Old Television connected overlays. |
+| Old Television overlay | The native base treatment may include an optional admitted-still connected overlay; it generates no FFmpeg/static/scanline assets, and the overlay path remains unevaluated by a fresh real-Final-Cut or perceptual pass. |
 | Editorial structure lock | Ordered media, timing, retiming, sync, and protected regions are machine-checked before planning, preview, and export. |
-| Technique cards | 11 provenance-bearing cards, 5 validated and 6 reference-only; only validated cards whose capabilities are admitted may be offered. |
+| Technique cards | 15 provenance-bearing cards, 5 validated and 10 reference-only; only validated cards whose capabilities are admitted may be offered. |
 | Surprise Me | Up to three materially different treatments for one shipped scenario; never changes clips, order, timing, or sync. |
 | Parameter liveness | Registry metadata classifies every parameter as editable, approximate, invariant, or unsupported/read-only; unsupported controls are not made editable by omission. |
 | Inert local package | Copies admitted bytes and plan/provenance only; it is not FCPXML, an effect render, or an importability claim. |
@@ -85,15 +90,18 @@ controls. Targeted Rotate + Zoom supports declared duration, scale, and signed
 rotation with a confirmed normalized target. Movie duration overflow is refused
 both while planning and revising.
 
-Natural Dissolve and Old Television gained generalized emitters on 2026-08-07
-and were admitted by real import. The dissolve refuses rather than adapts when
-handle is insufficient: the requested duration is never shortened and the edit
-point is never moved to make an effect fit.
+Natural Dissolve and Old Television gained generalized emitters on 2026-08-07.
+The historical real-import evidence covers the earlier 30-frame dissolve and
+Old Television native base construction. The current canonical read-only 12-frame
+dissolve route is construction-tested only, pending a fresh real-Final-Cut
+import. The dissolve refuses rather than adapts when handle is insufficient:
+the requested duration is never shortened and the edit point is never moved to
+make an effect fit.
 
-Old Television's later optional overlay role is validated as an admitted still
-and its emitter is covered by the connected-overlay construction test. That
-test and package/FCPXML evidence do not establish a new Final Cut import or a
-perceptual result for the changed path.
+Old Television's optional overlay role accepts an admitted still and its native
+emitter is covered by the connected-overlay construction test. It generates no
+FFmpeg/static/scanline assets. That test and package/FCPXML evidence do not
+establish a new Final Cut import or perceptual result for the optional overlay.
 
 Color and easing remain intentionally bounded. Living Still uses a captured
 Saturation 25 construction as an indicative adapter; no arbitrary color
@@ -119,12 +127,13 @@ broad perceptual or future-version acceptance claim.
 
 ## Remaining limitations and next work
 
-Natural Dissolve and Old Television are production emitters admitted by returned
-evidence, so that milestone is closed. Old Television's optional overlay role
-and connected-layer generation landed after that checkpoint; fresh real-Final-
-Cut and perceptual exercise of that changed path remain open.
+Natural Dissolve and Old Television are production emitters with bounded
+evidence. A fresh real-Final-Cut import of the canonical 12-frame Natural
+Dissolve route remains open. Old Television's optional admitted-still overlay
+has construction evidence only; fresh real-Final-Cut and perceptual exercise of
+that path also remain open.
 
-The next work, in rough value order: exercise Old Television's generated overlay
+The next work, in rough value order: exercise Old Television's optional overlay
 path in a fresh real-Final-Cut and perceptual pass; measure a
 creative-language-to-parameter mapping for colour so it stops being indicative
 only; run the representative-media bakeoff in

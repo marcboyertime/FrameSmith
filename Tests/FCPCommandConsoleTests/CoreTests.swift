@@ -133,8 +133,8 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(oldTV.effectID, .oldTelevision)
         XCTAssertEqual(oldTV.confidence, 0.98, accuracy: 0.0001)
         XCTAssertTrue(oldTV.ambiguities.isEmpty)
-        XCTAssertEqual(oldTV.parameters["monochromeEnabled"], .boolean(true))
-        XCTAssertEqual(oldTV.generatedAssets.count, 2)
+        XCTAssertEqual(oldTV.parameters["saturation"]?.numberValue, 25)
+        XCTAssertTrue(oldTV.generatedAssets.isEmpty)
 
         let dissolve = try planner.plan(request: "Make this clip dissolve naturally into the next clip.", selection: selection(.twoAdjacentClips, clips: ["clip-a", "clip-b"]))
         XCTAssertEqual(dissolve.effectID, .naturalDissolve)
@@ -151,6 +151,47 @@ final class CoreTests: XCTestCase {
         let enriched = try planner.plan(request: "Make this still image feel gently alive for four seconds, slightly enrich the colors, then fade quickly to black.", selection: selection())
         XCTAssertEqual(enriched.effectID, .livingStill)
         XCTAssertTrue(enriched.ambiguities.isEmpty)
+    }
+
+    func testUnsupportedReadOnlyParametersRemainCanonicalDuringPlanning() throws {
+        let registry = try registry()
+        let planner = DeterministicPlanner(registry: registry)
+
+        let dissolve = try planner.plan(
+            request: "natural dissolve ease in",
+            selection: selection(.twoAdjacentClips, clips: ["clip-a", "clip-b"])
+        )
+        let dissolveEasing = try XCTUnwrap(try registry.definition(for: .naturalDissolve).parameters.first(where: { $0.name == "easing" })?.defaultValue)
+        XCTAssertEqual(dissolve.parameters["easing"], dissolveEasing)
+
+        let television = try planner.plan(request: "old television scanline", selection: selection())
+        XCTAssertEqual(television.parameters["overlayOpacity"], .number(0.35))
+        XCTAssertFalse(television.parameters.keys.contains("scanline"))
+    }
+
+    func testValidatorRejectsForgedReadOnlyParametersAndPreservesDerivedDirection() throws {
+        let registry = try registry()
+        let planner = DeterministicPlanner(registry: registry)
+        let validator = PlanValidator(registry: registry)
+
+        var forgedDissolve = try planner.plan(
+            request: "natural dissolve",
+            selection: selection(.twoAdjacentClips, clips: ["clip-a", "clip-b"])
+        )
+        forgedDissolve.parameters["easing"] = .string("ease_in")
+        XCTAssertThrowsError(try validator.validate(forgedDissolve))
+
+        var forgedTelevision = try planner.plan(request: "old television", selection: selection())
+        forgedTelevision.parameters["overlayOpacity"] = .number(0.7)
+        XCTAssertThrowsError(try validator.validate(forgedTelevision))
+
+        let targeted = try planner.plan(
+            request: "targeted rotate and zoom counterclockwise by 48 degrees",
+            selection: selection(),
+            target: Target.confirmed(x: 0.6, y: 0.4)
+        )
+        XCTAssertEqual(targeted.parameters["direction"], .string("counterclockwise"))
+        XCTAssertNoThrow(try validator.validate(targeted))
     }
 
     func testExactWorkflowSentencesSerializeSchemaAndSemanticValidate() throws {

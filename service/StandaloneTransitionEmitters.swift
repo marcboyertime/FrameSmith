@@ -28,13 +28,12 @@ public enum StandaloneCompositionError: Error, LocalizedError, Equatable, Sendab
 
 // MARK: - Natural dissolve
 
-/// Generalizes the admitted cross-dissolve construction to arbitrary plan values.
+/// Generalizes the admitted cross-dissolve construction from validated registry values.
 ///
 /// Until now this construction existed only inside `FCPXMLRoundTripSpikeBuilder`,
 /// which builds one fixed probe timeline to ask a question. That is why the
-/// technique card read `unsupported` despite the contract being admitted and
-/// duration-editable — the semantics were proven but nothing could emit them
-/// from a user's numbers.
+/// technique card read `unsupported` despite the contract being admitted — the
+/// semantics were proven but nothing could emit the registry's canonical plan.
 ///
 /// All four admitted construction rules are reproduced exactly:
 ///
@@ -146,14 +145,25 @@ public struct NaturalDissolveStandaloneEmitter: StandaloneEffectEmitter {
         let outgoingSourceFrames = outgoing.durationSeconds.map { rate.frames(seconds: $0) } ?? 240
         let incomingSourceFrames = incoming.durationSeconds.map { rate.frames(seconds: $0) } ?? 240
 
-        // Requested transition duration, in frames, from the plan.
-        let requestedSeconds: Double
-        if case .number(let value)? = plan.parameters["durationSeconds"] { requestedSeconds = value } else { requestedSeconds = 1.0 }
-        let requestedFrames = max(2, rate.frames(seconds: requestedSeconds))
+        // The plan may only supply the registry's frame-count parameter. There
+        // is deliberately no duration-seconds compatibility path or fallback:
+        // an incomplete or forged plan must not silently become a one-second
+        // dissolve.
+        guard let requestedValue = plan.parameters["durationFrames"]?.numberValue,
+              requestedValue.isFinite,
+              requestedValue.rounded() == requestedValue,
+              (1...120).contains(requestedValue) else {
+            throw StandaloneExportError.invalidRecipe(
+                "Natural Dissolve requires a finite integral durationFrames value in 1...120"
+            )
+        }
+        let requestedFrames = Int(requestedValue)
 
         // Reserve half the transition as handle on each side, so the visible
-        // clip lengths shrink rather than the cut moving.
-        let handle = requestedFrames / 2
+        // clip lengths shrink rather than the cut moving. `geometry` owns the
+        // admitted even-frame quantization, so reserve against that same result.
+        let quantizedFrames = max(2, requestedFrames - (requestedFrames % 2))
+        let handle = quantizedFrames / 2
         let outgoingVisible = max(1, outgoingSourceFrames - handle)
         let incomingVisible = max(1, incomingSourceFrames - handle)
 
@@ -272,22 +282,48 @@ public struct OldTelevisionStandaloneEmitter: StandaloneEffectEmitter {
         let saturation: Double
     }
 
-    private func settings(plan: EffectPlan) -> Settings {
-        func number(_ key: String, _ fallback: Double) -> Double {
-            if case .number(let value)? = plan.parameters[key] { return value }
-            return fallback
+    private func settings(plan: EffectPlan) throws -> Settings {
+        let requiredKeys: Set<String> = [
+            "durationSeconds", "saturation", "flickerFloor", "overlayOpacity",
+            "overlayStartSeconds", "overlayDurationSeconds", "blendMode",
+            "overlayTiming", "overlayTransform"
+        ]
+        guard Set(plan.parameters.keys) == requiredKeys else {
+            throw StandaloneExportError.invalidRecipe("Old Television parameters must exactly match the production registry")
+        }
+        func number(_ key: String, minimum: Double, maximum: Double) throws -> Double {
+            guard let value = plan.parameters[key]?.numberValue,
+                  value.isFinite,
+                  (minimum...maximum).contains(value) else {
+                throw StandaloneExportError.invalidRecipe("Old Television \(key) must be a finite number in \(minimum)...\(maximum)")
+            }
+            return value
+        }
+        func fixed(_ key: String, equals expected: String) throws {
+            guard plan.parameters[key] == .string(expected) else {
+                throw StandaloneExportError.invalidRecipe("Old Television \(key) must be \(expected)")
+            }
         }
         let rate = NativeFCPXMLFrameRate.thirty
-        let duration = max(2, rate.frames(seconds: number("durationSeconds", 4)))
-        let overlayStart = min(max(0, rate.frames(seconds: number("overlayStartSeconds", 1))), duration - 1)
-        let overlayDuration = min(max(1, rate.frames(seconds: number("overlayDurationSeconds", 2))), duration - overlayStart)
+        let duration = rate.frames(seconds: try number("durationSeconds", minimum: 0.1, maximum: 30))
+        let overlayStart = rate.frames(seconds: try number("overlayStartSeconds", minimum: 0, maximum: 30))
+        let overlayDuration = rate.frames(seconds: try number("overlayDurationSeconds", minimum: 0.1, maximum: 30))
+        guard duration > 0, overlayDuration > 0, overlayStart + overlayDuration <= duration else {
+            throw StandaloneCompositionError.overlayOutlivesParent(
+                overlayEndFrame: overlayStart + overlayDuration,
+                parentFrames: duration
+            )
+        }
+        try fixed("blendMode", equals: "overlay")
+        try fixed("overlayTiming", equals: "bounded-range")
+        try fixed("overlayTransform", equals: "identity")
         return Settings(
             durationFrames: duration,
-            flickerFloor: min(max(number("flickerFloor", 0.82), 0), 1),
-            overlayOpacity: min(max(number("overlayOpacity", 0.5), 0), 1),
+            flickerFloor: try number("flickerFloor", minimum: 0, maximum: 1),
+            overlayOpacity: try number("overlayOpacity", minimum: 0, maximum: 1),
             overlayStartFrame: overlayStart,
             overlayDurationFrames: overlayDuration,
-            saturation: number("saturation", NativeEffectProbeTimeline.saturation)
+            saturation: try number("saturation", minimum: 0, maximum: 100)
         )
     }
 
@@ -296,15 +332,8 @@ public struct OldTelevisionStandaloneEmitter: StandaloneEffectEmitter {
         media: [LocalMediaRole: LocalMediaAsset]
     ) throws -> NativeFCPXMLEffectChannels {
         guard let base = media[.primary] else { throw StandaloneExportError.missingMedia(.primary) }
-        let settings = settings(plan: plan)
+        let settings = try settings(plan: plan)
         let origin: NativeFCPXMLTimingOrigin = base.kind == .still ? .still : .movieFromZero
-
-        guard settings.overlayStartFrame + settings.overlayDurationFrames <= settings.durationFrames else {
-            throw StandaloneCompositionError.overlayOutlivesParent(
-                overlayEndFrame: settings.overlayStartFrame + settings.overlayDurationFrames,
-                parentFrames: settings.durationFrames
-            )
-        }
 
         return NativeFCPXMLEffectChannels(
             transform: NativeFCPXMLTransformChannel(),
@@ -344,7 +373,7 @@ public struct OldTelevisionStandaloneEmitter: StandaloneEffectEmitter {
         guard let base = media[.primary], let baseURL = publishedMediaURLs[.primary] else {
             throw StandaloneExportError.missingMedia(.primary)
         }
-        let settings = settings(plan: plan)
+        let settings = try settings(plan: plan)
         let built = try channels(plan: plan, media: media)
         let rate = settings.rate
         let duration = rate.time(frames: settings.durationFrames)

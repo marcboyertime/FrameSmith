@@ -87,7 +87,12 @@ claiming a timeline mutation, and it is **proven end to end**: real media throug
 `LocalMediaAdmission.admitAll`, the gate, an emitter, a package, a hand import,
 and a structurally identical return (package `866B87BB`, 39 nodes). Drive it with
 `swift run fcpcommandconsole-standalone-export --media PATH --effect ID`.
-Emitters exist for `motion.living_still` and `native.targeted_rotate_zoom` only.
+All four effects have production emitters: `motion.living_still`,
+`native.targeted_rotate_zoom`, `transition.natural_dissolve`, and
+`look.old_television`. Their registered shared construction descriptors are
+used for export. The app's visual viewer is narrower: it samples single-media
+transform, opacity, and color channels, not two-clip transition or
+connected-overlay descriptors.
 
 ---
 
@@ -278,12 +283,13 @@ returned artifact digests and the limitations each pass did not establish.
 
 ### 5.6 — Close out Phase 1
 
-Update `docs/HANDOFF.md` §6 and §10, admit the newly earned contracts in
-`service/FinalCutSemanticProfile.swift` (with limitations recorded), and state
-plainly which of the four workflows are accepted and which are not.
-
-**If a workflow is not accepted, say so.** An honest 3-of-4 is worth more than a
-claimed 4-of-4, and this project's entire value is that its claims have held up.
+The text below is retained as a dated close-out record. Current work is not
+emitter integration: first exercise the canonical 12-frame Natural Dissolve
+route in a fresh, version-scoped Final Cut import, then exercise Old Television's
+optional admitted-still overlay path in a fresh Final Cut and bounded perceptual
+pass, then make
+the Living Still v2 depth-model acquisition decision. Do not start v2 or fetch
+a model before that decision.
 
 ---
 
@@ -300,15 +306,16 @@ Phase A's state at close-out:
 | --- | --- |
 | A1 version-scoped semantic profile | ✅ done |
 | A2 standalone export capability | ✅ gate **and** route, proven end to end |
-| A3 integrate emitters into the SwiftUI app | ❌ **the next real task** |
-| A4 real effect preview | ❌ — and colour needs an A/B toggle, not a frame |
-| A5 visible editable parameter controls | ❌ |
+| A3 integrate emitters into the SwiftUI app | ✅ all four registered construction descriptors |
+| A4 visual effect viewer | ✅ bounded to single-media transform/opacity/color channels; transition and connected-overlay descriptors are not rendered |
+| A5 visible editable parameter controls | ✅ registry-declared liveness and atomic revision/reset |
 | A6 effect stacking (schema v3) | ❌ |
 | A7 duplicate / regenerate / restore / history | ❌ |
 | A8 self-contained export package | ✅ the standalone route already writes one |
 
-**A3 is where to start.** Everything proven in Phase 1 is currently reachable
-only from CLIs and tests, which means none of it is usable for an actual video.
+**Do not restart A3.** The next evidence decisions are the canonical 12-frame
+Natural Dissolve import, Old Television's optional admitted-still overlay
+exercise, and Living Still v2 depth-model acquisition.
 
 ### Small gaps carried over from Phase 1
 
@@ -317,13 +324,14 @@ Cheap, and worth closing when convenient rather than never:
 1. **First-import resolution for a still.** The living still's `.png` resolved
    by dedup against media already in the library. Import a *different* still, or
    use a fresh library, and confirm a package-relative `file://` resolves.
-2. **Render A/B for the dissolve and the old television composite.** Both were
-   visible in the viewer but neither was measured by toggling. The living still
-   showed that "it looked right" can be wrong about colour.
-3. **Emitters for the other two effects.** `look.old_television` and
-   `transition.natural_dissolve` are gate-authorised but have no emitter that
-   generalises from plan values. See
-   `StandaloneFCPXMLExportBuilder.missingEmitterReason`.
+2. **Natural Dissolve canonical 12-frame route.** Its construction test is
+   current, but it still needs a fresh version-scoped Final Cut import.
+3. **Old Television optional admitted-still overlay.** Its connected-layer
+   construction is tested, but the changed path still needs a fresh
+   version-scoped Final Cut and bounded perceptual exercise.
+4. **Living Still v2 depth-model acquisition decision.** All ten bakeoff
+   classes are measured; Vision two-plane parallax is demoted and the leading
+   continuous-warp candidate remains untested pending that decision.
 
 ---
 
@@ -331,8 +339,10 @@ Cheap, and worth closing when convenient rather than never:
 
 - **Continuity checks** after code changes: `git status --short`,
   `swift build`, `swift test`, `make test`, `git diff --check`.
-- Current: **184 tests, 0 failures**; core audit `registry=4 schema=json-ok forbidden-patterns=0`. Branch `standalone-app`, worktree clean.
-  forbidden-patterns=0`. Branch `standalone-app`, worktree clean at `551f96b`.
+- Current checkpoint: **314 tests, 0 failures**; core audit
+  `registry=4 schema=json-ok strict-cards=valid treatment-contract=strict
+  forbidden-patterns=0 cards=15 (reference_only=10 validated=5)`.
+  Verify current Git state rather than assuming a clean worktree.
 - Probe executables: `swift run fcpcommandconsole-roundtrip-spike`,
   `swift run fcpcommandconsole-living-still-probe`. They are deliberately
   separate so living still work cannot disturb dissolve evidence.

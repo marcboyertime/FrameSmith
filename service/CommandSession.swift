@@ -113,10 +113,9 @@ public struct PanelEditabilityLabel: Codable, Equatable, Sendable {
     }
 }
 
-/// Compact, display-oriented editability metadata derived from the validated
-/// registry-backed plan.  Generated assets are labelled baked; native
-/// properties remain editable.  Empty lists are intentional for all-native or
-/// all-generated portions of a workflow.
+/// Compact, display-oriented editability metadata derived from the current
+/// registry definition. Generated assets are labelled baked. Empty editable
+/// lists are intentional when the registry declares no live controls.
 public struct PanelEditabilitySummary: Codable, Equatable, Sendable {
     public var editable: [String]
     public var baked: [String]
@@ -739,7 +738,12 @@ public actor CommandSession {
     }
 
     private func editabilitySummary(for plan: EffectPlan) -> PanelEditabilitySummary {
-        let editable = plan.editableProperties.map(\.name)
+        // `EffectPlan.editableProperties` is legacy metadata, not presentation
+        // truth. The current registry parameter exposure is the sole liveness
+        // authority. A missing definition fails closed to no editable labels.
+        let editable = (try? registry.definition(for: plan.effectID))?.parameters.compactMap { parameter in
+            (parameter.presentation ?? .failClosed).exposure.isEditable ? parameter.name : nil
+        } ?? []
         let baked = plan.generatedAssets.map(\.kind)
         let editableLabels = editable.map { PanelEditabilityLabel(value: $0, classification: .editable) }
         let bakedLabels = baked.map { PanelEditabilityLabel(value: $0, classification: .baked) }

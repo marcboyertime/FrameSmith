@@ -1,18 +1,25 @@
 # Next implementation prompt
 
-Phase 1 is complete. Work on the next milestone: productionize **Natural
-Dissolve** and **Old Television** through the existing parameter-truth path:
+Phase 1 is complete and all four effects already have production standalone
+emitters. The next checkpoint is evidence and decision work, not another
+Natural Dissolve or Old Television productionization pass. First run a fresh,
+version-scoped real-Final-Cut import for the current canonical 12-frame
+Natural Dissolve route, then exercise Old Television's optional admitted-still
+overlay path in a fresh real-Final-Cut pass and bounded perceptual review.
+Their current construction tests and package/FCPXML evidence do not establish
+those results.
+Keep the new-project-only boundary: generation never modifies an existing
+Final Cut timeline or library.
+
+Keep the existing parameter-truth path intact:
 
 ```
-registry metadata → validated plan → shared emitter channels → preview/FCPXML
+registry metadata → validated plan → shared emitter channels → FCPXML export
 ```
 
-Do not wait for another Phase 1 gate or replace the two unavailable states with
-a nominal implementation. Each effect needs a generalized emitter, a shared
-preview/export construction, explicit catalog availability, regression tests,
-and focused Final Cut evidence appropriate to its semantics. Preserve the
-existing new-project-only boundary: generation never modifies an existing Final
-Cut timeline or library.
+The visual viewer is narrower: it renders only Living Still and Targeted
+Rotate + Zoom single-media transform/opacity/color channels, not Natural Dissolve's
+transition or Old Television's connected-overlay descriptors.
 
 Keep parameter truth intact. A control is editable only when the emitted
 construction has a verified mapping; invariants and unsupported controls remain
@@ -21,17 +28,15 @@ or an easing representation that has not been evidenced. Preserve atomic
 revision/reset behavior, admitted-media checks, version-scoped capability
 decisions, non-overwrite output, source hashes, and schema validation.
 
-Natural Dissolve should use the shared architecture rather than a special
-one-off document path. Old Television should do the same for its connected
-overlay construction. Keep their Final Cut claims version-scoped and bounded to
-returned evidence; neither a source preview, XML/DTD pass, nor a package alone
-establishes a quality or import claim.
-
-Living Still v2 remains explicitly out of scope for this milestone. Reconsider
-it only under the quality-first doctrine: useful editability is a priority, not
-an absolute requirement, and a layered, rendered, or ML-assisted path is
-allowed when it wins materially on quality while retaining FrameSmith-level
-revision data and provenance.
+After the overlay evidence, make the Living Still v2 acquisition decision before
+any implementation: all ten bakeoff classes are measured, Vision two-plane
+parallax was demoted by portrait evidence, and the continuous-warp candidate
+leads but is untested because no depth model is installed. Do not fetch a model
+or start v2 implementation without that decision. If acquisition is authorized,
+test the continuous-warp candidate against the recorded rubric and vetoes before
+claiming a render, Final Cut admission, or perceptual result. A layered,
+rendered, or ML-assisted path is allowed only when it materially wins on
+quality while retaining FrameSmith-level revision data and provenance.
 
 Start by reading `STATUS.md`, `docs/PARAMETER_LIVENESS.md`,
 `docs/HANDOFF.md`, current Git state, and the current test evidence. Work on

@@ -1,6 +1,16 @@
 # FrameSmith — post-Phase-1 roadmap
 
-Status: **Phase 1 complete.** Living Still and Targeted Rotate + Zoom have real emitter-backed previews and new-project FCPXML export; Natural Dissolve and Old Television remain unavailable rather than simulated. Future work remains quality-first: Living Still v2, rendered/ML/generative options, and professional expansion are possible only with fresh evidence.
+Status: **Phase 1 complete.** All four effects have production emitter-backed
+new-project FCPXML export. The visual viewer is narrower: it samples
+Living Still and Targeted Rotate + Zoom single-media transform, opacity, and
+color channels, not Natural Dissolve's two-clip transition or Old Television's
+connected-overlay descriptor. The 2026-08-07 real import covered the earlier
+one-second (30-frame) Natural Dissolve and Old Television base constructions;
+the current canonical 12-frame dissolve route and Old Television's optional
+admitted-still overlay path have construction-test evidence only, not a
+fresh real-Final-Cut import (or, for the overlay, perceptual) exercise. Future
+work remains quality-first: Living Still v2, rendered/ML/generative options, and
+professional expansion are possible only with fresh evidence.
 
 The repository is still named `FCPCommandConsole`. **FrameSmith** is the product
 name used throughout this document; renaming is a Phase A chore, not a
@@ -138,8 +148,9 @@ Two notes on the spine:
 
 ## Next Phase A: productionize the standalone tool
 
-**Goal:** carry the validated workflows into a tool usable for real videos,
-then add the remaining two Phase 1 effects using the same construction path.
+**Goal:** carry the validated workflows into a tool usable for real videos and
+complete the evidence and control coverage that the shipped emitters still
+need.
 
 **Done when:** the user can go from a folder of media and a sentence of
 direction to an importable Final Cut project, without touching a terminal.
@@ -164,18 +175,26 @@ The claim boundary must stay explicit in the UI, not just in code: FrameSmith
 **generates a new project**. It does not modify an existing timeline, and must
 never word its output as though it had.
 
-### A3. Shared emitter integration — ✅ **done for Living Still and Targeted Rotate + Zoom**
+### A3. Shared emitter integration — ✅ **done for all four effects**
 
-The app and standalone export use the same plan-driven channels for Living
-Still and Targeted Rotate + Zoom. Natural Dissolve and Old Television remain
-explicit catalog absences until their generalized emitters are added; they are
-the next milestone, not hidden fallback paths.
+The app and standalone export dispatch the same plan-driven construction
+descriptors for Living Still, Targeted Rotate + Zoom, Natural Dissolve, and Old
+Television. The visual viewer renders only Living Still and Targeted Rotate +
+Zoom single-media transform/opacity/color channels; Natural Dissolve and Old
+Television descriptors remain export constructions. Natural Dissolve and Old
+Television were generalized from their probe builders; catalog availability no
+longer depends on a hidden fallback path.
 
-### A4. Shared effect preview — ✅ **done for current emitters**
+### A4. Shared effect construction descriptors — ✅ **done for all four emitters**
 
-Living Still and Targeted Rotate + Zoom preview the same emitted construction
-used for export. Preview remains effect-scoped: availability is not inferred
-from merely having source media or JSON parameters.
+All four effects use registered shared construction descriptors for export.
+The current visual viewer samples only single-media transform, opacity, and
+color channels; it does not render Natural Dissolve's two-clip transition
+descriptor or Old Television's connected-overlay descriptor. Preview remains
+effect-scoped: visual-viewer absence is not inferred from merely having source
+media or JSON parameters, and it does not mean an emitter is absent. Old
+Television's optional admitted-still overlay remains construction-tested but lacks
+fresh real-Final-Cut and perceptual evidence.
 
 Preview strategy is per-primitive (it is one of the seven contract fields) and
 will not be uniform. Expect three tiers:
@@ -251,9 +270,11 @@ need their own capture/evidence rather than inheriting this admission.
 **Compositing** — `opacity`, `blend mode`, `connected layers`
 
 Opacity keyframes and connected overlay layers are admitted in the current
-scoped evidence. Blend-mode breadth remains unproven, and Old Television still
-needs a generalized emitter and its own parameter-to-construction coverage; its
-unavailability is not an evidence absence disguised as a UI limitation.
+scoped evidence. Old Television has a native FCPXML base emitter and optional
+admitted-still overlay, but blend-mode breadth remains unproven, its presented
+registry parameters remain read-only, and its optional overlay path still needs
+a fresh real-Final-Cut and perceptual exercise. Those limitations are evidence boundaries, not an
+unavailability claim.
 
 **Color** — `exposure`, `contrast`, `saturation`, `temperature`, `tint`,
 `monochrome`, `vignette`
@@ -588,7 +609,7 @@ have terms that do not fit. Read them before building on them.
 
 ---
 
-## Current gate and next emitter milestone
+## Current gate and next evidence milestone
 
 Phase 1 is complete for the present scope. The table below records current
 implementation truth, not a prohibition on beginning future work:
@@ -600,14 +621,17 @@ implementation truth, not a prohibition on beginning future work:
 | Rotation semantics | ✅ admitted in the current Final Cut 12.3 (450152) scoped profile |
 | Connected overlay semantics | ✅ admitted in the current Final Cut 12.3 (450152) scoped profile |
 | Standalone export route | ✅ validated registry/media/emitter route, new-project-only package publication |
-| Natural Dissolve | ⏭ next-milestone generalized emitter; explicitly unavailable today |
-| Old Television | ⏭ next-milestone generalized emitter; explicitly unavailable today |
+| Natural Dissolve | ✅ production emitter, shared export construction descriptor, and construction-tested canonical read-only 12-frame route; 2026-08-07 real-import evidence covers the earlier 30-frame construction, so a fresh 12-frame import remains open; visual viewer does not render its two-clip transition descriptor |
+| Old Television | ✅ native FCPXML base emitter with optional admitted-still connected overlay, no generated FFmpeg/static/scanline assets, and real-import admission of its base construction on 2026-08-07; visual viewer does not render its connected-overlay descriptor; optional overlay path still needs fresh real-Final-Cut and perceptual evidence |
 
-The next work is not to relitigate Phase 1. It is to give Natural Dissolve and
-Old Television the same registry → validated plan → shared channels →
-preview/FCPXML path, with focused evidence and regression coverage. Existing
-evidence remains version-scoped and construction-scoped; it does not substitute
-for visual-quality evaluation or broad compatibility claims.
+The next work is not to relitigate Phase 1 or productionize an already-shipped
+emitter. First exercise Old Television's optional admitted-still overlay path in a
+fresh real-Final-Cut and bounded perceptual pass. Then decide whether to acquire
+a depth model for Living Still v2: all ten classes are measured, the Vision
+two-plane candidate is demoted, and the leading continuous-warp candidate is
+untested pending that decision. Existing evidence remains version-scoped and
+construction-scoped; it does not substitute for visual-quality evaluation or
+broad compatibility claims.
 
 ---
 

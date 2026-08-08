@@ -87,50 +87,33 @@ final class Phase1RegistryContractTests: XCTestCase {
         XCTAssertEqual(try parameter("durationSeconds", in: definition).description, "bounded keyframe duration")
     }
 
-    func testOldTelevisionPreservesGeneratedAssetsAndEditableLookControls() throws {
+    func testOldTelevisionPreservesNativeCanonicalConstruction() throws {
         let definition = try definition(.oldTelevision, in: registry())
 
         XCTAssertEqual(definition.representation, .layeredMedia)
         XCTAssertEqual(definition.requiredSelection, .singleClip)
         XCTAssertEqual(definition.inputCount, 1)
-        XCTAssertEqual(definition.backend, .ffmpeg)
-        XCTAssertEqual(definition.fallback, "native-old-television-without-generated-overlay")
-
-        XCTAssertEqual(definition.generatedAssets.count, 2)
-        XCTAssertEqual(Set(definition.generatedAssets.map(\.kind)), ["static-grain", "scanlines"])
-        XCTAssertTrue(definition.generatedAssets.allSatisfy { $0.format == "mov" && $0.alpha && $0.deterministic })
-
-        let editableNames = Set(definition.editableProperties.map(\.name))
-        XCTAssertTrue(editableNames.isSuperset(of: [
-            "monochromeEnabled",
-            "desaturation",
-            "contrast",
-            "staticStrength",
-            "grainStrength",
-            "scanlineStrength",
-            "instabilityStrength",
-            "overlayOpacity",
-            "blendMode",
-            "overlayTiming",
-            "overlayTransform",
-            "overlayEnabled",
-            "flickerEnabled",
-            "instabilityEnabled",
-            "wholeLookEnabled"
-        ]))
-
-        XCTAssertTrue(try editableProperty("desaturation", in: definition).keyframeable)
-        XCTAssertTrue(try editableProperty("contrast", in: definition).keyframeable)
-        XCTAssertTrue(try editableProperty("overlayOpacity", in: definition).keyframeable)
-        XCTAssertTrue(try editableProperty("overlayTransform", in: definition).keyframeable)
-        XCTAssertFalse(try editableProperty("monochromeEnabled", in: definition).keyframeable)
-        XCTAssertFalse(try editableProperty("overlayEnabled", in: definition).keyframeable)
-        XCTAssertFalse(try editableProperty("flickerEnabled", in: definition).keyframeable)
-        XCTAssertFalse(try editableProperty("instabilityEnabled", in: definition).keyframeable)
-        XCTAssertFalse(try editableProperty("wholeLookEnabled", in: definition).keyframeable)
+        XCTAssertEqual(definition.backend, .native)
+        XCTAssertEqual(definition.fallback, "native-old-television-base-without-optional-overlay")
+        XCTAssertTrue(definition.generatedAssets.isEmpty)
+        XCTAssertTrue(definition.editableProperties.isEmpty)
+        XCTAssertEqual(Set(definition.parameters.map(\.name)), [
+            "durationSeconds", "saturation", "flickerFloor", "overlayOpacity",
+            "overlayStartSeconds", "overlayDurationSeconds", "blendMode",
+            "overlayTiming", "overlayTransform"
+        ])
+        XCTAssertEqual(try parameter("durationSeconds", in: definition).defaultValue?.numberValue, 4)
+        XCTAssertEqual(try parameter("saturation", in: definition).defaultValue?.numberValue, 25)
+        XCTAssertEqual(try parameter("flickerFloor", in: definition).defaultValue?.numberValue, 0.82)
+        XCTAssertEqual(try parameter("overlayOpacity", in: definition).defaultValue?.numberValue, 0.35)
+        XCTAssertEqual(try parameter("overlayStartSeconds", in: definition).defaultValue?.numberValue, 1)
+        XCTAssertEqual(try parameter("overlayDurationSeconds", in: definition).defaultValue?.numberValue, 2)
+        XCTAssertEqual(try parameter("blendMode", in: definition).defaultValue, .string("overlay"))
+        XCTAssertEqual(try parameter("overlayTiming", in: definition).defaultValue, .string("bounded-range"))
+        XCTAssertEqual(try parameter("overlayTransform", in: definition).defaultValue, .string("identity"))
     }
 
-    func testNaturalDissolvePreservesNativeAdjacentClipAudioAndDurationContract() throws {
+    func testNaturalDissolvePreservesNativeAdjacentClipAudioAndCanonicalDurationContract() throws {
         let definition = try definition(.naturalDissolve, in: registry())
 
         XCTAssertEqual(definition.representation, .fcpxmlNative)
@@ -140,12 +123,9 @@ final class Phase1RegistryContractTests: XCTestCase {
         XCTAssertTrue(definition.generatedAssets.isEmpty)
         XCTAssertEqual(definition.fallback, "native-natural-dissolve-only")
 
-        let editableNames = Set(definition.editableProperties.map(\.name))
-        XCTAssertTrue(editableNames.isSuperset(of: ["durationFrames", "preserveAudio"]))
+        XCTAssertTrue(definition.editableProperties.isEmpty)
         XCTAssertEqual(try parameter("durationFrames", in: definition).defaultValue?.numberValue, 12.0)
         XCTAssertEqual(try parameter("preserveAudio", in: definition).defaultValue, .boolean(true))
-        XCTAssertEqual(try editableProperty("durationFrames", in: definition).valueType, "integer")
-        XCTAssertEqual(try editableProperty("preserveAudio", in: definition).valueType, "boolean")
     }
 
     func testLivingStillPreservesNativeFallbackMotionColorOpacityAndDeferredDepthFlow() throws {

@@ -95,24 +95,17 @@ final class PlannerHelperTests: XCTestCase {
         let editable = try XCTUnwrap(plan["editable_properties"] as? [[String: Any]])
 
         let zeroCost = try XCTUnwrap(cost["usd"] as? NSNumber)
-        let seedOne = try XCTUnwrap(parameters["seed"] as? NSNumber)
+        let overlayStartOne = try XCTUnwrap(parameters["overlayStartSeconds"] as? NSNumber)
         let startFrameZero = try XCTUnwrap(selection["start_frame"] as? NSNumber)
-        let desaturation = try XCTUnwrap(editable.first { ($0["name"] as? String) == "desaturation" })
-        let minimumZero = try XCTUnwrap(desaturation["minimum"] as? NSNumber)
-        let maximumOne = try XCTUnwrap(desaturation["maximum"] as? NSNumber)
-        let keyframeable = try XCTUnwrap(desaturation["keyframeable"] as? NSNumber)
         let paid = try XCTUnwrap(cost["paid"] as? NSNumber)
 
-        for number in [zeroCost, seedOne, startFrameZero, minimumZero, maximumOne] {
+        XCTAssertTrue(editable.isEmpty)
+        for number in [zeroCost, overlayStartOne, startFrameZero] {
             XCTAssertNotEqual(CFGetTypeID(number), CFBooleanGetTypeID())
         }
         XCTAssertEqual(zeroCost.doubleValue, 0)
-        XCTAssertEqual(seedOne.intValue, 1)
+        XCTAssertEqual(overlayStartOne.doubleValue, 1)
         XCTAssertEqual(startFrameZero.intValue, 0)
-        XCTAssertEqual(minimumZero.doubleValue, 0)
-        XCTAssertEqual(maximumOne.doubleValue, 1)
-        XCTAssertEqual(CFGetTypeID(keyframeable), CFBooleanGetTypeID())
-        XCTAssertTrue(keyframeable.boolValue)
         XCTAssertEqual(CFGetTypeID(paid), CFBooleanGetTypeID())
         XCTAssertFalse(paid.boolValue)
     }
