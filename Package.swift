@@ -12,7 +12,8 @@ let package = Package(
         .executable(name: "fcpcommandconsole-roundtrip-spike", targets: ["FCPCommandConsoleRoundTripSpike"]),
         .executable(name: "fcpcommandconsole-living-still-probe", targets: ["FCPCommandConsoleLivingStillProbe"]),
         .executable(name: "fcpcommandconsole-native-effect-probe", targets: ["FCPCommandConsoleNativeEffectProbe"]),
-        .executable(name: "fcpcommandconsole-standalone-export", targets: ["FCPCommandConsoleStandaloneExport"])
+        .executable(name: "fcpcommandconsole-standalone-export", targets: ["FCPCommandConsoleStandaloneExport"]),
+        .executable(name: "fcpcommandconsole-bakeoff", targets: ["FCPCommandConsoleBakeoff"])
     ],
     targets: [
         .target(
@@ -54,6 +55,11 @@ let package = Package(
             name: "FCPCommandConsoleStandaloneExport",
             dependencies: ["FCPCommandConsoleCore"],
             path: "Sources/FCPCommandConsoleStandaloneExport"
+        ),
+        .executableTarget(
+            name: "FCPCommandConsoleBakeoff",
+            dependencies: ["FCPCommandConsoleCore"],
+            path: "Sources/FCPCommandConsoleBakeoff"
         ),
         .testTarget(
             name: "FCPCommandConsoleTests",
