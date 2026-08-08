@@ -1,7 +1,7 @@
 # Living Still v2 — bakeoff
 
-Status: **harness built, candidates defined, 7 of 10 classes measured.**
-Three organic classes still need real photographs.
+Status: **all 10 classes measured. Candidate B demoted on visual evidence.
+Candidate C leads but is untested pending a depth-model decision.**
 
 Started 2026-08-07 from HEAD `16f4e77` on `standalone-app`, macOS 26.3 arm64,
 Final Cut Pro 12.3 (450152), Swift 6.3.3.
@@ -202,6 +202,81 @@ The three organic classes are still uncovered by *photographic* media. The
 strands fixture exercises the metric's high end but is drawn, so it cannot show
 colour contamination at a hair boundary or a matte failing against a busy
 background.
+
+## Matrix run 3 — real photographs, and the decisive finding
+
+Twelve photographs were added covering the three organic classes. Full set is
+now 21 fixtures.
+
+### Vision returns a hard silhouette, not a hair matte
+
+This is the finding that decides the architecture, and it is visual rather than
+numeric. The matte for a close portrait with visible hair detail, and the matte
+for a furred animal, are both **smooth hard-edged cut-outs**. Neither contains a
+single strand.
+
+`VNGenerateForegroundInstanceMaskRequest` is a *subject selection* API. It
+answers "which pixels are the subject" well. It does not produce the
+hair-preserving alpha matte that compositing a foreground plate requires.
+
+### What that does to Candidate B
+
+Candidate B composites a foreground cut out with this matte over a reconstructed
+plate, then moves the two planes independently. With a hard silhouette on hair
+or fur, that is a sticker sliding over a backdrop — which trips two hard vetoes
+outright:
+
+- visible layer seam or detached sticker motion
+- foreground halo (any plate reconstruction error lands directly on a hard edge)
+
+**Candidate B therefore has a quality ceiling on exactly the subjects users most
+want to bring to life.** It is not disqualified for crisp-edged subjects — a
+product, a building, a graphic shape — where a hard silhouette is the correct
+answer. But it cannot be the default.
+
+This is direct evidence against `docs/LIVING_STILL_V2_DESIGN.md`, which chose
+two-plane native layers. That choice was made on editability grounds without
+ever inspecting a matte.
+
+### The complexity metric measures something other than advertised
+
+| Fixture | Complexity |
+| --- | --- |
+| `organic-strands` (synthetic) | 0.034 |
+| `01_close_portrait_hair_detail` (real hair) | 0.017 |
+| `product-crisp` (rectangles and bars) | 0.017 |
+
+Real hair and a rectangle score **identically**, and the synthetic strands score
+double. That is not the metric failing again — it is the metric faithfully
+reporting that *Vision gave all three a hard silhouette*. The synthetic fixture
+scores higher only because its strands are large enough that the silhouette
+itself becomes ragged.
+
+The consequence is worth stating plainly:
+
+> **Hair risk cannot be assessed from Vision's mask, because Vision has already
+> discarded the hair.** Any such assessment has to come from the source image.
+
+So `boundaryComplexity` measures *silhouette raggedness*. That is a real and
+useful signal — it predicts how much a plate reconstruction has to invent along
+the edge — but it is not a hair detector, and must not be used as one.
+
+### Where the evidence now points
+
+| Candidate | Status after run 3 |
+| --- | --- |
+| **A** (v1) | control; still the safe fallback |
+| **B** (two-plane native) | **demoted** — hard-silhouette ceiling on organic subjects; viable only for crisp-edged subjects |
+| **C** (depth warp) | **now the leading hypothesis** — a continuous warp needs no binary matte, so the seam that disqualifies B cannot occur |
+| **D** (hybrid) | inherits B's matte problem precisely at the subject edge |
+
+C avoids the failure mode structurally rather than mitigating it. That is a
+strong argument, and it is also **still untested** — no depth model is
+installed, and a depth warp has its own characteristic failures (rubber-sheet
+distortion, depth inversion, disocclusion smearing) that only appear in motion.
+
+**The decision is not final until C is measured.** Recorded here because the
+evidence against B is already conclusive and should not be re-litigated.
 
 ## Blocker — representative media
 
