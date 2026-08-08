@@ -1,89 +1,101 @@
-# Surprise Me — coverage and verification
+# Surprise Me — representative bakeoff and coverage
 
-Recorded 2026-08-07 against Final Cut Pro **12.3 (450152)**.
+Recorded 2026-08-08 against the installed FrameSmith app and Final Cut Pro
+**12.3 (450152)**.
 
-## Exact coverage today
+## Coverage contract
 
-| Scenario | Options | Why |
+| Scenario | Admitted choices | Honest boundary |
 | --- | --- | --- |
-| One admitted still, confirmed focal target | **3** | motion (fade), motion+spatial (focal push), look (CRT) |
-| One admitted still, no target | 2 | focal push needs a confirmed point and refuses to substitute the centre |
-| Two clips for a dissolve | 1 | only one admitted transition exists; the set is not padded |
-| Empty semantics profile | 0 | nothing is executable, and the shortfall says so |
+| One admitted still, confirmed focal target | up to 3 | opacity, affine focal/quiet motion, and native CRT base treatment |
+| One admitted still, no target | 2 or 3 | no target-dependent construction is invented; retrieval may return fewer genuine matches |
+| Two adjacent clips | 1 | canonical native dissolve only; no padded alternatives |
+| Missing capability or drifted evidence | 0 | state is cleared and the refusal is shown |
 
-The single-still scenario is the shipped end-to-end path and was exercised by
-hand in the running app, not only in tests.
+Determinism is pinned by canonical input, catalog, registry, capability, schema,
+and seed identities. Diversity requires real construction differences on at
+least two treatment dimensions; names or seed-only variation do not count.
 
-## Why the three options are materially different
+## Five-class visual bakeoff
 
-Diversity is measured on `TreatmentDimension`, and two options must differ on at
-least **two** axes. Different names, seeds, or slider nudges do not count.
+All five stills were loaded into the installed app, options were generated, all
+available choices were added to Compare, and source plus admitted options were
+viewed on the shared time control.
 
-| Option | Dimensions |
-| --- | --- |
-| Opacity fade | motion language |
-| Focal target push and rotate | motion language + spatial/depth method |
-| Old television / CRT | palette/contrast + texture |
-
-The fade and the focal push share one axis and differ on another plus their
-effect; the CRT option shares none with either.
-
-## Manual verification performed
-
-In the installed app, 2026-08-07:
-
-1. Admitted `living-still.png` (1920×1080).
-2. Set a focal target inside the displayed media; the letterbox correctly
-   refused clicks outside it.
-3. Pressed **Surprise Me** → three options, each showing its idea, changes,
-   what is preserved, editability, cost, and originating card ID.
-4. Pressed **Use This** on the focal push → "Applied" badge, that option's
-   button disabled, and both export buttons appeared, meaning the selection
-   produced a valid, exportable plan.
-5. Command text, admitted media, and target were unchanged throughout.
-
-### Two defects this found that tests did not
-
-Both were visible only by looking at the rendered cards:
-
-- **Every option was labelled "Quiet / Cinematic."** The anchor was being
-  prefixed unconditionally, so a label meant to distinguish options appeared
-  three times and distinguished nothing. It is now included only when the
-  selected options actually come from different anchors.
-- **The idea line and the first change bullet were identical text**, which made
-  the card read like a filled-in template rather than a description.
-
-This is the third time manual review has caught something the suite could not —
-the earlier two were silently-rejected target clicks and content clipping below
-the fold.
-
-## Final Cut import verification
-
-Both emitters generalized in this milestone were verified by real import, not by
-DTD validity:
-
-| Emitter | Package | Returned |
+| Class | Source | Observed result |
 | --- | --- | --- |
-| Natural dissolve | `98B764EB` | transition at `offset="7s"` `duration="1s"`, four params byte-identical, UID preserved, clips still butt-joined, 15 frames of handle |
-| Old television | `9614E989` | three-keyframe flicker in animated param form with movie-origin times, Color Adjustments UID and payloads preserved |
+| Portrait + hair detail | `01_close_portrait_hair_detail.jpg` | three-option comparison; no masking claim, no obvious halo/warp in native treatments |
+| Painting | `Marc_mushroom_queen_…png` | two genuine choices for the wording; source composition remained intact |
+| Landscape with depth | `landscape-sonoma.png` | three choices; quiet push is a uniform affine move, not synthetic parallax |
+| Architecture/grid | `architecture-grid.png` | straight lines remained straight; no distortion or masking route was used |
+| Difficult fine edges | `organic-strands.png` | thin strands remained continuous; no edge-aware treatment claim was made |
 
-Final Cut added its own `FFAudioTransition` companion to the dissolve — the same
-behaviour the original fixed-timeline probe produced, which is a useful sign the
-generalized construction is being treated identically to the admitted one.
+Evidence screenshots:
 
-## Known limitations
+- `/Users/marcboyer/Movies/FCPCommandConsole/verification/editorial-intelligence-20260808/31-comparison.png`
+- `/Users/marcboyer/Movies/FCPCommandConsole/verification/editorial-intelligence-20260808/bakeoff-painting.png`
+- `/Users/marcboyer/Movies/FCPCommandConsole/verification/editorial-intelligence-20260808/bakeoff-landscape.png`
+- `/Users/marcboyer/Movies/FCPCommandConsole/verification/editorial-intelligence-20260808/bakeoff-architecture.png`
+- `/Users/marcboyer/Movies/FCPCommandConsole/verification/editorial-intelligence-20260808/bakeoff-difficult-edges.png`
 
-1. **Old television's connected overlay is unexercised by its emitter.** The
-   plan role model carries no overlay asset, so only the base treatment
-   (flicker + colour) can be generated. Lane, parent-relative offset, and blend
-   mode remain admitted from the earlier probe.
-2. **Colour is indicative only.** No measured mapping connects a creative
-   intensity to the 0–100 Saturation param.
-3. **No audio, typography, masking, or tracking.** Those cards are
-   `reference_only` and cannot be offered.
-4. **Options were not rendered and compared frame-by-frame.** The bakeoff
-   procedure in `process.review.representative_bakeoff.v1` describes what a full
-   visual pass requires — varied media, key-frame inspection, loudness-matched
-   audio — and that has not been run. What is claimed here is construction
-   correctness and UI behaviour, not comparative image quality.
-5. **Only the Overlay blend mode has ever been observed.**
+The Apple Vision analysis harness independently recorded:
+
+| Image | Subject result | Boundary complexity |
+| --- | --- | --- |
+| portrait | single, 66.9% of frame | 0.017 |
+| painting | four subjects | 0.056 |
+| landscape | no person/animal subject mask | depth route only |
+| architecture | no person/animal subject mask | depth route only |
+| organic strands | single, 26.9% of frame | 0.034 |
+
+Artifacts are under
+`/Users/marcboyer/Movies/FCPCommandConsole/verification/editorial-intelligence-20260808/vision-analysis`.
+This analysis describes source complexity; it does not turn the shipped affine
+treatment into a depth or masking effect.
+
+## What was visually judged
+
+- Opacity fade uses neutral transform and a final 0.5-second 1.0→0.35 native
+  opacity ramp. It introduced no crop, warp, or halo.
+- Quiet push and drift keeps opacity at 1.0, moves scale 1.0→1.06, and applies a
+  small `panX=0.015`, `panY=0`. Architecture and fine-edge stills showed no
+  nonlinear deformation; edge crop remains the expected affine-move risk.
+- Old television / CRT uses the base clip only in the demonstrated UI, a single
+  1.0→0.82→1.0 opacity dip in the first second, and the admitted native color
+  channel. There is no repeated flashing, generated static, scanline, or overlay
+  claim. Color is indicative rather than calibrated.
+- The shared loop moved source and all choices together. Each option displayed
+  its distinct channel digest and "Shared admitted construction" disclosure.
+- Changing explicit duration from 120 to 121 frames immediately cleared the
+  option, comparison, and applied state with a visible structure-drift refusal.
+
+The CRT recipe contains one bounded dip, well below the WCAG three-flashes-per-
+second threshold used by the catalog's safety gate. That is a construction-level
+safety result, not medical certification.
+
+## Export parity
+
+Three portrait choices produced distinct valid FCPXML packages:
+
+| Choice | Package | FCPXML SHA-256 |
+| --- | --- | --- |
+| Quiet push | `7F786732-D610-474D-9784-92A03C836898` | `d5b55bbe62a7da27c73d9eb2f52ea57e22fb7dc265bce199592006bc23b5802f` |
+| Opacity fade | `ED25D1F0-F7E4-4839-B240-9C4304262630` | `4d28058735c4b0335c63d446b49b88d1397cf7ebb34c0b6ef1fad7a010c73956` |
+| CRT base | `F4846BF6-DD50-4A00-8F79-A6F273AD5039` | `49ce47706c76c331f99f98a0d131dbe7c55e002124fbd13cd49cb62f57195586` |
+
+The post-fix painting opacity package
+`3E43F9A8-4FFE-4698-8261-69AE79A2139D` has FCPXML SHA-256
+`61276382d539bacc5a79322c2b63efe1bc6107210609ede3376b795edd0c5dbc`,
+preserves source media SHA-256
+`48a7c0eda7057e1c7075b996914eae24e0ed46d014a4315aee3db1fc3bfa25f4`,
+and records the exact wording "Give this painting a quiet cinematic treatment
+with a restrained finish." Its FCPXML imported and opened in the isolated copied
+Final Cut app as a 4-second project with live native opacity animation.
+
+## Bounded conclusion
+
+The bakeoff supports construction correctness, truthful UI disclosures, source
+preservation, obvious-artifact screening, and preview/export sharing for the
+implemented native channels. It does **not** establish expert perceptual
+preference, depth synthesis, edge-aware masking, calibrated color, audio
+quality, or population safety.
