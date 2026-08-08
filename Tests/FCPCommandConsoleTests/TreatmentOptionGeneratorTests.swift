@@ -267,6 +267,7 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
         )
         for option in set.options {
             XCTAssertEqual(option.intent.originalWording, wording, "the user's own words must survive")
+            XCTAssertEqual(option.effectPlan.originalRequest, wording, "execution and export provenance must retain the director's words, not the seed effect phrase")
         }
     }
 

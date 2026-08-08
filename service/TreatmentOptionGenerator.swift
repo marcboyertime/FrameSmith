@@ -305,6 +305,10 @@ public struct TreatmentOptionGenerator: Sendable {
         adapted.intensity = anchor.adaptedIntensity(from: intent.intensity)
 
         var plan = base
+        // The construction template contributes parameters, never authorship.
+        // Preserve the director's exact wording all the way into execution and
+        // export provenance instead of leaking the seed effect phrase.
+        plan.originalRequest = intent.originalWording
         // A treatment option is a proposal, not an execution. Preserve the
         // template operation ID and vary only real, registry-backed parameters.
         applyConstructionOverrides(to: &plan, card: card, anchor: anchor)
