@@ -145,18 +145,63 @@ before a subject-dependent treatment can be offered honestly.
 1080×1920 and still finds its subject, so the orientation pipeline is not
 silently transposing the mask.
 
-### Honest gap in this run
+### Matrix run 2 — the complexity metric was broken
 
-Every complexity score is 0.002–0.003, because synthetic shapes have clean
-edges. **The heuristic is therefore untested at the high end**, which is the
-hair-and-fur case it exists to detect. A threshold tuned against these numbers
-alone would be meaningless.
+Run 1's complexity scores were all 0.002–0.003, which looked like "clean
+synthetic fixtures" and was actually a dead metric.
 
-Three classes remain uncovered, and they are precisely the organic ones:
+Two organic fixtures were generated to test it: `organic-strands` (1400 fine
+strands radiating from a mass — hair geometry without claiming to be a
+photograph) and `organic-jagged` (a ragged but continuous silhouette).
 
-- close portrait with hair detail
-- full body with hands and thin limbs
-- animal or irregular organic subject
+**Prediction, recorded before running: strands should score several times higher
+than a clean product silhouette, or the metric is useless.**
+
+It failed. Strands `0.004`, product `0.003`. Noise.
+
+#### Root cause
+
+Not Vision. The matte comes back at full 1920×1080 and does contain the
+strands. The metric threw the signal away:
+
+1. `CIEdges` produces one-pixel edges; `CIAreaAverage` then diluted them across
+   two million pixels into the noise floor;
+2. dividing by coverage *penalised* the strands case for having a large
+   subject, which is backwards.
+
+#### Fix
+
+A matte over hair is mostly **partial alpha**; a clean silhouette is almost
+entirely binary. So the soft-edge fraction *is* the complexity, and no edge
+detector is needed. Measuring alpha distribution directly:
+
+| Fixture | Soft-edge fraction |
+| --- | --- |
+| `organic-strands` | **0.034** |
+| `product-crisp` (thin bars) | 0.017 |
+| `organic-jagged` | 0.015 |
+| `layered-depth` | 0.015 |
+| `portrait-frame` | 0.005 |
+| `low-contrast` | 0.004 |
+
+A clean 2× separation for the case the metric exists to catch, and an 8× range
+overall. `product-crisp` scoring above `organic-jagged` is correct rather than
+noise — it contains twelve thin vertical bars, which are genuinely thin
+structures.
+
+Coverage now includes partial pixels too. Excluding them under-reported exactly
+the mattes that matter most.
+
+Pinned by `LivingStillAnalysisTests` so it cannot silently regress to a metric
+that returns a plausible number for every input — which is worse than no metric,
+because routing built on it looks principled while being random.
+
+### Remaining gap
+
+The three organic classes are still uncovered by *photographic* media. The
+strands fixture exercises the metric's high end but is drawn, so it cannot show
+colour contamination at a hair boundary or a matte failing against a busy
+background.
 
 ## Blocker — representative media
 

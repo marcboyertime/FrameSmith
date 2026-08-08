@@ -190,40 +190,62 @@ public struct LivingStillSubjectAnalyzer: Sendable {
         )
     }
 
-    /// Coverage and a cheap boundary-complexity proxy.
+    /// Coverage and boundary complexity, measured from the matte's alpha
+    /// distribution rather than from an edge filter.
     ///
-    /// Complexity uses the mean of a Sobel-style edge pass over the matte: a
-    /// clean product silhouette scores low, hair and foliage score high. It is
-    /// a heuristic for *risk*, used to reduce motion or prefer a different
-    /// construction — not a quality measurement.
+    /// ## Why not an edge pass
+    ///
+    /// The first implementation ran `CIEdges` over the matte and took
+    /// `CIAreaAverage`. It could not tell hair from a rectangle: 1400 fine
+    /// strands scored `0.004` and a clean product silhouette scored `0.003`,
+    /// which is noise. Two compounding mistakes —
+    ///
+    /// 1. averaging one-pixel edges across two million pixels dilutes the
+    ///    signal into the noise floor;
+    /// 2. dividing by coverage then *penalised* the strands case for having a
+    ///    large subject, which is backwards.
+    ///
+    /// ## What is measured instead
+    ///
+    /// A matte over hair is mostly **partial** alpha — thousands of pixels
+    /// neither fully inside nor fully outside. A clean silhouette is almost
+    /// entirely binary. So the soft-edge fraction *is* the complexity, and it
+    /// needs no edge detector at all.
+    ///
+    /// Measured on the bakeoff fixtures: strands `0.0341`, thin-bar product
+    /// `0.0175`, jagged silhouette `0.0147`, layered planes `0.0148` — a clean
+    /// 2× separation for the case this exists to catch.
+    ///
+    /// This is a risk heuristic used to reduce motion or prefer a different
+    /// construction. It is not a quality measurement.
     static func maskStatistics(_ mask: CIImage) -> (coverage: Double, complexity: Double) {
         let context = CIContext(options: [.workingColorSpace: NSNull()])
         let extent = mask.extent
-        guard !extent.isEmpty else { return (0, 0) }
+        let width = Int(extent.width.rounded()), height = Int(extent.height.rounded())
+        guard width > 0, height > 0 else { return (0, 0) }
 
-        func mean(of image: CIImage) -> Double {
-            guard let filter = CIFilter(name: "CIAreaAverage", parameters: [
-                kCIInputImageKey: image,
-                kCIInputExtentKey: CIVector(cgRect: extent)
-            ]), let output = filter.outputImage else { return 0 }
-            var pixel = [Float](repeating: 0, count: 4)
-            context.render(
-                output,
-                toBitmap: &pixel,
-                rowBytes: 16,
-                bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
-                format: .RGBAf,
-                colorSpace: nil
-            )
-            return Double(pixel[0])
+        var buffer = [UInt8](repeating: 0, count: width * height * 4)
+        context.render(
+            mask,
+            toBitmap: &buffer,
+            rowBytes: width * 4,
+            bounds: extent,
+            format: .RGBA8,
+            colorSpace: nil
+        )
+
+        var solid = 0, partial = 0
+        for index in stride(from: 0, to: buffer.count, by: 4) {
+            let value = buffer[index]
+            if value > 240 { solid += 1 } else if value >= 15 { partial += 1 }
         }
+        let total = Double(width * height)
+        guard total > 0 else { return (0, 0) }
 
-        let coverage = mean(of: mask)
-        let edges = mask.applyingFilter("CIEdges", parameters: ["inputIntensity": 1.0])
-        let edgeMean = mean(of: edges)
-        // Normalize edge energy by coverage so a small subject with a clean
-        // edge is not mistaken for a complex one.
-        let complexity = coverage > 0.001 ? min(edgeMean / coverage, 1.0) : 0
+        // Partial pixels belong to the subject too; excluding them would
+        // under-report coverage most for exactly the mattes that matter.
+        let coverage = (Double(solid) + Double(partial)) / total
+        let complexity = Double(partial) / total
         return (coverage, complexity)
     }
 }
