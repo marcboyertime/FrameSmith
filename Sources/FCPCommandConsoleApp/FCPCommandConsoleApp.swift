@@ -1,5 +1,6 @@
 import AVKit
 import AppKit
+import Combine
 import FCPCommandConsoleCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -19,14 +20,14 @@ struct FCPCommandConsoleApp: App {
 
 @MainActor
 private final class AppModel: ObservableObject {
-    @Published var command = "" { didSet { invalidatePlanIfInputsDrifted() } }
-    @Published var primary: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted() } }
-    @Published var outgoing: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted() } }
-    @Published var incoming: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted() } }
+    @Published var command = "" { didSet { invalidatePlanIfInputsDrifted(); invalidateEditorialIfInputsDrifted() } }
+    @Published var primary: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted(); invalidateEditorialIfInputsDrifted() } }
+    @Published var outgoing: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted(); invalidateEditorialIfInputsDrifted() } }
+    @Published var incoming: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted(); invalidateEditorialIfInputsDrifted() } }
     /// A texture composited above the primary clip. Optional, and not part of
     /// the edit — so it is deliberately absent from the structure lock.
-    @Published var overlay: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted() } }
-    @Published var target: Target? { didSet { invalidatePlanIfInputsDrifted() } }
+    @Published var overlay: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted(); invalidateEditorialIfInputsDrifted() } }
+    @Published var target: Target? { didSet { invalidatePlanIfInputsDrifted(); invalidateEditorialIfInputsDrifted() } }
     @Published var result: LocalMediaPlanningResult?
     @Published var package: LocalPlanPackage?
     @Published var errorMessage: String?
@@ -42,7 +43,13 @@ private final class AppModel: ObservableObject {
     // MARK: Surprise Me
     @Published var treatmentOptions: TreatmentOptionSet?
     @Published var appliedTreatment: TreatmentPlan?
+    @Published var editorialDurationFrames = "" { didSet { invalidateEditorialIfInputsDrifted() } }
+    @Published var admittedTreatmentOptions: [String: AdmittedTreatmentExecution] = [:]
+    @Published var comparisonOptionIDs: [String] = []
+    @Published var treatmentHistory: [AdmittedTreatmentExecution] = []
+    @Published var isRefiningTreatment = false
     @Published var isGeneratingOptions = false
+    private var editorialState = EditorialTreatmentWorkflow.State()
 
     /// The Final Cut build on this machine, read once.
     ///
@@ -95,6 +102,22 @@ private final class AppModel: ObservableObject {
         previewChannels = nil
         noticeMessage = staleness.reason
         cancelPackage()
+    }
+
+    var positiveEditorialDurationFrames: Int? {
+        guard let frames = Int(editorialDurationFrames.trimmingCharacters(in: .whitespacesAndNewlines)), frames > 0 else { return nil }
+        return frames
+    }
+
+    private func invalidateEditorialIfInputsDrifted() {
+        guard let workflow = try? editorialWorkflow() else { return }
+        let current = workflow.snapshot(command: command, media: currentMediaRoles(), target: target, durationFrames: positiveEditorialDurationFrames)
+        var checking = workflow
+        if let reason = checking.invalidateIfDrifted(&editorialState, current: current) {
+            admittedTreatmentOptions = [:]; treatmentOptions = nil; appliedTreatment = nil; comparisonOptionIDs = []; treatmentHistory = []
+            result = nil; previewChannels = nil; package = nil; exportedProject = nil
+            noticeMessage = "Editorial treatment invalidated because \(reason)."
+        }
     }
 
     private enum AdmissionOutcome: Sendable {
@@ -172,6 +195,7 @@ private final class AppModel: ObservableObject {
         errorMessage = nil
         noticeMessage = nil
         command = ""
+        editorialDurationFrames = ""
     }
 
     private func assign(_ media: LocalMediaAsset, to role: LocalMediaRole) {
@@ -217,40 +241,17 @@ private final class AppModel: ObservableObject {
     func surpriseMe() {
         errorMessage = nil
         noticeMessage = nil
-        treatmentOptions = nil
-        appliedTreatment = nil
+        treatmentOptions = nil; admittedTreatmentOptions = [:]; appliedTreatment = nil
         isGeneratingOptions = true
         defer { isGeneratingOptions = false }
 
-        let ordered = orderedMedia()
-        guard !ordered.isEmpty else {
-            errorMessage = "Add some media first — Surprise Me treats your clips, it does not choose them."
-            return
-        }
         do {
-            let cardsURL = try appResource(named: "registry/editorial-techniques")
-            let catalog = try EditorialKnowledgeCatalog.load(from: cardsURL)
-            let lock = EditorialStructureLock.establish(
-                orderedMedia: ordered,
-                clipDurationFrames: ordered.map { _ in 120 }
-            )
-            let generator = TreatmentOptionGenerator(
-                catalog: catalog,
-                admittedCapabilities: Set(installedProfileContracts())
-            )
-            let set = generator.generate(
-                lock: lock,
-                media: currentMediaRoles(),
-                intent: TreatmentIntent(
-                    originalWording: command.isEmpty ? "surprise me" : command,
-                    intensity: .restrained
-                ),
-                basePlans: candidatePlans()
-            )
-            treatmentOptions = set
-            if set.options.isEmpty {
-                noticeMessage = set.shortfallExplanation ?? "No treatment can run on this media yet."
-            }
+            var workflow = try editorialWorkflow()
+            let admitted = try workflow.generate(state: &editorialState, command: command, media: currentMediaRoles(), target: target, durationFrames: positiveEditorialDurationFrames, basePlans: candidatePlans(forDurationFrames: positiveEditorialDurationFrames))
+            admittedTreatmentOptions = editorialState.options
+            treatmentOptions = TreatmentOptionSet(options: admitted.map(\.treatment), rejected: [], structureFingerprint: editorialState.lock?.fingerprint ?? "", shortfallExplanation: editorialState.invalidationReason)
+            comparisonOptionIDs = []; treatmentHistory = []
+            if admitted.isEmpty { noticeMessage = editorialState.invalidationReason ?? "No treatment can run on this media yet." }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -264,25 +265,30 @@ private final class AppModel: ObservableObject {
     func useTreatment(_ option: TreatmentPlan) {
         errorMessage = nil
         do {
-            let registryURL = try appResource(named: "registry/effects")
-            let schemaURL = try appResource(named: "schemas/effect-plan.schema.json")
-            let session = LocalMediaPlannerSession(
-                registry: try EffectRegistry.load(from: registryURL),
-                schemaValidator: try PlanSchemaValidator(schemaURL: schemaURL),
-                capabilityGate: capabilityGate
-            )
-            let request = defaultRequest(for: option.effectPlan.effectID)
-            let planned = try session.plan(
-                request: request, primary: primary, outgoing: outgoing, incoming: incoming, target: target
-            )
-            result = planned
-            previewChannels = effectChannels(for: planned)
-            appliedTreatment = option
+            var workflow = try editorialWorkflow()
+            let current = workflow.snapshot(command: command, media: currentMediaRoles(), target: target, durationFrames: positiveEditorialDurationFrames)
+            let selected = try workflow.use(option.optionID, state: &editorialState, current: current, media: currentMediaRoles())
+            result = selected.1
+            previewChannels = selected.0.channels.materializedChannels()
+            appliedTreatment = selected.0.treatment
+            admittedTreatmentOptions = editorialState.options; treatmentHistory = editorialState.history
             package = nil
             exportedProject = nil
-            noticeMessage = "Applied \(option.name). Your clips and timing are unchanged."
+            noticeMessage = "Applied \(option.name) exactly as admitted. Your clips and timing are unchanged."
+            isRefiningTreatment = false
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Refine is intentionally a different boundary from Use This: it first
+    /// adopts the exact artifact and then exposes the existing atomic
+    /// parameter inspector. It never runs the default request parser.
+    func refineTreatment(_ option: TreatmentPlan) {
+        useTreatment(option)
+        if errorMessage == nil, appliedTreatment?.optionID == option.optionID {
+            isRefiningTreatment = true
+            noticeMessage = "Refining \(option.name) from its admitted exact plan. Invalid edits keep this treatment intact."
         }
     }
 
@@ -312,22 +318,58 @@ private final class AppModel: ObservableObject {
     ///
     /// An effect that cannot be planned from this media is simply absent, which
     /// is what stops the generator offering something unrunnable.
-    private func candidatePlans() -> [EffectID: EffectPlan] {
+    private func candidatePlans(forDurationFrames durationFrames: Int?) -> [EffectID: EffectPlan] {
         guard let registryURL = try? appResource(named: "registry/effects"),
               let schemaURL = try? appResource(named: "schemas/effect-plan.schema.json"),
               let registry = try? EffectRegistry.load(from: registryURL),
               let validator = try? PlanSchemaValidator(schemaURL: schemaURL) else { return [:] }
         let session = LocalMediaPlannerSession(registry: registry, schemaValidator: validator, capabilityGate: capabilityGate)
         var plans: [EffectID: EffectPlan] = [:]
+        guard let durationFrames else { return [:] }
         for effect in EffectID.allCases {
             if let planned = try? session.plan(
-                request: defaultRequest(for: effect),
+                request: effect == .livingStill
+                    ? "Make this a living still for \(Double(durationFrames) / 30.0) seconds."
+                    : defaultRequest(for: effect),
                 primary: primary, outgoing: outgoing, incoming: incoming, target: target
             ) {
                 plans[effect] = planned.plan
             }
         }
         return plans
+    }
+
+    private func editorialWorkflow() throws -> EditorialTreatmentWorkflow {
+        let cardsURL = try appResource(named: "registry/editorial-techniques")
+        let sourcesURL = try appResource(named: "editorial-intelligence/sources.csv")
+        let registryURL = try appResource(named: "registry/effects")
+        let effectSchemaURL = try appResource(named: "schemas/effect-plan.schema.json")
+        let treatmentSchemaURL = try appResource(named: "schemas/treatment-plan.schema.json")
+        return EditorialTreatmentWorkflow(catalog: try EditorialKnowledgeCatalog.load(from: cardsURL, knownSourceIDs: EditorialKnowledgeCatalog.sourceIDs(fromCSV: sourcesURL)), registry: try EffectRegistry.load(from: registryURL), admittedCapabilities: Set(installedProfileContracts()), schemaValidator: try PlanSchemaValidator(schemaURL: effectSchemaURL), treatmentContractValidator: try TreatmentPlanContractValidator(schemaURL: treatmentSchemaURL), capabilityGate: capabilityGate)
+    }
+
+    func previewTreatment(_ option: TreatmentPlan) {
+        do {
+            let workflow = try editorialWorkflow(); let current = workflow.snapshot(command: command, media: currentMediaRoles(), target: target, durationFrames: positiveEditorialDurationFrames)
+            guard editorialState.snapshot == current, let artifact = admittedTreatmentOptions[option.optionID] else { throw EditorialTreatmentWorkflowError.unknownOption(option.optionID) }
+            let readmitted = try workflow.readmit(artifact, current: current, media: currentMediaRoles())
+            previewChannels = readmitted.channels.materializedChannels(); noticeMessage = "Previewing \(option.name) exactly as admitted; it has not been applied."
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func toggleComparison(_ option: TreatmentPlan) {
+        do { var workflow = try editorialWorkflow(); try workflow.toggleComparison(option.optionID, state: &editorialState); comparisonOptionIDs = editorialState.comparisonIDs }
+        catch { errorMessage = error.localizedDescription }
+    }
+
+    func restoreTreatment(_ index: Int) {
+        do {
+            var workflow = try editorialWorkflow(); let current = workflow.snapshot(command: command, media: currentMediaRoles(), target: target, durationFrames: positiveEditorialDurationFrames)
+            let restored = try workflow.restore(index, state: &editorialState, current: current, media: currentMediaRoles())
+            let planned = try LocalMediaPlannerSession(registry: workflow.registry, schemaValidator: workflow.schemaValidator, capabilityGate: workflow.capabilityGate).adopt(exactPlan: restored.treatment.effectPlan, request: command, primary: primary, outgoing: outgoing, incoming: incoming, target: target)
+            result = planned; previewChannels = restored.channels.materializedChannels(); appliedTreatment = restored.treatment; treatmentHistory = editorialState.history
+            package = nil; exportedProject = nil; noticeMessage = "Restored \(restored.treatment.name) after fresh admission."
+        } catch { errorMessage = error.localizedDescription }
     }
 
     private func defaultRequest(for effectID: EffectID) -> String {
@@ -360,6 +402,17 @@ private final class AppModel: ObservableObject {
     func revise(parameters patch: [String: ParameterValue]) {
         guard let result else { return }
         do {
+            if editorialState.applied != nil {
+                var workflow = try editorialWorkflow()
+                let current = workflow.snapshot(command: command, media: currentMediaRoles(), target: target, durationFrames: positiveEditorialDurationFrames)
+                let revised = try workflow.revise(state: &editorialState, current: current, media: currentMediaRoles(), patch: patch)
+                self.result = revised.1
+                previewChannels = revised.0.channels.materializedChannels()
+                appliedTreatment = revised.0.treatment
+                treatmentHistory = editorialState.history
+                package = nil; exportedProject = nil; errorMessage = nil
+                return
+            }
             let registryURL = try appResource(named: "registry/effects")
             let schemaURL = try appResource(named: "schemas/effect-plan.schema.json")
             let revised = try LocalMediaPlanRevisionService(
@@ -449,6 +502,15 @@ private final class AppModel: ObservableObject {
             return
         }
 
+        let editorialExecution: AdmittedTreatmentExecution?
+        do {
+            if let applied = editorialState.applied {
+                let workflow = try editorialWorkflow()
+                let current = workflow.snapshot(command: command, media: currentMediaRoles(), target: target, durationFrames: positiveEditorialDurationFrames)
+                guard editorialState.snapshot == current else { throw EditorialTreatmentWorkflowError.drifted("an input changed") }
+                editorialExecution = try workflow.readmit(applied, current: current, media: currentMediaRoles())
+            } else { editorialExecution = nil }
+        } catch { errorMessage = error.localizedDescription; return }
         isExportingProject = true
         errorMessage = nil
         noticeMessage = nil
@@ -476,12 +538,10 @@ private final class AppModel: ObservableObject {
                         media[entry.role] = admitted.assets[index]
                     }
                     let builder = StandaloneFCPXMLExportBuilder(gate: gate, registry: exportRegistry)
-                    return .success(try builder.export(
-                        plan: plan,
-                        media: media,
-                        mediaEvidence: admitted.evidence,
-                        installedFinalCut: installed
-                    ))
+                    if let editorialExecution {
+                        return .success(try builder.export(admitted: editorialExecution, mediaEvidence: admitted.evidence, installedFinalCut: installed))
+                    }
+                    return .success(try builder.export(plan: plan, media: media, mediaEvidence: admitted.evidence, installedFinalCut: installed))
                 } catch {
                     return .failure(error)
                 }
@@ -659,6 +719,15 @@ private struct ContentView: View {
 
             mediaSection
 
+            HStack(spacing: 8) {
+                Text("Editorial duration (frames)").font(.caption.weight(.medium))
+                TextField("Required for Surprise Me", text: $model.editorialDurationFrames)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 180)
+                    .accessibilityLabel("Editorial duration in frames")
+                Text("30 fps · still-only treatment scope").font(.caption2).foregroundStyle(.secondary)
+            }
+
             if let media = model.primary ?? model.outgoing {
                 TargetPicker(media: media, target: $model.target)
                     .frame(height: 200)
@@ -679,8 +748,8 @@ private struct ContentView: View {
                 } label: {
                     Label(model.isGeneratingOptions ? "Thinking…" : "Surprise Me", systemImage: "sparkles")
                 }
-                .disabled(model.isGeneratingOptions || (model.primary == nil && model.outgoing == nil))
-                .help("Up to three different treatments. Your clips and timing stay exactly as you set them.")
+                .disabled(model.isGeneratingOptions || model.primary == nil || model.positiveEditorialDurationFrames == nil || model.outgoing != nil || model.incoming != nil)
+                .help("Requires one admitted primary still and a positive director-entered frame duration. Your clips and timing stay exactly as you set them.")
 
                 Spacer()
 
@@ -713,6 +782,17 @@ private struct ContentView: View {
             }
 
             if let set = model.treatmentOptions { TreatmentOptionsView(set: set, model: model) }
+
+            if !model.comparisonOptionIDs.isEmpty {
+                EditorialComparisonView(source: model.primary, executions: model.comparisonOptionIDs.compactMap { model.admittedTreatmentOptions[$0] })
+            }
+            if !model.treatmentHistory.isEmpty {
+                DisclosureGroup("Treatment history (\(model.treatmentHistory.count))") {
+                    ForEach(Array(model.treatmentHistory.enumerated()), id: \.offset) { index, execution in
+                        HStack { Text(execution.treatment.name).font(.caption); Spacer(); Button("Restore") { model.restoreTreatment(index) }.controlSize(.small) }
+                    }
+                }
+            }
 
             // Only surfaced when something is actually blocked. The Final Cut
             // build and the never-modifies promise both live in the header now;
@@ -1134,31 +1214,7 @@ private struct EffectPreview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             GeometryReader { geometry in
-                ZStack {
-                    Color.black
-                    if let image = NSImage(contentsOf: media.url) {
-                        // Offsets are in source pixels; scale them into the
-                        // preview so the framing matches at any window size.
-                        let ratio = geometry.size.height / CGFloat(channels.frameHeight)
-                        Image(nsImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .saturation(indicativeSaturation)
-                            .scaleEffect(comparing ? 1 : state.scale)
-                            // Negated: Final Cut's positive rotation is
-                            // counterclockwise (observed 2026-08-06) while
-                            // SwiftUI's rotationEffect is clockwise-positive.
-                            .rotationEffect(.degrees(comparing ? 0 : -state.rotationDegrees))
-                            .offset(
-                                x: comparing ? 0 : state.offsetX * ratio,
-                                y: comparing ? 0 : state.offsetY * ratio
-                            )
-                            .opacity(comparing ? 1 : state.opacity)
-                            .clipped()
-                    } else {
-                        Text("Image unavailable").foregroundStyle(.secondary)
-                    }
-                }
+                EffectPoster(media: media, channels: channels, time: previewTime, showColor: showColor, showingOriginal: comparing, height: geometry.size.height)
             }
             .frame(height: 220)
             .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -1236,6 +1292,32 @@ private struct EffectPreview: View {
     }
 }
 
+/// One rendering rule for the single preview and the shared A/B/C comparison.
+private struct EffectPoster: View {
+    let media: LocalMediaAsset
+    let channels: NativeFCPXMLEffectChannels
+    let time: Double
+    let showColor: Bool
+    let showingOriginal: Bool
+    let height: CGFloat
+
+    var body: some View {
+        let state = NativeFCPXMLChannelSampler(frameHeight: channels.frameHeight).state(transform: channels.transform, opacity: channels.opacity, atClipSeconds: PreviewTime.clamped(time, duration: channels.durationSeconds), origin: channels.origin)
+        ZStack {
+            Color.black
+            if let image = NSImage(contentsOf: media.url) {
+                let ratio = height / CGFloat(channels.frameHeight)
+                Image(nsImage: image).resizable().scaledToFit()
+                    .saturation(showColor && !showingOriginal ? 1 + (channels.saturation ?? 0) / 100 : 1)
+                    .scaleEffect(showingOriginal ? 1 : state.scale)
+                    .rotationEffect(.degrees(showingOriginal ? 0 : -state.rotationDegrees))
+                    .offset(x: showingOriginal ? 0 : state.offsetX * ratio, y: showingOriginal ? 0 : state.offsetY * ratio)
+                    .opacity(showingOriginal ? 1 : state.opacity).clipped()
+            } else { Text("Image unavailable").foregroundStyle(.secondary) }
+        }
+    }
+}
+
 /// Surprise Me's option cards.
 ///
 /// The preservation promise is stated once at the top rather than repeated per
@@ -1269,9 +1351,7 @@ private struct TreatmentOptionsView: View {
             }
 
             ForEach(set.options) { option in
-                OptionCard(option: option, isApplied: model.appliedTreatment?.id == option.id) {
-                    model.useTreatment(option)
-                }
+                OptionCard(option: option, artifact: model.admittedTreatmentOptions[option.optionID], isApplied: model.appliedTreatment?.id == option.id, isCompared: model.comparisonOptionIDs.contains(option.optionID), preview: { model.previewTreatment(option) }, use: { model.useTreatment(option) }, refine: { model.refineTreatment(option) }, compare: { model.toggleComparison(option) })
             }
 
             if !set.rejected.isEmpty {
@@ -1296,8 +1376,13 @@ private struct TreatmentOptionsView: View {
 /// decision — everything else is a tooltip.
 private struct OptionCard: View {
     let option: TreatmentPlan
+    let artifact: AdmittedTreatmentExecution?
     let isApplied: Bool
+    let isCompared: Bool
+    let preview: () -> Void
     let use: () -> Void
+    let refine: () -> Void
+    let compare: () -> Void
 
     @State private var hovering = false
 
@@ -1320,15 +1405,27 @@ private struct OptionCard: View {
                 Text(option.idea)
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                ForEach(option.changes, id: \.self) { Text("• \($0)").font(.caption2).foregroundStyle(.secondary) }
+                Text("Preserved: \(option.preserved.joined(separator: " · "))").font(.caption2).foregroundStyle(.secondary)
+                Text("Latency: \(option.estimatedLatency.rawValue) · Cost: \(option.monetary.rawValue) · Privacy: \(option.privacy.rawValue) · \(option.editability.rawValue) · \(option.previewFidelity.rawValue)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                if let artifact {
+                    DisclosureGroup("Advanced") {
+                        Text("Technique: \(artifact.cards.map { "\($0.card.id) v\($0.card.version)" }.joined(separator: ", "))")
+                        Text("Schema: \(artifact.contract.schemaID) v\(artifact.contract.schemaVersion) · \(artifact.contract.schemaDigest)")
+                        Text("Registry: \(artifact.registryDigest) · Channels: \(artifact.channels.digest)")
+                        Text("Provenance: \(artifact.cards.flatMap(\.provenance).map { "\($0.sourceId) (\($0.confidence?.rawValue ?? "unrated"))" }.joined(separator: "; "))")
+                        Text("Safety: \(artifact.cards.flatMap { $0.evaluation.riskDecisions + $0.evaluation.safetyDecisions }.map { "\($0.decision.rawValue): \($0.gate.basis)" }.joined(separator: "; "))")
+                    }.font(.caption2).foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 8)
-            if isApplied {
-                Label("Applied", systemImage: "checkmark")
-                    .font(.caption2).foregroundStyle(.green)
-            } else {
-                Button("Use", action: use)
-                    .controlSize(.small)
-                    .opacity(hovering ? 1 : 0.75)
+            VStack(alignment: .trailing, spacing: 5) {
+                if isApplied { Label("Applied", systemImage: "checkmark").font(.caption2).foregroundStyle(.green) }
+                Button("Preview", action: preview).controlSize(.small)
+                Button("Use This", action: use).controlSize(.small)
+                Button("Refine", action: refine).controlSize(.small)
+                Button(isCompared ? "Compared" : "Compare", action: compare).controlSize(.small)
             }
         }
         .padding(10)
@@ -1351,5 +1448,57 @@ private struct OptionCard: View {
         lines.append("Preserved: " + option.preserved.joined(separator: " · "))
         lines.append("Technique: " + option.techniqueCardIDs.joined(separator: ", "))
         return lines.joined(separator: "\n")
+    }
+}
+
+/// Compare keeps source and every selected treatment on one shared poster
+/// clock. The cards carry admitted snapshots, never an independently rebuilt
+/// effect plan. A still has no audio, so this view intentionally makes no
+/// level-matching assertion.
+private struct EditorialComparisonView: View {
+    let source: LocalMediaAsset?
+    let executions: [AdmittedTreatmentExecution]
+    @State private var time: Double = 0
+    @State private var playing = false
+    private let clock = Timer.publish(every: 1.0 / 30.0, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Compare", systemImage: "rectangle.split.3x1").font(.headline)
+                Spacer()
+                Button(playing ? "Pause" : "Play") { playing.toggle() }
+                Text(String(format: "%.2fs", time)).font(.caption.monospacedDigit())
+            }
+            Text("Source plus \(executions.count) admitted option\(executions.count == 1 ? "" : "s") share this poster time. Still-only source has no audio; no level-matching claim applies.")
+                .font(.caption2).foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading) {
+                    Text("Source").font(.caption.weight(.semibold))
+                    if let source { SourcePreview(media: source).frame(width: 150, height: 110) }
+                }
+                ForEach(executions, id: \.treatment.optionID) { execution in
+                    VStack(alignment: .leading) {
+                        Text(execution.treatment.name).font(.caption.weight(.semibold))
+                        if let source {
+                            EffectPoster(media: source, channels: execution.channels.materializedChannels(), time: time, showColor: true, showingOriginal: false, height: 110)
+                                .frame(height: 110).clipShape(RoundedRectangle(cornerRadius: 5))
+                        }
+                        Text("Channel digest \(execution.channels.digest.prefix(12))").font(.caption2.monospaced()).foregroundStyle(.secondary)
+                        Text("Shared admitted construction").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(6)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
+                }
+            }
+            Slider(value: $time, in: 0...max(0.01, executions.map { $0.channels.durationSeconds }.max() ?? 1))
+        }
+        .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.35)))
+        .onReceive(clock) { _ in
+            guard playing else { return }
+            let duration = max(0.01, executions.map { $0.channels.durationSeconds }.max() ?? 1)
+            time += 1.0 / 30.0
+            if time > duration { time = 0 }
+        }
     }
 }

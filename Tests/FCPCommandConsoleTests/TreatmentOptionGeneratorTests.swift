@@ -43,10 +43,16 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
         )
         var plans: [EffectID: EffectPlan] = [:]
         for effect in [EffectID.livingStill, .targetedRotateZoom, .oldTelevision] {
+            let request: String
+            switch effect {
+            case .livingStill: request = "Make this a living still."
+            case .targetedRotateZoom: request = "Use a targeted rotate and zoom."
+            case .oldTelevision: request = "Make this old television."
+            case .naturalDissolve: request = "Use a natural dissolve."
+            }
             var plan = try DeterministicPlanner(registry: registry()).plan(
-                request: "Make this a living still.", selection: token, target: Target.confirmed(x: 0.6, y: 0.4)
+                request: request, selection: token, target: Target.confirmed(x: 0.6, y: 0.4)
             )
-            plan.effectID = effect
             plan.selectionToken.origin = .localMedia
             plans[effect] = plan
         }
@@ -363,8 +369,9 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
 
     func testCRTAutomaticGateIsBoundedToTheSingleMeasuredBaseDip() throws {
         let asset = still("crt", digest: "c")
-        var plan = try XCTUnwrap(try basePlans(for: [asset])[.oldTelevision])
-        plan.parameters = ["durationSeconds": .number(4), "flickerFloor": .number(0.82)]
+        let plan = try XCTUnwrap(try basePlans(for: [asset])[.oldTelevision])
+        XCTAssertEqual(plan.parameters["durationSeconds"]?.numberValue, 4)
+        XCTAssertEqual(plan.parameters["flickerFloor"], .number(0.82))
         let channels = try OldTelevisionStandaloneEmitter().channels(plan: plan, media: [.primary: asset])
         XCTAssertEqual(channels.opacity.amount.count, 3)
         XCTAssertEqual(channels.opacity.amount.map(\.value), ["1", "0.82", "1"])
@@ -372,6 +379,32 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
         let card = try XCTUnwrap(try catalog().card(id: "look.crt.old_television.v1"))
         XCTAssertTrue(card.riskGates.allSatisfy { $0.level == .low && $0.decision == .allowedAutomatically && $0.basis.contains("full→0.82→full") })
         XCTAssertTrue(card.safetyGates.allSatisfy { $0.basis.contains("repeated or stronger flicker is refused") })
+    }
+
+    func testAdmissionRefusesAConstructionThatChangesDirectorLockedDuration() throws {
+        let asset = still("duration", digest: "d")
+        let locked = EditorialStructureLock.establish(orderedMedia: [asset], clipDurationFrames: [90], frameRate: 30)
+        let set = try generator().generate(
+            lock: locked,
+            media: [.primary: asset],
+            intent: intent("old television texture", intensity: .bold),
+            basePlans: try basePlans(for: [asset])
+        )
+        let crt = try XCTUnwrap(set.options.first { $0.techniqueCardIDs == ["look.crt.old_television.v1"] })
+        XCTAssertThrowsError(
+            try TreatmentAdmission(
+                lock: locked,
+                catalog: try catalog(),
+                admittedCapabilities: capabilities,
+                registry: try registry(),
+                treatmentContractValidator: try TreatmentPlanContractValidator.discover()
+            ).admit(crt, currentStructure: locked, media: [.primary: asset], impactEvidence: [])
+        ) { error in
+            guard case .effectPlanRejected(let detail) = error as? TreatmentAdmissionError else {
+                return XCTFail("wrong error: \(error)")
+            }
+            XCTAssertTrue(detail.contains("director locked 90 frames"), detail)
+        }
     }
 
     func testThreeSafeConcreteOptionsRemainWhenCRTIsRemoved() throws {

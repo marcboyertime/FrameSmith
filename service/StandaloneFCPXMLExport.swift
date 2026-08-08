@@ -14,6 +14,7 @@ public enum StandaloneExportError: Error, LocalizedError, Equatable {
     case wrongMediaKind(String)
     case sourceDurationExceeded
     case registryUnavailable
+    case admittedArtifactMismatch(String)
 
     public var errorDescription: String? {
         switch self {
@@ -30,6 +31,7 @@ public enum StandaloneExportError: Error, LocalizedError, Equatable {
         case .wrongMediaKind(let reason): return reason
         case .sourceDurationExceeded: return "The requested frame-quantized duration exceeds the admitted movie duration"
         case .registryUnavailable: return "Standalone export requires a validated effect registry"
+        case .admittedArtifactMismatch(let detail): return "The admitted treatment artifact no longer matches export: \(detail)"
         }
     }
 }
@@ -640,5 +642,22 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         `provenance.json` records the plan, the media digests, and the contracts
         this export required.
         """
+    }
+
+    /// Export boundary for editorial treatments. The emitter is allowed to
+    /// build XML only after it proves its current construction is byte-for-byte
+    /// equivalent to the admitted channel snapshot.
+    public func export(
+        admitted execution: AdmittedTreatmentExecution,
+        mediaEvidence: AdmittedLocalMediaEvidence,
+        installedFinalCut: FinalCutVersionIdentity? = InstalledFinalCutVersionReader().read(),
+        generatedAt: Date = Date()
+    ) throws -> Package {
+        guard execution.structure.fingerprint == execution.admittedAtFingerprint else { throw StandaloneExportError.admittedArtifactMismatch("structure fingerprint drifted") }
+        guard let emitter = catalog.emitter(for: execution.treatment.effectPlan.effectID) else { throw StandaloneExportError.noEmitter(execution.treatment.effectPlan.effectID, reason: Self.missingEmitterReason(for: execution.treatment.effectPlan.effectID)) }
+        let current = try emitter.channels(plan: execution.treatment.effectPlan, media: execution.media)
+        guard execution.channels.matches(current) else { throw StandaloneExportError.admittedArtifactMismatch("channel digest \(AdmittedChannelSnapshot(channels: current).digest) does not match \(execution.channels.digest)") }
+        guard execution.registryEffectID == execution.treatment.effectPlan.effectID.rawValue else { throw StandaloneExportError.admittedArtifactMismatch("registry effect identity drifted") }
+        return try export(plan: execution.treatment.effectPlan, media: execution.media, mediaEvidence: mediaEvidence, installedFinalCut: installedFinalCut, generatedAt: generatedAt)
     }
 }

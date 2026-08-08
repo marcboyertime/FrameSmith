@@ -363,6 +363,22 @@ public struct TreatmentAdmission: Sendable {
             guard let emitter = execution.catalog.emitter(for: treatment.effectPlan.effectID) else { throw TreatmentAdmissionError.effectPlanRejected("no emitter registered") }
             channels = try emitter.channels(plan: treatment.effectPlan, media: media)
         } catch { throw TreatmentAdmissionError.effectPlanRejected(error.localizedDescription) }
+        // A treatment construction may not quietly choose a different project
+        // length from the director's lock. Emitters expose duration as seconds,
+        // so accept it only when it resolves to the exact locked frame count at
+        // the lock's declared rate (and is itself frame-aligned).
+        let emittedFrameValue = channels.durationSeconds * Double(lock.frameRate)
+        guard emittedFrameValue.isFinite else {
+            throw TreatmentAdmissionError.effectPlanRejected("construction duration is not finite")
+        }
+        let emittedFrames = Int(emittedFrameValue.rounded())
+        let lockedFrames = lock.clips.reduce(0) { $0 + $1.durationFrames }
+        guard abs(emittedFrameValue - Double(emittedFrames)) < 1e-9,
+              emittedFrames == lockedFrames else {
+            throw TreatmentAdmissionError.effectPlanRejected(
+                "construction duration \(channels.durationSeconds)s resolves to \(emittedFrameValue) frames, but the director locked \(lockedFrames) frames at \(lock.frameRate) fps"
+            )
+        }
         if cardSnapshots.contains(where: { $0.card.id == "look.crt.old_television.v1" }), !isBoundedCRTBase(channels) {
             throw TreatmentAdmissionError.safetyBlocked("CRT automatic admission is limited to the measured 4s full→0.82→full base dip; repeated or stronger flicker requires remeasurement")
         }
@@ -420,6 +436,37 @@ public struct AdmittedChannelSnapshot: Codable, Equatable, Sendable {
     }
     private struct SnapshotBody: Codable { let transform: Transform; let opacity: Opacity; let transition: Transition?; let overlay: Overlay?; let saturation: Double?; let durationSeconds: Double; let origin: Origin; let frameWidth: Int; let frameHeight: Int }
     public func matches(_ channels: NativeFCPXMLEffectChannels) -> Bool { self == AdmittedChannelSnapshot(channels: channels) }
+
+    /// Rehydrates the admitted construction without asking an emitter to make a
+    /// second, potentially different interpretation of the treatment. Preview
+    /// and comparison use this exact representation; export separately checks
+    /// that its emitter still produces it before it writes anything.
+    public func materializedChannels() -> NativeFCPXMLEffectChannels {
+        func time(_ value: Time) -> NativeFCPXMLTime {
+            NativeFCPXMLTime(numerator: value.numerator, timescale: value.timescale)
+        }
+        func keyframe(_ value: Keyframe) -> NativeFCPXMLKeyframe {
+            NativeFCPXMLKeyframe(time: time(value.time), value: value.value, curve: value.curve, interp: value.interp)
+        }
+        let transform = NativeFCPXMLTransformChannel(
+            positionX: transform.positionX.map(keyframe), positionY: transform.positionY.map(keyframe),
+            scale: transform.scale.map(keyframe), rotation: transform.rotation.map(keyframe),
+            anchor: transform.anchor.map { ($0.x, $0.y) }, staticPosition: transform.staticPosition.map { ($0.x, $0.y) }
+        )
+        let opacity = NativeFCPXMLOpacityChannel(
+            amount: opacity.amount.map(keyframe), staticAmount: opacity.staticAmount,
+            mode: opacity.blendAttribute.map(NativeFCPXMLBlendMode.captured)
+        )
+        let rebuiltTransition = transition.map {
+            NativeFCPXMLTransitionDescriptor(cutFrame: $0.cutFrame, durationFrames: $0.durationFrames, outgoingDurationFrames: $0.outgoingDurationFrames, incomingDurationFrames: $0.incomingDurationFrames)
+        }
+        let rebuiltOverlay = overlay.map {
+            NativeFCPXMLOverlayDescriptor(startFrameWithinParent: $0.startFrameWithinParent, durationFrames: $0.durationFrames, opacity: $0.opacity, blendMode: $0.blendAttribute.map(NativeFCPXMLBlendMode.captured))
+        }
+        let rebuiltOrigin: NativeFCPXMLTimingOrigin
+        switch origin { case .still: rebuiltOrigin = .still; case .movie(let startSeconds): rebuiltOrigin = .movie(startSeconds: startSeconds) }
+        return NativeFCPXMLEffectChannels(transform: transform, opacity: opacity, saturation: saturation, durationSeconds: durationSeconds, origin: rebuiltOrigin, frameWidth: frameWidth, frameHeight: frameHeight, transition: rebuiltTransition, overlay: rebuiltOverlay)
+    }
 }
 
 public struct AdmittedTreatmentExecution: Sendable, Equatable {

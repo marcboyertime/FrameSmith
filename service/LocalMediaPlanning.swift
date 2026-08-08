@@ -169,4 +169,32 @@ public struct LocalMediaPlannerSession {
             standaloneExportDecision: standaloneDecision
         )
     }
+
+    /// Adopts an already admitted, exact effect plan. This intentionally does
+    /// not parse a request or call the deterministic planner, which would
+    /// silently replace a director-selected treatment with a default one.
+    public func adopt(
+        exactPlan: EffectPlan,
+        request: String,
+        primary: LocalMediaAsset?, outgoing: LocalMediaAsset?, incoming: LocalMediaAsset?, target: Target?
+    ) throws -> LocalMediaPlanningResult {
+        let selection = try LocalMediaSelection(effectID: exactPlan.effectID, primary: primary, outgoing: outgoing, incoming: incoming)
+        guard selection.token == exactPlan.selectionToken else {
+            throw PlannerError.invalidSelection("The exact treatment plan no longer matches the admitted local media")
+        }
+        guard exactPlan.normalizedPoint == target else {
+            throw PlannerError.invalidSelection("The exact treatment target no longer matches the director-confirmed target")
+        }
+        try ValidatedPlanExecution(registry: registry).validate(plan: exactPlan, media: Dictionary(uniqueKeysWithValues: selection.slots.map { ($0.role, $0.media) }))
+        let encoded = try JSONEncoder().encode(exactPlan)
+        try schemaValidator?.validate(encoded)
+        let admission = try EffectPlanAdmission.decode(encoded)
+        let assets = selection.slots.map(\.media)
+        let standalone: CapabilityDecision
+        let catalog = StandaloneEmitterCatalog()
+        if let reason = catalog.absenceReason(for: exactPlan.effectID) { standalone = .init(capability: .standaloneFCPXMLExport, allowed: false, reason: reason) }
+        else if let evidence = AdmittedLocalMediaEvidence(admittedAssets: assets) { standalone = capabilityGate.decision(for: admission, capability: .standaloneFCPXMLExport, mediaEvidence: evidence) }
+        else { standalone = .init(capability: .standaloneFCPXMLExport, allowed: false, reason: "No admitted local media to generate a project from") }
+        return LocalMediaPlanningResult(plan: exactPlan, admission: admission, selection: selection, inputs: LocalMediaPlanInputs(request: request, target: target, primary: primary, outgoing: outgoing, incoming: incoming), localPreviewDecision: capabilityGate.decision(for: admission, capability: .localOnlyPreview), inertPackageDecision: capabilityGate.decision(for: admission, capability: .inertPayloadNeutralPackage), fcpxmlExportDecision: capabilityGate.decision(for: admission, capability: .fcpxmlExport), standaloneExportDecision: standalone, baselineParameters: exactPlan.parameters)
+    }
 }
