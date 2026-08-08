@@ -211,9 +211,21 @@ now 21 fixtures.
 ### Vision returns a hard silhouette, not a hair matte
 
 This is the finding that decides the architecture, and it is visual rather than
-numeric. The matte for a close portrait with visible hair detail, and the matte
-for a furred animal, are both **smooth hard-edged cut-outs**. Neither contains a
-single strand.
+numeric.
+
+**Correction to a first reading.** This was initially argued from two images,
+the portrait and the animal. The animal is a smooth-bodied creature — a squid —
+so a hard silhouette is the *correct* matte for it and it evidences nothing
+about fine structure. That half of the claim was withdrawn.
+
+The portrait carries the finding on its own, and carries it further. The source
+has abundant curly hair with many flyaway strands. Vision's matte cuts through
+it in a **smooth arc**: not one strand survives. Worse, the composite shows an
+**olive-green fringe** along the hair boundary — background colour pulled inside
+the matte.
+
+That fringe is the `foreground halo` veto, visible in still analysis before
+anything has moved.
 
 `VNGenerateForegroundInstanceMaskRequest` is a *subject selection* API. It
 answers "which pixels are the subject" well. It does not produce the
