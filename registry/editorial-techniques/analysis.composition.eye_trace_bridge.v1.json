@@ -5,17 +5,65 @@
   "domain": "analysis",
   "status": "reference_only",
   "summary": "Compare the focal position at the end of one shot and the start of the next to choose a transition that respects where the eye already is.",
-  "creativeJobs": ["choose a motivated transition", "decide whether a cut needs help at all"],
-  "intentTags": ["motivated", "invisible", "analysis"],
-  "mediaPrerequisites": ["two adjacent clips", "a focal estimate for the outgoing and incoming frames"],
-  "lockedStructureEffect": "none",
-  "construction": {"preferredBackends": ["none"], "requiredCapabilities": ["focal_analysis"], "previewFidelity": "none"},
-  "parameters": [],
-  "qualityChecks": ["focal estimate matches where a viewer actually looks", "the recommendation changes when the focal points are near versus far apart"],
-  "failureModes": ["treating a saliency estimate as ground truth about attention", "recommending a transition where a plain cut is stronger"],
-  "editability": ["none"],
-  "provenance": [
-    {"sourceId": "APPLE-FCP-014", "claim": "Final Cut provides transitions intended to smooth otherwise jarring cuts", "sourceRole": "technical_authority", "confidence": "official_documentation"}
+  "creativeJobs": [
+    "choose a motivated transition",
+    "decide whether a cut needs help at all"
   ],
-  "validation": {"implemented": false, "visuallyVerified": false, "notes": "Requires focal analysis FrameSmith does not have. Listed because it is the analysis that should PRECEDE offering a transition, and offering transitions without it is guessing."}
+  "intentTags": [
+    "motivated",
+    "invisible",
+    "analysis"
+  ],
+  "mediaPrerequisites": [
+    "two adjacent clips",
+    "a focal estimate for the outgoing and incoming frames"
+  ],
+  "prerequisiteRules": [{"kind":"required_role","role":"outgoing"},{"kind":"required_role","role":"incoming"},{"kind":"role_count","count":2}], "refusalRules": [],
+  "lockedStructureEffect": "none",
+  "construction": {
+    "preferredBackends": [
+      "none"
+    ],
+    "requiredCapabilities": [
+      "focal_analysis"
+    ],
+    "previewFidelity": "none"
+  },
+  "parameters": [],
+  "qualityChecks": [
+    "focal estimate matches where a viewer actually looks",
+    "the recommendation changes when the focal points are near versus far apart"
+  ],
+  "failureModes": [
+    "treating a saliency estimate as ground truth about attention",
+    "recommending a transition where a plain cut is stronger"
+  ],
+  "riskGates": [{"category":"editorial_integrity","level":"low","decision":"allowed_automatically","basis":"Reference-only analysis cannot alter the edit."}], "safetyGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"Reference-only analysis is not executable."}],
+  "editability": [
+    "none"
+  ],
+  "provenance": [
+    {
+      "sourceId": "APPLE-FCP-014",
+      "claim": "Final Cut provides transitions intended to smooth otherwise jarring cuts",
+      "sourceRole": "technical_authority",
+      "confidence": "official_documentation"
+    }
+  ],
+  "validation": {
+    "implemented": false,
+    "visuallyVerified": false,
+    "notes": "Requires focal analysis FrameSmith does not have. Listed because it is the analysis that should PRECEDE offering a transition, and offering transitions without it is guessing."
+  },
+  "expectedCost": {
+    "latency": "instant",
+    "monetary": "free",
+    "privacy": "local_only"
+  },
+  "refusalConditions": [
+    "Do not apply when the stated prerequisite is not met."
+  ],
+  "safety": [
+    "Review the result on representative media before use."
+  ]
 }

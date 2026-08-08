@@ -5,35 +5,92 @@
   "domain": "look",
   "status": "reference_only",
   "summary": "A small saturation and contrast move using Final Cut's native Color Adjustments effect.",
-  "creativeJobs": ["warm or cool a moment", "unify shots", "lift a flat source"],
-  "intentTags": ["restrained", "cinematic", "atmosphere"],
-  "mediaPrerequisites": ["any admitted clip"],
-  "refusalConditions": ["any request implying a calibrated or perceptual colour target"],
+  "creativeJobs": [
+    "warm or cool a moment",
+    "unify shots",
+    "lift a flat source"
+  ],
+  "intentTags": [
+    "restrained",
+    "cinematic",
+    "atmosphere"
+  ],
+  "mediaPrerequisites": [
+    "any admitted clip"
+  ],
+  "refusalConditions": [
+    "any request implying a calibrated or perceptual colour target"
+  ],
+  "prerequisiteRules": [{"kind":"required_role","role":"primary"}], "refusalRules": [],
   "lockedStructureEffect": "none",
   "construction": {
-    "preferredBackends": ["native_fcpxml"],
-    "requiredCapabilities": ["asset_admission", "native_color_adjustment"],
+    "preferredBackends": [
+      "native_fcpxml"
+    ],
+    "requiredCapabilities": [
+      "asset_admission",
+      "native_color_adjustment"
+    ],
     "requiredEffectID": "motion.living_still",
     "previewFidelity": "indicative"
   },
   "parameters": [
-    {"key": "colorEnrichment", "type": "float", "range": [0, 0.5], "liveness": "unsupported"}
+    {
+      "key": "colorEnrichment",
+      "type": "float",
+      "range": [
+        0,
+        0.5
+      ],
+      "liveness": "unsupported",
+      "default": 0,
+      "unit": "normalized value"
+    }
   ],
-  "qualityChecks": ["skin tones stay plausible", "no channel clipping introduced", "the move survives a round trip through Final Cut"],
-  "failureModes": ["claiming a magnitude that has never been measured", "a change invisible during playback and therefore unverifiable by eye"],
-  "editability": ["final_cut_native"],
-  "expectedCost": {"latency": "instant", "monetary": "free", "privacy": "local_only"},
+  "qualityChecks": [
+    "skin tones stay plausible",
+    "no channel clipping introduced",
+    "the move survives a round trip through Final Cut"
+  ],
+  "failureModes": [
+    "claiming a magnitude that has never been measured",
+    "a change invisible during playback and therefore unverifiable by eye"
+  ],
+  "riskGates": [{"category":"visual_quality","level":"moderate","decision":"requires_user_approval","basis":"Colour construction exists but its perceptual mapping is unmeasured."}], "safetyGates": [{"category":"visual_quality","level":"moderate","decision":"requires_user_approval","basis":"Calibrated targets are outside the admitted evidence."}],
+  "editability": [
+    "final_cut_native"
+  ],
+  "expectedCost": {
+    "latency": "instant",
+    "monetary": "free",
+    "privacy": "local_only"
+  },
   "provenance": [
-    {"sourceId": "APPLE-FCP-021", "claim": "Final Cut provides a native Color Adjustments effect", "sourceRole": "technical_authority", "confidence": "official_documentation"},
-    {"sourceId": "docs/LIVING_STILL_GROUND_TRUTH.md", "claim": "the admitted colour construction is FxPlug:7E2022A5 carrying 18 params and three opaque payloads", "confidence": "direct_evidence"}
+    {
+      "sourceId": "APPLE-FCP-021",
+      "claim": "Final Cut provides a native Color Adjustments effect",
+      "sourceRole": "technical_authority",
+      "confidence": "official_documentation"
+    },
+    {
+      "sourceId": "docs/LIVING_STILL_GROUND_TRUTH.md",
+      "claim": "the admitted colour construction is FxPlug:7E2022A5 carrying 18 params and three opaque payloads",
+      "confidence": "direct_evidence"
+    }
   ],
   "conflicts": [
-    {"description": "The construction is admitted and round-trips, but no observed mapping connects a creative intensity to the 0-100 Saturation param. The probes reused a captured value of 25.", "resolution": "Card stays reference_only until a mapping is measured. Preview is indicative: direction only, never magnitude."}
+    {
+      "description": "The construction is admitted and round-trips, but no observed mapping connects a creative intensity to the 0-100 Saturation param. The probes reused a captured value of 25.",
+      "resolution": "Card stays reference_only until a mapping is measured. Preview is indicative: direction only, never magnitude."
+    }
   ],
   "validation": {
     "implemented": false,
     "visuallyVerified": false,
     "notes": "The construction is admitted; the CONTROL is not. colorEnrichment is unsupported/read-only per docs/PARAMETER_LIVENESS.md, and a colour change at Saturation 25 was invisible during full-motion playback until A/B toggled."
   },
-  "notes": "This card is the honest record of a gap: FrameSmith can emit a colour effect it cannot yet steer."
+  "notes": "This card is the honest record of a gap: FrameSmith can emit a colour effect it cannot yet steer.",
+  "safety": [
+    "Review the result on representative media before use."
+  ]
 }

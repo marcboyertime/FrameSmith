@@ -24,6 +24,9 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
             knownSourceIDs: EditorialKnowledgeCatalog.sourceIDs(fromCSV: sourcesCSV)
         )
     }
+    private func registry() throws -> EffectRegistry {
+        try EffectRegistry.load(from: projectRoot().appendingPathComponent("registry/effects"))
+    }
 
     // MARK: - Loading
 
@@ -77,7 +80,7 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
 
         let liar = """
         {"id":"motion.fake.claim.v1","version":1,"name":"Fake","domain":"motion","status":"validated",
-         "summary":"s","creativeJobs":["j"],"intentTags":["t"],"mediaPrerequisites":[],
+         "summary":"s","creativeJobs":["j"],"intentTags":["t"],"mediaPrerequisites":["a clip"],"refusalConditions":["r"],"prerequisiteRules":[{"kind":"role_count","count":1}],"refusalRules":[],"safety":["s"],"riskGates":[{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"b"}],"safetyGates":[{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"b"}],
          "lockedStructureEffect":"none",
          "construction":{"preferredBackends":["native_fcpxml"],"requiredCapabilities":[],"previewFidelity":"shared_construction"},
          "parameters":[],"qualityChecks":["q"],"failureModes":["f"],"editability":["final_cut_native"],
@@ -114,7 +117,7 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
 
         let fabricated = """
         {"id":"motion.fake.source.v1","version":1,"name":"Fake","domain":"motion","status":"reference_only",
-         "summary":"s","creativeJobs":["j"],"intentTags":["t"],"mediaPrerequisites":[],
+         "summary":"s","creativeJobs":["j"],"intentTags":["t"],"mediaPrerequisites":["a clip"],"refusalConditions":["r"],"prerequisiteRules":[{"kind":"role_count","count":1}],"refusalRules":[],"safety":["s"],"riskGates":[{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"b"}],"safetyGates":[{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"b"}],
          "lockedStructureEffect":"none",
          "construction":{"preferredBackends":["none"],"requiredCapabilities":[],"previewFidelity":"none"},
          "parameters":[],"qualityChecks":["q"],"failureModes":["f"],"editability":["none"],
@@ -230,13 +233,14 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         }
     }
 
-    /// The old television emitter was admitted for its **base treatment only**.
-    /// Its connected overlay was not exercised by that pass, and the card has
-    /// to keep saying so rather than letting the promotion imply full coverage.
-    func testOldTelevisionRecordsThatItsOverlayWasNotExercised() throws {
+    /// The executable CRT card has been narrowed to the proven base construction;
+    /// an overlay may not be smuggled back in through card wording.
+    func testOldTelevisionCardDoesNotClaimAnOverlay() throws {
         let card = try XCTUnwrap(catalog().card(id: "look.crt.old_television.v1"))
         let notes = card.validation.notes ?? ""
-        XCTAssertTrue(notes.contains("overlay was NOT exercised"), "the untested overlay must stay visible: \(notes)")
+        XCTAssertFalse(card.parameters.contains { $0.key.lowercased().contains("overlay") })
+        XCTAssertFalse(card.mediaPrerequisites.joined(separator: " ").lowercased().contains("overlay"))
+        XCTAssertTrue(notes.contains("No overlay is part of this card"), notes)
     }
 
     /// Colour is admitted as a construction but has no measured mapping, so the
@@ -247,5 +251,25 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         XCTAssertEqual(card.construction.previewFidelity, .indicative)
         XCTAssertFalse(card.conflicts?.isEmpty ?? true, "the admitted-construction / unmeasured-mapping conflict should be preserved")
         XCTAssertTrue(card.parameters.allSatisfy { $0.liveness != .live })
+    }
+
+    func testValidatedCardParametersAreRegistryBackedAndPresentationTruthful() throws {
+        let effectRegistry = try registry()
+        for card in try catalog().cards where card.status == .validated {
+            let effectID = try XCTUnwrap(card.construction.requiredEffectID.flatMap(EffectID.init(identifier:)), card.id)
+            let definition = try effectRegistry.definition(for: effectID)
+            for cardParameter in card.parameters {
+                let registryParameter = try XCTUnwrap(definition.parameters.first { $0.name == cardParameter.key }, "\(card.id) declares unknown \(cardParameter.key)")
+                let exposure = registryParameter.presentation?.exposure ?? .unsupportedReadOnly
+                switch cardParameter.liveness {
+                case .live: XCTAssertTrue(exposure.isEditable, "\(card.id).\(cardParameter.key) is not registry-editable")
+                case .invariant: XCTAssertEqual(exposure, .invariantReadOnly, "\(card.id).\(cardParameter.key) is not an invariant")
+                case .unsupported, .unavailable: XCTAssertFalse(exposure.isEditable, "\(card.id).\(cardParameter.key) is presented as editable")
+                case .none: XCTFail("\(card.id).\(cardParameter.key) has no liveness")
+                }
+            }
+        }
+        let crt = try XCTUnwrap(try catalog().card(id: "look.crt.old_television.v1"))
+        XCTAssertTrue(crt.parameters.isEmpty, "the 0.82 CRT dip is fixed emitter behavior, not a live card control")
     }
 }

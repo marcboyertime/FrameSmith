@@ -5,21 +5,90 @@
   "domain": "audio",
   "status": "reference_only",
   "summary": "Level narration against music and hold an integrated loudness target so speech stays intelligible.",
-  "creativeJobs": ["keep narration clear under music", "deliver a consistent programme level"],
-  "intentTags": ["finishing", "clarity"],
-  "mediaPrerequisites": ["an audio track with speech"],
+  "creativeJobs": [
+    "keep narration clear under music",
+    "deliver a consistent programme level"
+  ],
+  "intentTags": [
+    "finishing",
+    "clarity"
+  ],
+  "mediaPrerequisites": [
+    "an audio track with speech"
+  ],
+  "prerequisiteRules": [{"kind":"audio_presence","hasAudio":true}], "refusalRules": [],
   "lockedStructureEffect": "none",
-  "construction": {"preferredBackends": ["none"], "requiredCapabilities": ["audio_analysis", "audio_processing"], "previewFidelity": "none"},
+  "construction": {
+    "preferredBackends": [
+      "none"
+    ],
+    "requiredCapabilities": [
+      "audio_analysis",
+      "audio_processing"
+    ],
+    "previewFidelity": "none"
+  },
   "parameters": [
-    {"key": "targetLUFS", "type": "float", "unit": "LUFS", "range": [-31, -16], "liveness": "unavailable"}
+    {
+      "key": "targetLUFS",
+      "type": "float",
+      "unit": "LUFS",
+      "range": [
+        -31,
+        -16
+      ],
+      "liveness": "unavailable",
+      "default": -31
+    }
   ],
-  "qualityChecks": ["integrated loudness within tolerance of target", "speech remains intelligible against the music bed", "no clipping introduced", "A/B comparisons are loudness-matched or the louder one always wins"],
-  "failureModes": ["comparing treatments at different levels, which makes the louder one sound better regardless of quality", "ducking that pumps audibly"],
-  "editability": ["none"],
+  "qualityChecks": [
+    "integrated loudness within tolerance of target",
+    "speech remains intelligible against the music bed",
+    "no clipping introduced",
+    "A/B comparisons are loudness-matched or the louder one always wins"
+  ],
+  "failureModes": [
+    "comparing treatments at different levels, which makes the louder one sound better regardless of quality",
+    "ducking that pumps audibly"
+  ],
+  "riskGates": [{"category":"accessibility","level":"low","decision":"allowed_automatically","basis":"Reference-only audio guidance cannot process audio."}], "safetyGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"Reference-only guidance is not executable."}],
+  "editability": [
+    "none"
+  ],
   "provenance": [
-    {"sourceId": "EBU-001", "claim": "programme loudness should be normalised to a defined target measured over the programme", "sourceRole": "technical_standard", "confidence": "official_documentation"},
-    {"sourceId": "ITU-001", "claim": "loudness is measured with a defined gated algorithm rather than by peak level", "sourceRole": "technical_standard", "confidence": "official_documentation"},
-    {"sourceId": "APPLE-FCP-030", "claim": "Final Cut provides audio enhancement operations", "sourceRole": "technical_authority", "confidence": "official_documentation"}
+    {
+      "sourceId": "EBU-001",
+      "claim": "programme loudness should be normalised to a defined target measured over the programme",
+      "sourceRole": "technical_standard",
+      "confidence": "official_documentation"
+    },
+    {
+      "sourceId": "ITU-001",
+      "claim": "loudness is measured with a defined gated algorithm rather than by peak level",
+      "sourceRole": "technical_standard",
+      "confidence": "official_documentation"
+    },
+    {
+      "sourceId": "APPLE-FCP-030",
+      "claim": "Final Cut provides audio enhancement operations",
+      "sourceRole": "technical_authority",
+      "confidence": "official_documentation"
+    }
   ],
-  "validation": {"implemented": false, "visuallyVerified": false, "notes": "FrameSmith has no audio path at all. Recorded now because the loudness-matching rule already binds any future A/B comparison."}
+  "validation": {
+    "implemented": false,
+    "visuallyVerified": false,
+    "notes": "FrameSmith has no audio path at all. Recorded now because the loudness-matching rule already binds any future A/B comparison."
+  },
+  "expectedCost": {
+    "latency": "instant",
+    "monetary": "free",
+    "privacy": "local_only"
+  },
+  "refusalConditions": [
+    "Do not apply when the stated prerequisite is not met."
+  ],
+  "safety": [
+    "Review the result on representative media before use."
+  ]
 }

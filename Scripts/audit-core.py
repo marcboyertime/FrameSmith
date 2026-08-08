@@ -23,6 +23,9 @@ for path in [root / "service/OverlayAdapter.swift", root / "Sources/FCPCommandCo
 # implemented and visually reviewed.
 card_schema = json.loads((root / "schemas/technique-card.schema.json").read_text())
 required = set(card_schema["required"])
+card_properties = set(card_schema["properties"])
+rule_properties = set(card_schema["definitions"]["rule"]["properties"])
+risk_properties = set(card_schema["definitions"]["riskGate"]["properties"])
 cards = sorted((root / "registry/editorial-techniques").glob("*.json"))
 seen_ids = set()
 statuses = {}
@@ -31,6 +34,9 @@ for path in cards:
     missing = required - set(card)
     if missing:
         raise SystemExit(f"{path.name} is missing required technique-card fields: {sorted(missing)}")
+    unknown = set(card) - card_properties
+    if unknown:
+        raise SystemExit(f"{path.name} has unknown technique-card fields: {sorted(unknown)}")
     if card["id"] in seen_ids:
         raise SystemExit(f"duplicate technique card id: {card['id']}")
     seen_ids.add(card["id"])
@@ -44,6 +50,33 @@ for path in cards:
         if not entry.get("claim"):
             raise SystemExit(f"{card['id']} cites {entry.get('sourceId')} without a specific claim")
     validation = card["validation"]
+    for required_field in ("refusalConditions", "safety", "expectedCost"):
+        if not card.get(required_field):
+            raise SystemExit(f"{card['id']} has no {required_field}")
+    cost = card["expectedCost"]
+    if set(cost) != {"latency", "monetary", "privacy"}:
+        raise SystemExit(f"{card['id']} has incomplete expectedCost")
+    for parameter in card["parameters"]:
+        if not parameter.get("key") or "default" not in parameter or not parameter.get("liveness"):
+            raise SystemExit(f"{card['id']} has incomplete parameter metadata")
+        if parameter["type"] in {"float", "int", "duration"} and (not parameter.get("unit") or len(parameter.get("range", [])) != 2):
+            raise SystemExit(f"{card['id']} parameter {parameter['key']} has no unit or bounds")
+    for rule_name in ("prerequisiteRules", "refusalRules"):
+        for rule in card[rule_name]:
+            if set(rule) - rule_properties or "kind" not in rule:
+                raise SystemExit(f"{card['id']} has malformed typed {rule_name}")
+            kind = rule["kind"]
+            needed = {"media_kind": "mediaKind", "required_role": "role", "role_count": "count", "audio_presence": "hasAudio"}
+            if kind in needed and needed[kind] not in rule:
+                raise SystemExit(f"{card['id']} typed rule {kind} lacks {needed[kind]}")
+            if kind == "min_dimensions" and not (rule.get("minWidth", 0) > 0 and rule.get("minHeight", 0) > 0):
+                raise SystemExit(f"{card['id']} min_dimensions rule is incomplete")
+    for gate_name in ("riskGates", "safetyGates"):
+        if not card[gate_name]:
+            raise SystemExit(f"{card['id']} has no {gate_name}")
+        for gate in card[gate_name]:
+            if set(gate) != {"category", "level", "decision", "basis"} or set(gate) - risk_properties or not gate["basis"]:
+                raise SystemExit(f"{card['id']} has malformed {gate_name}")
     if card["status"] == "validated" and not (validation.get("implemented") and validation.get("visuallyVerified")):
         raise SystemExit(
             f"{card['id']} claims 'validated' without implementation and visual review; "
@@ -51,5 +84,22 @@ for path in cards:
         )
     statuses[card["status"]] = statuses.get(card["status"], 0) + 1
 
+# TreatmentPlan's contract is a repository-owned, strict nested contract. The
+# Swift admission validator checks encoded instances; this audit verifies that
+# the checked-in contract itself still exposes every encoded root and effect
+# field, with closed named object shapes. It intentionally does not pretend to
+# be a general JSON Schema implementation.
+treatment_schema = json.loads((root / "schemas/treatment-plan.schema.json").read_text())
+if treatment_schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema" or treatment_schema.get("x-framesmith-contract-version") != "1":
+    raise SystemExit("treatment-plan contract id/version is invalid")
+for name in ("intent", "effectPlan", "selectionToken", "target", "sourceIdentity", "editableProperty", "generatedAsset", "cost"):
+    node = treatment_schema.get("$defs", {}).get(name, {})
+    if node.get("type") != "object" or node.get("additionalProperties") is not False or not node.get("required") or not node.get("properties"):
+        raise SystemExit(f"treatment-plan contract does not strictly close {name}")
+root_required = set(treatment_schema.get("required", []))
+root_properties = set(treatment_schema.get("properties", []))
+if root_required != root_properties:
+    raise SystemExit("treatment-plan contract root required/properties drifted")
+
 summary = " ".join(f"{key}={value}" for key, value in sorted(statuses.items()))
-print(f"core audit: registry={len(effects)} schema=json-ok forbidden-patterns=0 cards={len(cards)} ({summary})")
+print(f"core audit: registry={len(effects)} schema=json-ok strict-cards=valid treatment-contract=strict forbidden-patterns=0 cards={len(cards)} ({summary})")

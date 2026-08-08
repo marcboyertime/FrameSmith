@@ -5,11 +5,25 @@
   "domain": "process",
   "status": "reference_only",
   "summary": "Review a treatment across deliberately varied media before calling it good.",
-  "creativeJobs": ["validate a technique before shipping it"],
-  "intentTags": ["process", "verification"],
-  "mediaPrerequisites": ["a portrait, a painting, a landscape with depth planes, architecture, and a difficult-edge subject"],
+  "creativeJobs": [
+    "validate a technique before shipping it"
+  ],
+  "intentTags": [
+    "process",
+    "verification"
+  ],
+  "mediaPrerequisites": [
+    "a portrait, a painting, a landscape with depth planes, architecture, and a difficult-edge subject"
+  ],
+  "prerequisiteRules": [{"kind":"role_count","count":1}], "refusalRules": [],
   "lockedStructureEffect": "none",
-  "construction": {"preferredBackends": ["none"], "requiredCapabilities": [], "previewFidelity": "none"},
+  "construction": {
+    "preferredBackends": [
+      "none"
+    ],
+    "requiredCapabilities": [],
+    "previewFidelity": "none"
+  },
   "parameters": [],
   "qualityChecks": [
     "compared against source and against the current baseline",
@@ -23,9 +37,31 @@
     "differences too small to see, which proves nothing about whether the control works",
     "declaring a pass from automated tests alone"
   ],
-  "editability": ["none"],
-  "provenance": [
-    {"sourceId": "docs/editorial-intelligence/QUALITY_RUBRIC.md", "claim": "visual and sonic gates require representative media review rather than automated tests alone", "confidence": "direct_evidence"}
+  "riskGates": [{"category":"visual_quality","level":"moderate","decision":"requires_user_approval","basis":"Representative review is a human process, not an emitter."}], "safetyGates": [{"category":"visual_quality","level":"moderate","decision":"requires_user_approval","basis":"No automatic perceptual evaluation exists."}],
+  "editability": [
+    "none"
   ],
-  "validation": {"implemented": false, "visuallyVerified": false, "notes": "Process card. Manual testing has already found two bugs the automated suite could not, which is the argument for it."}
+  "provenance": [
+    {
+      "sourceId": "docs/editorial-intelligence/QUALITY_RUBRIC.md",
+      "claim": "visual and sonic gates require representative media review rather than automated tests alone",
+      "confidence": "direct_evidence"
+    }
+  ],
+  "validation": {
+    "implemented": false,
+    "visuallyVerified": false,
+    "notes": "Process card. Manual testing has already found two bugs the automated suite could not, which is the argument for it."
+  },
+  "expectedCost": {
+    "latency": "instant",
+    "monetary": "free",
+    "privacy": "local_only"
+  },
+  "refusalConditions": [
+    "Do not apply when the stated prerequisite is not met."
+  ],
+  "safety": [
+    "Review the result on representative media before use."
+  ]
 }

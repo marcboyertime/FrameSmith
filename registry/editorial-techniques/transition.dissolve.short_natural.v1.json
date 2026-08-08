@@ -22,6 +22,7 @@
   "refusalConditions": [
     "insufficient handle on either side — the edit point must not move to make room"
   ],
+  "prerequisiteRules": [{"kind":"required_role","role":"outgoing"},{"kind":"required_role","role":"incoming"},{"kind":"role_count","count":2}], "refusalRules": [],
   "lockedStructureEffect": "none",
   "construction": {
     "preferredBackends": [
@@ -43,7 +44,8 @@
         2,
         120
       ],
-      "liveness": "live"
+      "liveness": "unsupported",
+      "default": 2
     }
   ],
   "qualityChecks": [
@@ -55,6 +57,7 @@
     "overlapping the clips, which is DTD-valid and silently re-flowed by Final Cut",
     "consuming handle the user needed elsewhere"
   ],
+  "riskGates": [{"category":"editorial_integrity","level":"moderate","decision":"requires_user_approval","basis":"Handle evidence is not represented by admitted local-media roles."}], "safetyGates": [{"category":"editorial_integrity","level":"moderate","decision":"requires_user_approval","basis":"The edit point must remain locked when handles are uncertain."}],
   "editability": [
     "final_cut_native"
   ],
@@ -82,5 +85,13 @@
     "verifiedOn": [
       "clip-a.mov and clip-b.mov colour bars, 8s each"
     ]
-  }
+  },
+  "expectedCost": {
+    "latency": "instant",
+    "monetary": "free",
+    "privacy": "local_only"
+  },
+  "safety": [
+    "Review the result on representative media before use."
+  ]
 }

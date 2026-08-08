@@ -54,12 +54,13 @@ final class EditorialStructureLockTests: XCTestCase {
         XCTAssertEqual(locked.fingerprint, lock().fingerprint)
     }
 
-    func testFingerprintIsStableAcrossEquivalentConstruction() {
-        // Clips supplied out of order still describe the same edit; the lock
-        // sorts by index so the fingerprint must not depend on argument order.
+    func testFingerprintPreservesSuppliedEditorialOrder() {
+        // Input order is a director decision. It must not be silently sorted
+        // into a superficially similar but different lock.
         let forward = lock()
         let reversed = EditorialStructureLock(clips: lock().clips.reversed())
-        XCTAssertEqual(forward.fingerprint, reversed.fingerprint)
+        XCTAssertNotEqual(forward.fingerprint, reversed.fingerprint)
+        XCTAssertTrue(reversed.violations(comparedTo: reversed).contains(.invalidClipIndices))
     }
 
     // MARK: - Every unauthorized structural change is refused
@@ -204,7 +205,7 @@ final class EditorialStructureLockTests: XCTestCase {
 
     func testAnAuthorizedDeltaPermitsOnlyItsOwnKindAndClip() {
         let authorized = lock(deltas: [
-            AuthorizedStructuralDelta(kind: .changeDuration, affectedClipIndices: [1], userRequest: "make the middle clip shorter")
+            AuthorizedStructuralDelta(kind: .changeDuration, affectedClipIndices: [1], userRequest: "make the middle clip shorter", beforeValue: "120", afterValue: "60")
         ])
         // The authorized change on the authorized clip passes.
         let trimmed = mutate(authorized) { clips in
@@ -239,6 +240,38 @@ final class EditorialStructureLockTests: XCTestCase {
             [LockedClipPlacement(sourceIdentity: self.identity("z", digest: "z"), index: 0, timelineStartFrame: 0, durationFrames: 90), clips[1], clips[2]]
         }
         XCTAssertTrue(authorized.violations(comparedTo: swapped).contains { if case .mediaSubstituted = $0 { return true }; return false })
+    }
+
+    func testExactAuthorizationRejectsAnyOtherValueAndCandidateCannotAddAuthorization() {
+        let authorized = lock(deltas: [AuthorizedStructuralDelta(kind: .changeDuration, affectedClipIndices: [1], userRequest: "shorten middle", beforeValue: "120", afterValue: "60")])
+        let otherDuration = mutate(authorized) { clips in [clips[0], LockedClipPlacement(sourceIdentity: clips[1].sourceIdentity, index: 1, timelineStartFrame: 90, durationFrames: 59), clips[2]] }
+        XCTAssertTrue(authorized.violations(comparedTo: otherDuration).contains { if case .durationChanged = $0 { return true }; return false })
+        let candidateAuthorization = EditorialStructureLock(clips: authorized.clips, authorizedDeltas: authorized.authorizedDeltas + [AuthorizedStructuralDelta(kind: .retime, affectedClipIndices: [0], userRequest: "forged", beforeValue: "1.0", afterValue: "2.0")])
+        XCTAssertTrue(authorized.violations(comparedTo: candidateAuthorization).contains(.authorizationMutated))
+    }
+
+    func testProtectedRegionRequiresComputedEvidenceAndRejectsOverTolerance() {
+        let protected = EditorialStructureLock(clips: lock().clips, protectedRegions: [ProtectedRegion(identifier: "face", x: 0.2, y: 0.2, width: 0.2, height: 0.2, maximumOccludedFraction: 0.1)])
+        XCTAssertTrue(protected.violations(comparedTo: protected).contains(.protectedRegionEvidenceMissing("face")))
+        XCTAssertTrue(protected.violations(comparedTo: protected, impactEvidence: [.init(identifier: "face", occludedFraction: 0.2)]).contains { if case .protectedRegionLost = $0 { return true }; return false })
+        XCTAssertTrue(protected.violations(comparedTo: protected, impactEvidence: [.init(identifier: "face", occludedFraction: 0.1)]).isEmpty)
+    }
+
+    func testRationalTimeOrderingIsExactAtInt64ExtremesAndRejectsZeroDenominatorDecode() throws {
+        XCTAssertTrue(RationalTime(Int64.max - 1, Int64.max) < RationalTime(Int64.max, Int64.max - 1))
+        XCTAssertTrue(RationalTime(Int64.min + 1, Int64.max - 1) < RationalTime(-1, 1))
+        XCTAssertEqual(RationalTime(2, 4), RationalTime(1, 2))
+        XCTAssertThrowsError(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":1,\"denominator\":0}".utf8)))
+    }
+
+    func testExactRationalAuthorizationAllowsOnlyTheNamedTimingValue() {
+        let original = lock()
+        let exact = AuthorizedStructuralDelta(kind: .changeDuration, affectedClipIndices: [1], userRequest: "exact rational trim", beforeValue: "120", afterValue: "60")
+        let authorized = EditorialStructureLock(clips: original.clips, authorizedDeltas: [exact])
+        let accepted = mutate(authorized) { clips in [clips[0], LockedClipPlacement(sourceIdentity: clips[1].sourceIdentity, index: 1, timelineStartFrame: 90, durationFrames: 60), clips[2]] }
+        XCTAssertTrue(authorized.violations(comparedTo: accepted).isEmpty)
+        let adjacent = mutate(authorized) { clips in [clips[0], LockedClipPlacement(sourceIdentity: clips[1].sourceIdentity, index: 1, timelineStartFrame: 90, durationFrames: 61), clips[2]] }
+        XCTAssertTrue(authorized.violations(comparedTo: adjacent).contains { if case .durationChanged = $0 { return true }; return false })
     }
 
     // MARK: - Fingerprints

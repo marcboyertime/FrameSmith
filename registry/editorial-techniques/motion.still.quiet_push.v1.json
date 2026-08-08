@@ -5,23 +5,96 @@
   "domain": "motion",
   "status": "validated",
   "summary": "A slow scale-up with a small lateral drift, held under the threshold where the move announces itself.",
-  "creativeJobs": ["give a still breath", "sustain a held beat", "invisible motion under narration"],
-  "intentTags": ["quiet", "restrained", "cinematic", "motivated", "contemplative"],
-  "mediaPrerequisites": ["a still image", "enough resolution that the end scale does not soften the frame"],
-  "refusalConditions": ["end scale would exceed the source resolution", "subject sits at the frame edge and would be cropped by the push"],
+  "creativeJobs": [
+    "give a still breath",
+    "sustain a held beat",
+    "invisible motion under narration"
+  ],
+  "intentTags": [
+    "quiet",
+    "restrained",
+    "cinematic",
+    "motivated",
+    "contemplative"
+  ],
+  "mediaPrerequisites": [
+    "a still image",
+    "enough resolution that the end scale does not soften the frame"
+  ],
+  "refusalConditions": [
+    "end scale would exceed the source resolution",
+    "subject sits at the frame edge and would be cropped by the push"
+  ],
+  "prerequisiteRules": [{"kind":"media_kind","mediaKind":"still","role":"primary"},{"kind":"min_dimensions","role":"primary","minWidth":1280,"minHeight":720}], "refusalRules": [],
   "lockedStructureEffect": "none",
   "construction": {
-    "preferredBackends": ["native_fcpxml"],
-    "requiredCapabilities": ["asset_admission", "transform_keyframes", "opacity_keyframes"],
+    "preferredBackends": [
+      "native_fcpxml"
+    ],
+    "requiredCapabilities": [
+      "asset_admission",
+      "transform_keyframes",
+      "opacity_keyframes"
+    ],
     "requiredEffectID": "motion.living_still",
     "previewFidelity": "shared_construction"
   },
   "parameters": [
-    {"key": "durationSeconds", "type": "duration", "unit": "s", "range": [1, 30], "liveness": "live"},
-    {"key": "pushInScaleStart", "type": "float", "range": [1.0, 2.0], "liveness": "live"},
-    {"key": "pushInScaleEnd", "type": "float", "range": [1.0, 2.0], "liveness": "live"},
-    {"key": "panX", "type": "float", "unit": "width fraction", "range": [-0.5, 0.5], "liveness": "live"},
-    {"key": "panY", "type": "float", "unit": "height fraction", "range": [-0.5, 0.5], "liveness": "live"}
+    {
+      "key": "durationSeconds",
+      "type": "duration",
+      "unit": "s",
+      "range": [
+        1,
+        30
+      ],
+      "liveness": "live",
+      "default": 1
+    },
+    {
+      "key": "pushInScaleStart",
+      "type": "float",
+      "range": [
+        1.0,
+        2.0
+      ],
+      "liveness": "live",
+      "default": 1.0,
+      "unit": "normalized value"
+    },
+    {
+      "key": "pushInScaleEnd",
+      "type": "float",
+      "range": [
+        1.0,
+        2.0
+      ],
+      "liveness": "live",
+      "default": 1.0,
+      "unit": "normalized value"
+    },
+    {
+      "key": "panX",
+      "type": "float",
+      "unit": "width fraction",
+      "range": [
+        -0.5,
+        0.5
+      ],
+      "liveness": "live",
+      "default": -0.5
+    },
+    {
+      "key": "panY",
+      "type": "float",
+      "unit": "height fraction",
+      "range": [
+        -0.5,
+        0.5
+      ],
+      "liveness": "live",
+      "default": -0.5
+    }
   ],
   "qualityChecks": [
     "end scale stays within source resolution so the frame does not soften",
@@ -34,13 +107,38 @@
     "a move fast enough to read as a camera mistake",
     "a keyframe emitted at the clip end boundary, which renders but cannot be selected or edited"
   ],
-  "editability": ["final_cut_native", "framesmith_regeneration"],
-  "expectedCost": {"latency": "instant", "monetary": "free", "privacy": "local_only"},
+  "riskGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"Still dimensions and admitted transform channels are checked before construction."}], "safetyGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"The emitter channels are exact and revalidated at admission."}],
+  "editability": [
+    "final_cut_native",
+    "framesmith_regeneration"
+  ],
+  "expectedCost": {
+    "latency": "instant",
+    "monetary": "free",
+    "privacy": "local_only"
+  },
   "provenance": [
-    {"sourceId": "APPLE-FCP-008", "claim": "Final Cut animates video effect parameters with keyframes", "sourceRole": "technical_authority", "confidence": "official_documentation"},
-    {"sourceId": "docs/LIVING_STILL_GROUND_TRUTH.md", "claim": "position is percent of frame height, not pixels; keyframe times are absolute from a 3600s origin for stills", "confidence": "direct_evidence"},
-    {"sourceId": "docs/LIVING_STILL_ADMISSION_PASS.md", "claim": "the generated transform and opacity construction returns from Final Cut structurally identical", "confidence": "direct_evidence"},
-    {"sourceId": "docs/LIVING_STILL_EDITABILITY_PASS.md", "claim": "an imported transform keyframe is editable in place and recomputes correctly", "confidence": "direct_evidence"}
+    {
+      "sourceId": "APPLE-FCP-008",
+      "claim": "Final Cut animates video effect parameters with keyframes",
+      "sourceRole": "technical_authority",
+      "confidence": "official_documentation"
+    },
+    {
+      "sourceId": "docs/LIVING_STILL_GROUND_TRUTH.md",
+      "claim": "position is percent of frame height, not pixels; keyframe times are absolute from a 3600s origin for stills",
+      "confidence": "direct_evidence"
+    },
+    {
+      "sourceId": "docs/LIVING_STILL_ADMISSION_PASS.md",
+      "claim": "the generated transform and opacity construction returns from Final Cut structurally identical",
+      "confidence": "direct_evidence"
+    },
+    {
+      "sourceId": "docs/LIVING_STILL_EDITABILITY_PASS.md",
+      "claim": "an imported transform keyframe is editable in place and recomputes correctly",
+      "confidence": "direct_evidence"
+    }
   ],
   "validation": {
     "implemented": true,
@@ -49,8 +147,14 @@
       "8a3ecd236cc9c87459ef425f04951bafa29a68c84be937c36041d0a59c8f2ab9",
       "1f32d6da03ef531449c42aab2da9d7b0081ccb6e3c0c22e6d3cebf49fa9085c0"
     ],
-    "verifiedOn": ["living-still.png fixture", "user-supplied dali.jpeg portrait"],
+    "verifiedOn": [
+      "living-still.png fixture",
+      "user-supplied dali.jpeg portrait"
+    ],
     "notes": "Playback confirmed in the isolated app 2026-08-05: push, drift, and fade all visible."
   },
-  "notes": "The restraint is the technique. If the move is noticeable as a move, it is too strong."
+  "notes": "The restraint is the technique. If the move is noticeable as a move, it is too strong.",
+  "safety": [
+    "Review the result on representative media before use."
+  ]
 }

@@ -13,7 +13,8 @@ let package = Package(
         .executable(name: "fcpcommandconsole-living-still-probe", targets: ["FCPCommandConsoleLivingStillProbe"]),
         .executable(name: "fcpcommandconsole-native-effect-probe", targets: ["FCPCommandConsoleNativeEffectProbe"]),
         .executable(name: "fcpcommandconsole-standalone-export", targets: ["FCPCommandConsoleStandaloneExport"]),
-        .executable(name: "fcpcommandconsole-bakeoff", targets: ["FCPCommandConsoleBakeoff"])
+        .executable(name: "fcpcommandconsole-bakeoff", targets: ["FCPCommandConsoleBakeoff"]),
+        .executable(name: "fcpcommandconsole-option-probe", targets: ["FCPCommandConsoleOptionProbe"])
     ],
     targets: [
         .target(
@@ -60,6 +61,11 @@ let package = Package(
             name: "FCPCommandConsoleBakeoff",
             dependencies: ["FCPCommandConsoleCore"],
             path: "Sources/FCPCommandConsoleBakeoff"
+        ),
+        .executableTarget(
+            name: "FCPCommandConsoleOptionProbe",
+            dependencies: ["FCPCommandConsoleCore"],
+            path: "Sources/FCPCommandConsoleOptionProbe"
         ),
         .testTarget(
             name: "FCPCommandConsoleTests",

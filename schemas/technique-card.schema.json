@@ -8,8 +8,8 @@
   "required": [
     "id", "version", "name", "domain", "status", "summary",
     "creativeJobs", "intentTags", "mediaPrerequisites",
-    "lockedStructureEffect", "construction", "parameters",
-    "qualityChecks", "failureModes", "editability", "provenance", "validation"
+    "refusalConditions", "prerequisiteRules", "refusalRules", "lockedStructureEffect", "construction", "parameters",
+    "qualityChecks", "failureModes", "safety", "riskGates", "safetyGates", "editability", "expectedCost", "provenance", "validation"
   ],
   "properties": {
     "id": {
@@ -33,6 +33,8 @@
     "intentTags": { "type": "array", "items": { "type": "string" } },
     "mediaPrerequisites": { "type": "array", "items": { "type": "string" } },
     "refusalConditions": { "type": "array", "items": { "type": "string" } },
+    "prerequisiteRules": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/rule" } },
+    "refusalRules": { "type": "array", "items": { "$ref": "#/definitions/rule" } },
     "lockedStructureEffect": {
       "type": "string",
       "enum": ["none", "requires_authorization"],
@@ -67,7 +69,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["key", "type"],
+        "required": ["key", "type", "default", "liveness"],
         "properties": {
           "key": { "type": "string" },
           "type": { "type": "string", "enum": ["float", "int", "bool", "enum", "point", "duration"] },
@@ -85,6 +87,8 @@
     "qualityChecks": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "failureModes": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "safety": { "type": "array", "items": { "type": "string" } },
+    "riskGates": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/riskGate" } },
+    "safetyGates": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/riskGate" } },
     "editability": {
       "type": "array",
       "items": { "type": "string", "enum": ["final_cut_native", "framesmith_regeneration", "source_composition", "none"] },
@@ -93,6 +97,7 @@
     "expectedCost": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["latency", "monetary", "privacy"],
       "properties": {
         "latency": { "type": "string", "enum": ["instant", "seconds", "minutes", "long"] },
         "monetary": { "type": "string", "enum": ["free", "paid"] },
@@ -141,5 +146,28 @@
       }
     },
     "notes": { "type": "string" }
+  },
+  "definitions": {
+    "rule": {
+      "type": "object", "additionalProperties": false, "required": ["kind"],
+      "properties": {
+        "kind": {"type":"string","enum":["media_kind","required_role","role_count","audio_presence","min_dimensions","confirmed_target"]},
+        "mediaKind": {"type":"string","enum":["movie","still"]},
+        "role": {"type":"string","enum":["primary","outgoing","incoming","overlay"]},
+        "count": {"type":"integer","minimum":0,"maximum":4},
+        "hasAudio": {"type":"boolean"},
+        "minWidth": {"type":"integer","minimum":1},
+        "minHeight": {"type":"integer","minimum":1}
+      }
+    },
+    "riskGate": {
+      "type": "object", "additionalProperties": false, "required": ["category","level","decision","basis"],
+      "properties": {
+        "category": {"type":"string","enum":["visual_quality","photosensitive_flash","accessibility","privacy","editorial_integrity","content_safety"]},
+        "level": {"type":"string","enum":["low","moderate","high","critical"]},
+        "decision": {"type":"string","enum":["allowed_automatically","refused","requires_user_approval"]},
+        "basis": {"type":"string","minLength":1}
+      }
+    }
   }
 }

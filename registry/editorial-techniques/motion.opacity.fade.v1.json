@@ -5,34 +5,115 @@
   "domain": "motion",
   "status": "validated",
   "summary": "An animated opacity ramp, most often a fade to black closing a held beat.",
-  "creativeJobs": ["close a section", "soften an entrance", "let a moment settle"],
-  "intentTags": ["quiet", "restrained", "closure", "cinematic"],
-  "mediaPrerequisites": ["any admitted clip"],
+  "creativeJobs": [
+    "close a section",
+    "soften an entrance",
+    "let a moment settle"
+  ],
+  "intentTags": [
+    "quiet",
+    "restrained",
+    "closure",
+    "cinematic"
+  ],
+  "mediaPrerequisites": [
+    "any admitted clip"
+  ],
+  "prerequisiteRules": [{"kind":"required_role","role":"primary"}], "refusalRules": [],
   "lockedStructureEffect": "none",
   "construction": {
-    "preferredBackends": ["native_fcpxml"],
-    "requiredCapabilities": ["asset_admission", "opacity_keyframes"],
+    "preferredBackends": [
+      "native_fcpxml"
+    ],
+    "requiredCapabilities": [
+      "asset_admission",
+      "opacity_keyframes"
+    ],
     "requiredEffectID": "motion.living_still",
     "previewFidelity": "shared_construction"
   },
   "parameters": [
-    {"key": "fadeDurationSeconds", "type": "duration", "unit": "s", "range": [0.05, 5], "liveness": "live"},
-    {"key": "opacityStart", "type": "float", "range": [0, 1], "liveness": "live"},
-    {"key": "opacityEnd", "type": "float", "range": [0, 1], "liveness": "live"}
+    {
+      "key": "fadeDurationSeconds",
+      "type": "duration",
+      "unit": "s",
+      "range": [
+        0.05,
+        5
+      ],
+      "liveness": "live",
+      "default": 0.05
+    },
+    {
+      "key": "opacityStart",
+      "type": "float",
+      "range": [
+        0,
+        1
+      ],
+      "liveness": "live",
+      "default": 0,
+      "unit": "normalized value"
+    },
+    {
+      "key": "opacityEnd",
+      "type": "float",
+      "range": [
+        0,
+        1
+      ],
+      "liveness": "live",
+      "default": 0,
+      "unit": "normalized value"
+    }
   ],
-  "qualityChecks": ["the ramp lands exactly on the intended frame", "no visible banding across the fade", "the fade does not start before its motivating beat"],
-  "failureModes": ["a fade so short it reads as a cut", "banding on gradients in 8-bit sources"],
-  "editability": ["final_cut_native", "framesmith_regeneration"],
-  "expectedCost": {"latency": "instant", "monetary": "free", "privacy": "local_only"},
+  "qualityChecks": [
+    "the ramp lands exactly on the intended frame",
+    "no visible banding across the fade",
+    "the fade does not start before its motivating beat"
+  ],
+  "failureModes": [
+    "a fade so short it reads as a cut",
+    "banding on gradients in 8-bit sources"
+  ],
+  "riskGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"Admitted opacity keyframes are shared by preview and emitter."}], "safetyGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"Exact opacity channels are revalidated at admission."}],
+  "editability": [
+    "final_cut_native",
+    "framesmith_regeneration"
+  ],
+  "expectedCost": {
+    "latency": "instant",
+    "monetary": "free",
+    "privacy": "local_only"
+  },
   "provenance": [
-    {"sourceId": "APPLE-FCP-011", "claim": "Final Cut supports fades as a native operation", "sourceRole": "technical_authority", "confidence": "official_documentation"},
-    {"sourceId": "docs/LIVING_STILL_EDITABILITY_PASS.md", "claim": "an animated adjust-blend amount keyframe edited from 0 to 25% returned as 0.25", "confidence": "direct_evidence"}
+    {
+      "sourceId": "APPLE-FCP-011",
+      "claim": "Final Cut supports fades as a native operation",
+      "sourceRole": "technical_authority",
+      "confidence": "official_documentation"
+    },
+    {
+      "sourceId": "docs/LIVING_STILL_EDITABILITY_PASS.md",
+      "claim": "an animated adjust-blend amount keyframe edited from 0 to 25% returned as 0.25",
+      "confidence": "direct_evidence"
+    }
   ],
   "validation": {
     "implemented": true,
     "visuallyVerified": true,
-    "finalCutEvidence": ["1f32d6da03ef531449c42aab2da9d7b0081ccb6e3c0c22e6d3cebf49fa9085c0"],
-    "verifiedOn": ["living-still.png fixture"],
+    "finalCutEvidence": [
+      "1f32d6da03ef531449c42aab2da9d7b0081ccb6e3c0c22e6d3cebf49fa9085c0"
+    ],
+    "verifiedOn": [
+      "living-still.png fixture"
+    ],
     "notes": "Fade to black confirmed visible during playback in the isolated app."
-  }
+  },
+  "refusalConditions": [
+    "Do not apply when the stated prerequisite is not met."
+  ],
+  "safety": [
+    "Review the result on representative media before use."
+  ]
 }

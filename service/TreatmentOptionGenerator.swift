@@ -99,11 +99,13 @@ public enum TreatmentAnchor: String, CaseIterable, Sendable {
 public struct TreatmentOptionGenerator: Sendable {
     public let catalog: EditorialKnowledgeCatalog
     public let admittedCapabilities: Set<String>
+    public let approvedRiskCategories: Set<TechniqueRiskCategory>
     public let maximumOptions: Int
 
-    public init(catalog: EditorialKnowledgeCatalog, admittedCapabilities: Set<String>, maximumOptions: Int = 3) {
+    public init(catalog: EditorialKnowledgeCatalog, admittedCapabilities: Set<String>, approvedRiskCategories: Set<TechniqueRiskCategory> = [], maximumOptions: Int = 3) {
         self.catalog = catalog
         self.admittedCapabilities = admittedCapabilities
+        self.approvedRiskCategories = approvedRiskCategories
         self.maximumOptions = maximumOptions
     }
 
@@ -170,14 +172,21 @@ public struct TreatmentOptionGenerator: Sendable {
                 rejected.append(.init(name: card.name, reason: .techniqueUnavailable("no validated plan exists for this effect with the supplied media")))
                 continue
             }
-            guard suits(card: card, media: media) else {
-                rejected.append(.init(name: card.name, reason: .mediaUnsuitable("its prerequisites are not met by the supplied media")))
+            let evaluation = card.evaluate(in: .init(media: media, target: base.normalizedPoint, approvedRiskCategories: approvedRiskCategories))
+            switch evaluation.executableDecision {
+            case .allowedAutomatically: break
+            case .requiresUserApproval:
+                rejected.append(.init(name: card.name, reason: .costNotApproved("its declared risk or safety gate needs user approval")))
+                continue
+            case .refused:
+                let prerequisiteFailure = evaluation.prerequisiteDecisions.contains { $0.decision == .refused }
+                rejected.append(.init(name: card.name, reason: prerequisiteFailure ? .mediaUnsuitable("its typed prerequisites are not met by the supplied media") : .safetyBlocked("its typed refusal, risk, or safety gate blocked it")))
                 continue
             }
 
             for anchor in TreatmentAnchor.allCases {
                 let plan = makeTreatment(
-                    anchor: anchor, card: card, base: base, intent: intent, fingerprint: fingerprint
+                    anchor: anchor, card: card, base: base, intent: intent, fingerprint: fingerprint, seed: seed
                 )
                 candidates.append(.init(anchor: anchor, card: card, plan: plan, score: score(card: card, anchor: anchor, intent: intent)))
             }
@@ -198,6 +207,10 @@ public struct TreatmentOptionGenerator: Sendable {
         var chosen: [TreatmentPlan] = []
         for candidate in ordered {
             guard chosen.count < maximumOptions else { break }
+            if chosen.contains(where: { $0.techniqueCardIDs == [candidate.card.id] }) {
+                rejected.append(.init(name: candidate.plan.name, reason: .redundantWith("the same technique card")))
+                continue
+            }
             if let clash = chosen.first(where: { !candidate.plan.differsMaterially(from: $0) }) {
                 rejected.append(.init(name: candidate.plan.name, reason: .redundantWith(clash.name)))
                 continue
@@ -274,46 +287,36 @@ public struct TreatmentOptionGenerator: Sendable {
     }
 
     private func stableTiebreak(_ candidate: Candidate, seed: UInt64) -> UInt64 {
-        var hasher = Hasher()
-        hasher.combine(candidate.card.id)
-        hasher.combine(candidate.anchor.rawValue)
-        hasher.combine(seed)
-        return UInt64(bitPattern: Int64(hasher.finalize()))
+        let digest = TreatmentIdentity.digest(["tie", String(seed), candidate.card.id, candidate.anchor.rawValue, candidate.plan.constructionSignature])
+        return UInt64(digest.prefix(16), radix: 16) ?? 0
     }
 
     // MARK: - Candidate construction
-
-    private func suits(card: TechniqueCard, media: [LocalMediaRole: LocalMediaAsset]) -> Bool {
-        let kinds = Set(media.values.map(\.kind))
-        // A card that names a still prerequisite needs a still present.
-        if card.mediaPrerequisites.contains(where: { $0.lowercased().contains("still") }), !kinds.contains(.still) {
-            return false
-        }
-        if card.mediaPrerequisites.contains(where: { $0.lowercased().contains("two adjacent") || $0.lowercased().contains("two clips") }) {
-            return media.count >= 2
-        }
-        return true
-    }
 
     private func makeTreatment(
         anchor: TreatmentAnchor,
         card: TechniqueCard,
         base: EffectPlan,
         intent: TreatmentIntent,
-        fingerprint: String
+        fingerprint: String,
+        seed: UInt64
     ) -> TreatmentPlan {
         var adapted = intent
         adapted.intensity = anchor.adaptedIntensity(from: intent.intensity)
 
         var plan = base
-        plan.operationID = UUID()
+        // A treatment option is a proposal, not an execution. Preserve the
+        // template operation ID and vary only real, registry-backed parameters.
+        applyConstructionOverrides(to: &plan, card: card, anchor: anchor)
+        let optionID = TreatmentIdentity.optionID(seed: seed, fingerprint: fingerprint, cardIDs: [card.id], plan: plan)
 
         return TreatmentPlan(
+            id: TreatmentIdentity.stableUUID(from: optionID), optionID: optionID,
             structureFingerprint: fingerprint,
             intent: adapted,
             name: card.name,
             idea: card.summary,
-            changes: changes(for: card, anchor: anchor),
+            changes: changes(for: card, plan: plan, anchor: anchor),
             preserved: [
                 "Your clips, in your order",
                 "Every edit point and clip duration",
@@ -327,27 +330,113 @@ public struct TreatmentOptionGenerator: Sendable {
             estimatedLatency: card.expectedCost?.latency ?? .instant,
             monetary: card.expectedCost?.monetary ?? .free,
             privacy: card.expectedCost?.privacy ?? .localOnly,
-            provenanceSummary: card.provenance.map { "\($0.sourceId): \($0.claim)" }
+            provenanceSummary: card.provenance.map { "\($0.sourceId): \($0.claim)" },
+            techniqueCardVersions: [card.id: card.version],
+            constructionSignature: TreatmentIdentity.constructionSignature(for: plan)
         )
     }
+
+    /// Overrides are deliberately limited to keys that actually exist in the
+    /// construction template. If a card cannot create a distinct real build,
+    /// diversity selection will reject it instead of pretending an anchor is a
+    /// representation change.
+    private func applyConstructionOverrides(to plan: inout EffectPlan, card: TechniqueCard, anchor: TreatmentAnchor) {
+        let multiplier: Double = anchor == .quiet ? 0.75 : (anchor == .expressive ? 1.0 : 1.25)
+        switch card.id {
+        case "motion.opacity.fade.v1":
+            // This card is a fade, not an accidental push.  Neutralize every
+            // transform control and vary the actual opacity construction.
+            plan.parameters["pushInScaleStart"] = .number(1)
+            plan.parameters["pushInScaleEnd"] = .number(1)
+            plan.parameters["panX"] = .number(0)
+            plan.parameters["panY"] = .number(0)
+            plan.parameters["opacityStart"] = .number(1)
+            plan.parameters["opacityEnd"] = .number(anchor == .quiet ? 0.35 : (anchor == .expressive ? 0.18 : 0))
+            plan.parameters["fadeDurationSeconds"] = .number(anchor == .quiet ? 0.5 : (anchor == .expressive ? 0.8 : 1.1))
+        case "motion.still.quiet_push.v1":
+            // This card is motion-only: preserve opacity and make the actual
+            // scale/pan channels carry the distinction.
+            plan.parameters["opacityStart"] = .number(1)
+            plan.parameters["opacityEnd"] = .number(1)
+            plan.parameters["fadeDurationSeconds"] = .number(0.1)
+            for key in ["pushInScaleEnd", "panX", "panY"] where plan.parameters[key]?.numberValue != nil {
+                let value = plan.parameters[key]!.numberValue!
+                if key == "pushInScaleEnd" { plan.parameters[key] = .number(min(4, max(1, 1 + (value - 1) * multiplier))) }
+                else { plan.parameters[key] = .number(min(0.5, max(-0.5, value * multiplier))) }
+            }
+        case "motion.focal.target_push.v1":
+            // Do not inherit living-still controls just because a caller used
+            // a generic seed plan. This is the actual targeted-transform
+            // control set the admitted emitter consumes.
+            plan.parameters = [
+                "durationSeconds": .number(4), "scaleStart": .number(1),
+                "scaleEnd": .number(anchor == .quiet ? 1.08 : (anchor == .expressive ? 1.16 : 1.24)),
+                "rotationStartDegrees": .number(0), "rotationEndDegrees": .number(anchor == .quiet ? 3 : (anchor == .expressive ? 6 : 9)),
+                "direction": .string("clockwise"), "easing": .string("ease_in_out")
+            ]
+        default:
+            switch plan.effectID {
+        case .livingStill:
+            for key in ["pushInScaleEnd", "panX", "panY", "opacityEnd"] where plan.parameters[key]?.numberValue != nil {
+                let value = plan.parameters[key]!.numberValue!
+                if key == "pushInScaleEnd" { plan.parameters[key] = .number(min(4, max(1, 1 + (value - 1) * multiplier))) }
+                else if key == "opacityEnd" { plan.parameters[key] = .number(min(1, max(0, value * multiplier))) }
+                else { plan.parameters[key] = .number(min(0.5, max(-0.5, value * multiplier))) }
+            }
+        case .targetedRotateZoom:
+            for key in ["scaleEnd", "rotationEndDegrees"] where plan.parameters[key]?.numberValue != nil {
+                let value = plan.parameters[key]!.numberValue!
+                plan.parameters[key] = .number(key == "scaleEnd" ? min(3, max(1, 1 + (value - 1) * multiplier)) : min(45, max(-45, value * multiplier)))
+            }
+        case .naturalDissolve:
+            if let value = plan.parameters["durationSeconds"]?.numberValue { plan.parameters["durationSeconds"] = .number(min(4, max(0.1, value * multiplier))) }
+        case .oldTelevision:
+            for key in ["staticStrength", "grainStrength", "scanlineStrength", "instabilityStrength"] where plan.parameters[key]?.numberValue != nil { plan.parameters[key] = .number(min(key == "instabilityStrength" ? 0.5 : 1, max(0, plan.parameters[key]!.numberValue! * multiplier))) }
+                }
+            }
+        }
 
     /// Deliberately does **not** repeat `card.summary`; that is already shown as
     /// the option's idea line, and printing it twice made the card read like a
     /// template rather than a description.
-    private func changes(for card: TechniqueCard, anchor: TreatmentAnchor) -> [String] {
-        var lines: [String] = []
-        switch anchor {
-        case .quiet: lines.append("Held deliberately under the threshold where the effect announces itself")
-        case .expressive: lines.append("Pushed far enough to read as a choice rather than an accident")
-        case .bold: lines.append("Taken to the strongest setting that still holds together")
+    private func changes(for card: TechniqueCard, plan: EffectPlan, anchor: TreatmentAnchor) -> [String] {
+        let strength = anchor == .quiet ? "restrained" : (anchor == .expressive ? "present" : "strong")
+        switch card.id {
+        case "motion.opacity.fade.v1":
+            return [
+                "Neutralizes pushInScaleStart/pushInScaleEnd to 1.0 and panX/panY to 0, so no transform motion is introduced",
+                "Animates the native opacity channel from \(plan.parameters["opacityStart"]!.numberValue!) to \(plan.parameters["opacityEnd"]!.numberValue!)",
+                "Uses fadeDurationSeconds \(plan.parameters["fadeDurationSeconds"]!.numberValue!)s for a \(strength) fade timing",
+                "Preview samples the same admitted opacity keyframes the emitter writes"
+            ]
+        case "motion.still.quiet_push.v1":
+            return [
+                "Keeps opacityStart and opacityEnd at 1.0, so this treatment does not fade the source",
+                "Animates pushInScaleEnd to \(plan.parameters["pushInScaleEnd"]!.numberValue!) through the native transform channel",
+                "Moves the frame with admitted panX \(plan.parameters["panX"]!.numberValue!) and panY \(plan.parameters["panY"]!.numberValue!) controls",
+                "Preview samples the same shared transform and opacity construction that export emits"
+            ]
+        case "motion.focal.target_push.v1":
+            return [
+                "Uses the confirmed normalized target \(plan.normalizedPoint?.x ?? 0), \(plan.normalizedPoint?.y ?? 0) rather than assuming centre",
+                "Uses the admitted scaleEnd and rotationEndDegrees transform controls when the supplied targeted template declares them",
+                "Writes compensating native transform keyframes so the confirmed target remains the focal point",
+                "Preview samples the shared construction and remains editable through Final Cut transform controls"
+            ]
+        case "look.crt.old_television.v1":
+            return [
+                "Uses the admitted base clip only; no connected overlay is requested or emitted",
+                "Writes one bounded opacity dip from 1.0 to 0.82 and back to 1.0 in the native opacity channel",
+                "Applies the admitted Color Adjustments saturation channel without claiming a calibrated colour mapping",
+                "Preview samples the same base opacity and colour channels that export emits"
+            ]
+        default:
+            return [
+                "Uses the admitted \(card.construction.requiredEffectID ?? "construction") controls at \(strength) intensity",
+                "Preserves the locked clip order, edit points, and clip durations",
+                "Uses \(card.construction.previewFidelity.rawValue) preview fidelity declared by the card"
+            ]
         }
-        if card.construction.previewFidelity == .indicative {
-            lines.append("Preview shows direction only — the exact strength is not verified")
-        }
-        if !card.editability.contains(.finalCutNative) {
-            lines.append("Adjustable by regenerating in FrameSmith rather than in Final Cut")
-        }
-        return lines
     }
 
     /// Which creative axes a candidate acts on. Diversity is measured here, so
@@ -367,9 +456,6 @@ public struct TreatmentOptionGenerator: Sendable {
         case .audio: set.insert(.soundTreatment)
         case .safety, .analysis, .process: break
         }
-        // A bolder anchor changes the representation the user ends up with,
-        // which is itself a dimension the contract lists.
-        if anchor == .bold { set.insert(.representation) }
         return set
     }
 

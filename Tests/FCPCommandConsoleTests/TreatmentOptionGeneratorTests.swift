@@ -104,6 +104,9 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
         let second = try generator().generate(lock: locked, media: [.primary: assets[0]], intent: intent("quiet cinematic"), basePlans: plans, seed: 42)
         XCTAssertEqual(first.options.map(\.name), second.options.map(\.name))
         XCTAssertEqual(first.options.map(\.techniqueCardIDs), second.options.map(\.techniqueCardIDs))
+        XCTAssertEqual(first.options.map(\.optionID), second.options.map(\.optionID))
+        XCTAssertEqual(first.options.map(\.constructionSignature), second.options.map(\.constructionSignature))
+        XCTAssertEqual(first.options.map { $0.effectPlan.operationID }, second.options.map { $0.effectPlan.operationID }, "generation must not mint an execution operation ID")
     }
 
     // MARK: - Diversity, not padding
@@ -126,6 +129,15 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
                 )
             }
         }
+    }
+
+    func testIdenticalConstructionNeverCountsAsDiversity() throws {
+        let assets = [still("a", digest: "a")]
+        let base = try basePlans(for: assets)[.livingStill]!
+        let intent = intent("quiet")
+        let one = TreatmentPlan(structureFingerprint: lock(assets).fingerprint, intent: intent, name: "one", idea: "one", changes: [], techniqueCardIDs: ["motion.still.quiet_push.v1"], effectPlan: base, editability: .finalCutNative, previewFidelity: .sharedConstruction, dimensions: [.motionLanguage])
+        let two = TreatmentPlan(structureFingerprint: one.structureFingerprint, intent: intent, name: "two", idea: "two", changes: [], techniqueCardIDs: ["motion.opacity.fade.v1"], effectPlan: base, editability: .finalCutNative, previewFidelity: .sharedConstruction, dimensions: [.motionLanguage, .texture])
+        XCTAssertFalse(one.differsMaterially(from: two))
     }
 
     func testNeverExceedsTheOptionCap() throws {
@@ -282,13 +294,13 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
             intent: intent("quiet"), basePlans: try basePlans(for: assets)
         )
         let option = try XCTUnwrap(set.options.first)
-        let admission = TreatmentAdmission(lock: locked, catalog: try catalog(), admittedCapabilities: capabilities)
-        XCTAssertNoThrow(try admission.admit(option))
+        let admission = TreatmentAdmission(lock: locked, catalog: try catalog(), admittedCapabilities: capabilities, registry: try registry())
+        XCTAssertNoThrow(try admission.admit(option, currentStructure: locked, media: [.primary: assets[0]], impactEvidence: []))
 
         // The user reorders or retimes after planning: the option is stale.
         let drifted = EditorialStructureLock.establish(orderedMedia: assets, clipDurationFrames: [90])
-        let staleAdmission = TreatmentAdmission(lock: drifted, catalog: try catalog(), admittedCapabilities: capabilities)
-        XCTAssertThrowsError(try staleAdmission.admit(option)) { error in
+        let staleAdmission = TreatmentAdmission(lock: drifted, catalog: try catalog(), admittedCapabilities: capabilities, registry: try registry())
+        XCTAssertThrowsError(try staleAdmission.admit(option, currentStructure: drifted, media: [.primary: assets[0]], impactEvidence: [])) { error in
             guard case TreatmentAdmissionError.structureDrifted = error else {
                 return XCTFail("expected a structure-drift refusal, got \(error)")
             }
@@ -303,10 +315,76 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
             intent: intent("quiet"), basePlans: try basePlans(for: assets)
         )
         let option = try XCTUnwrap(set.options.first)
-        let revoked = TreatmentAdmission(lock: locked, catalog: try catalog(), admittedCapabilities: [])
-        XCTAssertThrowsError(try revoked.admit(option)) { error in
+        let revoked = TreatmentAdmission(lock: locked, catalog: try catalog(), admittedCapabilities: [], registry: try registry())
+        XCTAssertThrowsError(try revoked.admit(option, currentStructure: locked, media: [.primary: assets[0]], impactEvidence: [])) { error in
             guard case TreatmentAdmissionError.cardNotExecutable = error else {
                 return XCTFail("expected a card-not-executable refusal, got \(error)")
+            }
+        }
+    }
+
+    func testAdmissionReturnsImmutableExecutionAndMintsOnlyOnSelection() throws {
+        let assets = [still("a", digest: "a")]
+        let locked = lock(assets)
+        let option = try XCTUnwrap(try generator().generate(lock: locked, media: [.primary: assets[0]], intent: intent("quiet"), basePlans: try basePlans(for: assets)).options.first)
+        let admitted = try TreatmentAdmission(lock: locked, catalog: try catalog(), admittedCapabilities: capabilities, registry: try registry()).admit(option, currentStructure: locked, media: [.primary: assets[0]], impactEvidence: [])
+        XCTAssertNotEqual(admitted.constructionSignature, option.constructionSignature, "admission signature must bind the exact emitter channels")
+        XCTAssertFalse(admitted.channels.canonicalPayload.isEmpty)
+        XCTAssertEqual(admitted.structure.fingerprint, locked.fingerprint)
+        XCTAssertNotEqual(admitted.selectingForExecution().operationID, option.effectPlan.operationID)
+        XCTAssertEqual(admitted.cards.map(\.card.id), option.techniqueCardIDs)
+        XCTAssertTrue(admitted.contract.valid)
+        XCTAssertEqual(admitted.registryEffectID, option.effectPlan.effectID.rawValue)
+        XCTAssertFalse(admitted.registryDigest.isEmpty)
+    }
+
+    func testEncodedTreatmentContractRejectsUnknownAndMissingNestedFields() throws {
+        let assets = [still("a", digest: "a")]
+        let option = try XCTUnwrap(try generator().generate(lock: lock(assets), media: [.primary: assets[0]], intent: intent("quiet"), basePlans: try basePlans(for: assets)).options.first)
+        let validator = try TreatmentPlanContractValidator.discover()
+        let data = try JSONEncoder().encode(option)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var effect = try XCTUnwrap(object["effectPlan"] as? [String: Any])
+        effect["unexpectedNestedField"] = true
+        object["effectPlan"] = effect
+        XCTAssertThrowsError(try validator.validate(JSONSerialization.data(withJSONObject: object)))
+        effect.removeValue(forKey: "selectionToken")
+        object["effectPlan"] = effect
+        XCTAssertThrowsError(try validator.validate(JSONSerialization.data(withJSONObject: object)))
+    }
+
+    func testTypedTargetAndRiskGatesRefuseWithoutCurrentEvidenceOrApproval() throws {
+        let assets = [still("a", digest: "a")]
+        let focal = try XCTUnwrap(try catalog().card(id: "motion.focal.target_push.v1"))
+        XCTAssertEqual(focal.evaluate(in: .init(media: [.primary: assets[0]], target: Target(x: 0.6, y: 0.4, confirmed: false))).executableDecision, .refused)
+        let crt = try XCTUnwrap(try catalog().card(id: "look.crt.old_television.v1"))
+        XCTAssertEqual(crt.evaluate(in: .init(media: [.primary: assets[0]], target: nil)).executableDecision, .allowedAutomatically)
+    }
+
+    func testCRTAutomaticGateIsBoundedToTheSingleMeasuredBaseDip() throws {
+        let asset = still("crt", digest: "c")
+        var plan = try XCTUnwrap(try basePlans(for: [asset])[.oldTelevision])
+        plan.parameters = ["durationSeconds": .number(4), "flickerFloor": .number(0.82)]
+        let channels = try OldTelevisionStandaloneEmitter().channels(plan: plan, media: [.primary: asset])
+        XCTAssertEqual(channels.opacity.amount.count, 3)
+        XCTAssertEqual(channels.opacity.amount.map(\.value), ["1", "0.82", "1"])
+        XCTAssertEqual(channels.opacity.amount.map { $0.time.seconds }, [3600, 3600.5, 3601])
+        let card = try XCTUnwrap(try catalog().card(id: "look.crt.old_television.v1"))
+        XCTAssertTrue(card.riskGates.allSatisfy { $0.level == .low && $0.decision == .allowedAutomatically && $0.basis.contains("full→0.82→full") })
+        XCTAssertTrue(card.safetyGates.allSatisfy { $0.basis.contains("repeated or stronger flicker is refused") })
+    }
+
+    func testThreeSafeConcreteOptionsRemainWhenCRTIsRemoved() throws {
+        let asset = still("safe", digest: "a")
+        let cards = try catalog().cards.filter { $0.id != "look.crt.old_television.v1" }
+        let set = TreatmentOptionGenerator(catalog: .init(cards: cards), admittedCapabilities: capabilities).generate(
+            lock: lock([asset]), media: [.primary: asset], intent: intent("quiet cinematic", intensity: .present), basePlans: try basePlans(for: [asset])
+        )
+        XCTAssertEqual(set.options.count, 3)
+        XCTAssertTrue(set.options.allSatisfy { $0.techniqueCardIDs != ["look.crt.old_television.v1"] && (3...6).contains($0.changes.count) })
+        for i in set.options.indices {
+            for j in set.options.indices where j > i {
+                XCTAssertGreaterThanOrEqual(set.options[i].actualConstructionDifferenceCount(from: set.options[j]), 2)
             }
         }
     }
