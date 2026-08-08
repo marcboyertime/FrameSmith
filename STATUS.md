@@ -20,28 +20,36 @@ carrying the same editorial-structure fingerprint. Coverage, diversity
 reasoning, manual verification, and limitations are recorded in
 `docs/editorial-intelligence/BAKEOFF_AND_COVERAGE.md`.
 
-All four effects now have production emitters. Natural dissolve and old
-television were generalized out of their probe builders and admitted by real
-import on 2026-08-07.
+All four effects now have production emitters. Natural Dissolve and Old
+Television were generalized out of their probe builders and admitted by real
+import on 2026-08-07. Old Television subsequently gained an optional overlay
+plan role and a generated connected-overlay path. That implementation and its
+FCPXML construction are tested, but the changed overlay path has not yet had a
+fresh real-Final-Cut or perceptual exercise.
 
 **Not claimed:** no creative-language-to-parameter mapping exists; colour is
-indicative only; no audio, typography, masking, or tracking; old television's
-connected overlay is unexercised by its emitter; and no frame-by-frame
-comparative image-quality bakeoff has been run.
+indicative only; no audio, typography, masking, or tracking; no fresh real-
+Final-Cut or perceptual exercise has covered Old Television's changed overlay
+path; and no frame-by-frame comparative image-quality bakeoff has been run.
 
 ## Current implementation checkpoint
 
 Phase 1 is complete at the current repository checkpoint. `swift test` and
-`make test` pass **282 tests**; the latter also reports
-`core audit: registry=4 schema=json-ok forbidden-patterns=0`. `swift build -c
-release` also passes. The installed app was rebuilt/reinstalled and its code
-signature and resource parity were verified.
+`make test` pass **290 tests**; the latter also reports `core audit: registry=4
+schema=json-ok forbidden-patterns=0 cards=11 (reference_only=6 validated=5)`.
+`swift build -c release` also passes. The installed app was rebuilt/reinstalled
+and its code signature and resource parity were verified.
 
-Installed-UI acceptance is **partially confirmed by hand** (2026-08-06): media
-admission, the target picker, planning, standalone generation, and the effect
-preview were all exercised in the running app by the user, which found two bugs
-tests could not — silently rejected target clicks and content clipping below the
-fold. The parameter inspector's controls have not yet been exercised that way.
+Installed-UI acceptance is **confirmed by hand** (2026-08-08) in the reviewed
+installed app. With `portrait-frame-subject.png`, Living Still and Targeted
+Rotate + Zoom controls changed live; the preview was scrubbed to `0.40s`;
+malformed and contradictory drafts were refused while the last live plan
+remained; and Reset all restored defaults. The UI generated standalone projects
+at `/Users/marcboyer/Movies/FCPCommandConsole/exports/standalone/7C81170C-842E-47F9-811B-12A8E1AB1CEA`
+and `/Users/marcboyer/Movies/FCPCommandConsole/exports/standalone/DC5430C9-46A4-4DD6-9BCE-D4659483DDF3`.
+Inspection of their FCPXML recorded Living Still scale `1.47`, vertical position
+`20`, and end opacity `0.2`, plus Targeted scale `1.69` and rotation `48`.
+Final Cut was not opened or modified for these two exports.
 
 Note for anyone reading an older copy of this file: it previously said "project
 policy forbids scripted UI control". That has not been true since 2026-08-05 —
@@ -57,7 +65,7 @@ command identifiers remain `FCPCommandConsole`.
 | Local SwiftUI workflow | Admits local stills/movies read-only, computes source identities, plans locally, and provides a revision inspector. |
 | New-project output | Standalone export creates a new Final Cut project package and never mutates an existing timeline. |
 | Production standalone emitters | All four effects. Their shared channels drive both preview and FCPXML. |
-| Emitter coverage gaps | Old Television's connected overlay is unexercised by its emitter — the plan role model carries no overlay asset, so only the base flicker/colour treatment can be generated. |
+| Old Television overlay | The plan model now carries an optional admitted-still overlay and the emitter generates its connected layer; the changed path remains unevaluated by a fresh real-Final-Cut or perceptual pass. |
 | Editorial structure lock | Ordered media, timing, retiming, sync, and protected regions are machine-checked before planning, preview, and export. |
 | Technique cards | 11 provenance-bearing cards, 5 validated and 6 reference-only; only validated cards whose capabilities are admitted may be offered. |
 | Surprise Me | Up to three materially different treatments for one shipped scenario; never changes clips, order, timing, or sync. |
@@ -81,6 +89,11 @@ Natural Dissolve and Old Television gained generalized emitters on 2026-08-07
 and were admitted by real import. The dissolve refuses rather than adapts when
 handle is insufficient: the requested duration is never shortened and the edit
 point is never moved to make an effect fit.
+
+Old Television's later optional overlay role is validated as an admitted still
+and its emitter is covered by the connected-overlay construction test. That
+test and package/FCPXML evidence do not establish a new Final Cut import or a
+perceptual result for the changed path.
 
 Color and easing remain intentionally bounded. Living Still uses a captured
 Saturation 25 construction as an indicative adapter; no arbitrary color
@@ -106,18 +119,21 @@ broad perceptual or future-version acceptance claim.
 
 ## Remaining limitations and next work
 
-Natural Dissolve and Old Television are now production emitters admitted by
-returned evidence, so that milestone is closed.
+Natural Dissolve and Old Television are production emitters admitted by returned
+evidence, so that milestone is closed. Old Television's optional overlay role
+and connected-layer generation landed after that checkpoint; fresh real-Final-
+Cut and perceptual exercise of that changed path remain open.
 
-The next work, in rough value order: give Old Television's overlay a real plan
-role so its connected layer can be generated and admitted; measure a
+The next work, in rough value order: exercise Old Television's generated overlay
+path in a fresh real-Final-Cut and perceptual pass; measure a
 creative-language-to-parameter mapping for colour so it stops being indicative
 only; run the representative-media bakeoff in
 `process.review.representative_bakeoff.v1` for comparative image quality; and
 widen Surprise Me beyond the single-still scenario. Effect stacking, history,
 masking, tracking, typography, and audio remain future work.
 
-Living Still v2 is not being started by this checkpoint. Revisit it only under
-the quality-first doctrine: useful editability is preferred, but a layered,
-rendered, or ML-assisted approach is acceptable where it materially improves
-quality and retains FrameSmith-level revision/provenance data.
+Living Still v2 is now in evidence-gathering, not effect implementation. Its
+analysis pipeline and bakeoff harness measured all 10 classes; visual portrait
+evidence demoted the Vision two-plane candidate, while the continuous-warp
+candidate leads but remains untested pending a depth-model acquisition decision.
+No v2 render, Final Cut admission, or perceptual quality result is claimed.
