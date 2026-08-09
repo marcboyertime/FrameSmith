@@ -41,11 +41,11 @@
       "type": "int",
       "unit": "frames",
       "range": [
-        2,
+        1,
         120
       ],
       "liveness": "unsupported",
-      "default": 2
+      "default": 12
     }
   ],
   "qualityChecks": [

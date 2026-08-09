@@ -318,6 +318,20 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
             for cardParameter in card.parameters {
                 let registryParameter = try XCTUnwrap(definition.parameters.first { $0.name == cardParameter.key }, "\(card.id) declares unknown \(cardParameter.key)")
                 let exposure = registryParameter.presentation?.exposure ?? .unsupportedReadOnly
+                // Live cards may publish a deliberately narrower creative
+                // construction preset. A read-only card has no such latitude:
+                // its declared default and bounds must mirror the executable
+                // registry exactly, or it misstates a fixed contract.
+                if !exposure.isEditable {
+                    XCTAssertEqual(cardParameter.defaultValue, registryParameter.defaultValue, "\(card.id).\(cardParameter.key) default drifted from the executable registry")
+                    switch (cardParameter.range, registryParameter.minimum, registryParameter.maximum) {
+                    case (nil, nil, nil): break
+                    case let (.some(range), .some(minimum), .some(maximum)):
+                        XCTAssertEqual(range, [minimum, maximum], "\(card.id).\(cardParameter.key) bounds drifted from the executable registry")
+                    default:
+                        XCTFail("\(card.id).\(cardParameter.key) must declare the same bounds as the executable registry")
+                    }
+                }
                 switch cardParameter.liveness {
                 case .live: XCTAssertTrue(exposure.isEditable, "\(card.id).\(cardParameter.key) is not registry-editable")
                 case .invariant: XCTAssertEqual(exposure, .invariantReadOnly, "\(card.id).\(cardParameter.key) is not an invariant")
