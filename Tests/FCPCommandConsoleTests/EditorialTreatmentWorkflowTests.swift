@@ -17,6 +17,14 @@ final class EditorialTreatmentWorkflowTests: XCTestCase {
         let plan = try session.plan(request: "Make this a living still for \(Double(frames) / 30.0) seconds.", primary: media, outgoing: nil, incoming: nil, target: nil)
         return [.livingStill: plan.plan]
     }
+    private func basesWithFixedFourSecondCandidates(_ media: LocalMediaAsset) throws -> [EffectID: EffectPlan] {
+        let session = LocalMediaPlannerSession(registry: try registry(), schemaValidator: try PlanSchemaValidator(schemaURL: root().appendingPathComponent("schemas/effect-plan.schema.json")), capabilityGate: CapabilityGate(manualSemanticsEvidence: .init(admittedContracts: FinalCutSemanticProfileStore.finalCut12_3_450152.admittedContracts)))
+        return [
+            .livingStill: try session.plan(request: "Make this a living still for 3 seconds.", primary: media, outgoing: nil, incoming: nil, target: nil).plan,
+            .targetedRotateZoom: try session.plan(request: "Use a targeted rotate and zoom.", primary: media, outgoing: nil, incoming: nil, target: .confirmed(x: 0.6, y: 0.4)).plan,
+            .oldTelevision: try session.plan(request: "Make this old television.", primary: media, outgoing: nil, incoming: nil, target: nil).plan
+        ]
+    }
 
     func testExplicitDurationAndSingleStillScopeAreRequired() throws {
         var workflow = try workflow(); var state = EditorialTreatmentWorkflow.State(); let still = asset()
@@ -37,6 +45,38 @@ final class EditorialTreatmentWorkflowTests: XCTestCase {
         XCTAssertFalse(admitted.contains { $0.treatment.effectPlan.effectID == .oldTelevision })
         XCTAssertFalse(admitted.contains { $0.treatment.effectPlan.effectID == .targetedRotateZoom })
         XCTAssertTrue(admitted.allSatisfy { $0.channels.matches($0.channels.materializedChannels()) })
+    }
+
+    func testGenerationAdmitsAValidNonWholeSecondDirectorDuration() throws {
+        var workflow = try workflow(); var state = EditorialTreatmentWorkflow.State(); let still = asset()
+        let admitted = try workflow.generate(state: &state, command: "quiet", media: [.primary: still], target: nil, durationFrames: 121, basePlans: try bases(still, frames: 121))
+        let livingStill = try XCTUnwrap(admitted.first { $0.treatment.effectPlan.effectID == .livingStill })
+        XCTAssertEqual(state.lock?.clips.map(\.durationFrames), [121])
+        XCTAssertEqual(NativeFCPXMLFrameRate.thirty.frames(seconds: livingStill.channels.durationSeconds), 121)
+    }
+
+    func testGenerationKeepsValidCandidatesWhenFixedDurationCandidatesAreRefusedAndReplacesState() throws {
+        var workflow = try workflow(); var state = EditorialTreatmentWorkflow.State(); let still = asset()
+        let old = try XCTUnwrap(try workflow.generate(state: &state, command: "quiet", media: [.primary: still], target: nil, durationFrames: 120, basePlans: try bases(still, frames: 120)).first)
+        let oldSnapshot = workflow.snapshot(command: "quiet", media: [.primary: still], target: nil, durationFrames: 120)
+        _ = try workflow.use(old.treatment.optionID, state: &state, current: oldSnapshot, media: [.primary: still])
+        state.comparisonIDs = [old.treatment.optionID]
+        state.history = [old]
+
+        let admitted = try workflow.generate(
+            state: &state, command: "quiet", media: [.primary: still],
+            target: .confirmed(x: 0.6, y: 0.4), durationFrames: 90,
+            basePlans: try basesWithFixedFourSecondCandidates(still)
+        )
+
+        XCTAssertTrue(admitted.contains { $0.treatment.effectPlan.effectID == .livingStill })
+        XCTAssertFalse(admitted.contains { $0.treatment.effectPlan.effectID == .targetedRotateZoom || $0.treatment.effectPlan.effectID == .oldTelevision })
+        XCTAssertTrue(state.options.values.allSatisfy { $0.treatment.effectPlan.effectID == .livingStill })
+        XCTAssertNil(state.applied)
+        XCTAssertTrue(state.comparisonIDs.isEmpty)
+        XCTAssertTrue(state.history.isEmpty)
+        XCTAssertTrue(state.rejected.contains { $0.explanation.contains("admission refused") })
+        XCTAssertTrue(state.shortfallExplanation?.contains("rather than 3") == true)
     }
 
     func testInputDriftClearsOptionsAppliedComparisonAndHistory() throws {

@@ -425,11 +425,11 @@ public struct TreatmentAdmission: Sendable {
             guard let emitter = execution.catalog.emitter(for: treatment.effectPlan.effectID) else { throw TreatmentAdmissionError.effectPlanRejected("no emitter registered") }
             channels = try emitter.channels(plan: treatment.effectPlan, media: media)
         } catch { throw TreatmentAdmissionError.effectPlanRejected(error.localizedDescription) }
-        // Duration is an editorial fact.  Do not round a binary floating-point
-        // value into a frame count: the lock already carries the exact rational
-        // time for every clip and its exact frameDuration.  A channel duration
-        // that cannot be represented as a finite decimal rational is refused
-        // rather than being silently rounded onto a neighbouring frame.
+        // Duration is an editorial fact. The emitters first quantize their
+        // construction to the observed 30-fps FCPXML frame grid, then expose a
+        // Double convenience value. Compare that actual emitted frame time to
+        // the lock; comparing the shortest binary-Double spelling would reject
+        // valid 121/30s output merely because one third is not a finite decimal.
         var lockedFrames = 0
         var frameCountOverflowed = false
         for clip in lock.clips {
@@ -438,8 +438,12 @@ public struct TreatmentAdmission: Sendable {
             lockedFrames = sum.partialValue
         }
         let lockedProduct = Int64(lockedFrames).multipliedReportingOverflow(by: lock.frameDuration.numerator)
+        guard channels.durationSeconds.isFinite else {
+            throw TreatmentAdmissionError.effectPlanRejected("construction duration is not finite")
+        }
+        let emittedFrames = NativeFCPXMLFrameRate.thirty.frames(seconds: channels.durationSeconds)
+        let emittedDuration = RationalTime(Int64(emittedFrames), Int64(NativeFCPXMLFrameRate.thirty.framesPerSecond))
         guard !frameCountOverflowed, !lockedProduct.overflow,
-              let emittedDuration = exactDecimalDuration(channels.durationSeconds),
               RationalTime(lockedProduct.partialValue, lock.frameDuration.denominator) == emittedDuration else {
             let lockedDuration = frameCountOverflowed || lockedProduct.overflow
                 ? "unrepresentable"
@@ -479,45 +483,6 @@ public struct TreatmentAdmission: Sendable {
         channels.overlay == nil && isBoundedCRTBase(channels)
     }
 
-    /// Converts the channel's serialised duration to an exact base-10 rational
-    /// without multiplying or rounding a `Double` into frames.  The shortest
-    /// Swift representation is bounded to a small decimal exponent; values
-    /// outside Int64 range simply fail admission.
-    private func exactDecimalDuration(_ value: Double) -> RationalTime? {
-        guard value.isFinite, value >= 0 else { return nil }
-        var text = String(value)
-        var exponent = 0
-        if let marker = text.firstIndex(where: { $0 == "e" || $0 == "E" }) {
-            exponent = Int(text[text.index(after: marker)...]) ?? 0
-            text = String(text[..<marker])
-        }
-        let negative = text.hasPrefix("-")
-        if negative { text.removeFirst() }
-        let parts = text.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count <= 2 else { return nil }
-        let whole = String(parts.first ?? "")
-        let fraction = parts.count == 2 ? String(parts[1]) : ""
-        let digits = whole + fraction
-        guard !digits.isEmpty, let unsigned = Int64(digits) else { return nil }
-        let signed = negative ? -unsigned : unsigned
-        let decimalPlaces = fraction.count - exponent
-        if decimalPlaces >= 0 {
-            guard decimalPlaces < 19 else { return nil }
-            return RationalTime(signed, Int64.pow10(decimalPlaces))
-        }
-        let multiplier = Int64.pow10(-decimalPlaces)
-        let product = signed.multipliedReportingOverflow(by: multiplier)
-        return product.overflow ? nil : RationalTime(product.partialValue)
-    }
-}
-
-private extension Int64 {
-    static func pow10(_ exponent: Int) -> Int64 {
-        guard exponent >= 0 && exponent < 19 else { return 0 }
-        var result: Int64 = 1
-        for _ in 0..<exponent { result *= 10 }
-        return result
-    }
 }
 
 /// The sole safe hand-off to preview, compare, refine, package, or export.

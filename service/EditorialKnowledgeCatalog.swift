@@ -143,10 +143,10 @@ public struct EditorialKnowledgeCatalog: Sendable {
 
     private static func isVerifiedRepositoryEvidence(_ sourceID: String, relativeTo directory: URL) -> Bool {
         guard sourceID.hasPrefix("docs/") else { return false }
-        let root = directory.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL
-        let docsRoot = root.appendingPathComponent("docs", isDirectory: true).standardizedFileURL
-        let candidate = root.appendingPathComponent(sourceID).standardizedFileURL
-        guard candidate.path.hasPrefix(docsRoot.path + "/") else { return false }
+        let root = directory.deletingLastPathComponent().deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
+        let docsRoot = root.appendingPathComponent("docs", isDirectory: true).resolvingSymlinksInPath().standardizedFileURL
+        let candidate = root.appendingPathComponent(sourceID).resolvingSymlinksInPath().standardizedFileURL
+        guard docsRoot.path.hasPrefix(root.path + "/"), candidate.path.hasPrefix(docsRoot.path + "/") else { return false }
         let values = try? candidate.resourceValues(forKeys: [.isRegularFileKey])
         return values?.isRegularFile == true
     }

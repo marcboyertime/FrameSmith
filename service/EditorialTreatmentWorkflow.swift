@@ -57,6 +57,11 @@ public struct EditorialTreatmentWorkflow {
         public var applied: AdmittedTreatmentExecution?
         public var comparisonIDs: [String] = []
         public var history: [AdmittedTreatmentExecution] = []
+        /// Candidates the generator considered but admission refused.  Keep
+        /// these alongside generator rejections so a short list is explained,
+        /// rather than silently discarding a duration-locked construction.
+        public var rejected: [RejectedCandidate] = []
+        public var shortfallExplanation: String?
         public var invalidationReason: String?
         public init() {}
     }
@@ -81,6 +86,7 @@ public struct EditorialTreatmentWorkflow {
         guard let snapshot = state.snapshot, snapshot != current else { return nil }
         let reason = driftReason(snapshot, current)
         state.options = [:]; state.applied = nil; state.comparisonIDs = []; state.history = []
+        state.rejected = []; state.shortfallExplanation = nil
         state.snapshot = nil; state.lock = nil; state.invalidationReason = reason
         return reason
     }
@@ -93,6 +99,10 @@ public struct EditorialTreatmentWorkflow {
         durationFrames: Int?,
         basePlans: [EffectID: EffectPlan]
     ) throws -> [AdmittedTreatmentExecution] {
+        // A new generation attempt must never leave an old authoritative
+        // option set usable.  The successful result replaces this cleared
+        // state in one assignment below; validation failures stay empty.
+        state = State()
         guard let frames = durationFrames, frames > 0 else { throw EditorialTreatmentWorkflowError.durationRequired }
         guard let primary = media[.primary], primary.kind == .still else { throw EditorialTreatmentWorkflowError.unsupportedScope("add one admitted still as Primary") }
         guard media[.outgoing] == nil, media[.incoming] == nil else { throw EditorialTreatmentWorkflowError.unsupportedScope("outgoing and incoming clips are not supported in this first still-only release") }
@@ -102,14 +112,46 @@ public struct EditorialTreatmentWorkflow {
         let set = generator.generate(lock: lock, media: media, intent: TreatmentIntent(originalWording: command.isEmpty ? "surprise me" : command, intensity: .restrained), basePlans: basePlans)
         let admission = TreatmentAdmission(lock: lock, catalog: catalog, admittedCapabilities: admittedCapabilities, registry: registry, treatmentContractValidator: treatmentContractValidator)
         var admitted: [AdmittedTreatmentExecution] = []
+        var rejected = set.rejected
         for option in set.options {
-            // Generation only publishes admitted constructions.  Do not turn a
-            // bad focal/rotation recipe into an invisible missing option.
-            admitted.append(try admission.admit(option, currentStructure: lock, media: media, impactEvidence: []))
+            // A candidate may carry a fixed or unsupported duration (for
+            // example the measured 4-second CRT base) while another candidate
+            // exactly matches the director's lock. Admit each independently:
+            // one refusal is evidence for a shortfall, never a reason to
+            // discard a valid treatment set.
+            do {
+                admitted.append(try admission.admit(option, currentStructure: lock, media: media, impactEvidence: []))
+            } catch {
+                rejected.append(.init(name: option.name, reason: .techniqueUnavailable("admission refused: \(error.localizedDescription)")))
+            }
         }
-        state.snapshot = current; state.lock = lock; state.options = Dictionary(uniqueKeysWithValues: admitted.map { ($0.treatment.optionID, $0) })
-        state.applied = nil; state.comparisonIDs = []; state.history = []; state.invalidationReason = admitted.isEmpty ? (set.shortfallExplanation ?? "No option could be admitted for this still.") : nil
+        let shortfall = admissionShortfall(
+            count: admitted.count,
+            generatorExplanation: set.shortfallExplanation,
+            rejected: rejected
+        )
+        var replacement = State()
+        replacement.snapshot = current
+        replacement.lock = lock
+        replacement.options = Dictionary(uniqueKeysWithValues: admitted.map { ($0.treatment.optionID, $0) })
+        replacement.rejected = rejected
+        replacement.shortfallExplanation = shortfall
+        replacement.invalidationReason = admitted.isEmpty ? (shortfall ?? "No option could be admitted for this still.") : nil
+        state = replacement
         return admitted
+    }
+
+    private func admissionShortfall(count: Int, generatorExplanation: String?, rejected: [RejectedCandidate]) -> String? {
+        guard count < 3 else { return nil }
+        let admissionRefusals = rejected.filter {
+            if case .techniqueUnavailable(let detail) = $0.reason { return detail.hasPrefix("admission refused:") }
+            return false
+        }
+        if !admissionRefusals.isEmpty {
+            let names = admissionRefusals.map(\.name).sorted().joined(separator: ", ")
+            return "Showing \(count) options rather than 3 because \(names) could not be admitted against the director-locked duration. Padding the list with near-duplicates would waste your attention."
+        }
+        return generatorExplanation ?? "Showing \(count) options rather than 3 because no additional candidate was safely available. Padding the list with near-duplicates would waste your attention."
     }
 
     /// Re-admits this exact artifact before every action. A caller gets a new

@@ -394,7 +394,7 @@ public struct TreatmentOptionGenerator: Sendable {
             // a generic seed plan. This is the actual targeted-transform
             // control set the admitted emitter consumes.
             plan.parameters = [
-                "durationSeconds": .number(4), "scaleStart": .number(1),
+                "durationSeconds": plan.parameters["durationSeconds"] ?? .number(4), "scaleStart": .number(1),
                 "scaleEnd": .number(anchor == .quiet ? 1.08 : (anchor == .expressive ? 1.16 : 1.24)),
                 "rotationStartDegrees": .number(0), "rotationEndDegrees": .number(anchor == .quiet ? 3 : (anchor == .expressive ? 6 : 9)),
                 // Positive Final Cut rotation is counterclockwise.  Keeping

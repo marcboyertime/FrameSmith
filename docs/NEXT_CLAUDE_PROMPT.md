@@ -339,7 +339,7 @@ Cheap, and worth closing when convenient rather than never:
 
 - **Continuity checks** after code changes: `git status --short`,
   `swift build`, `swift test`, `make test`, `git diff --check`.
-- Current checkpoint: **324 tests, 0 failures**; core audit
+- Current checkpoint: **326 tests, 0 failures**; core audit
   `registry=4 schema=json-ok strict-cards=valid treatment-contract=strict
   forbidden-patterns=0 cards=15 (reference_only=10 validated=5)`.
   Verify current Git state rather than assuming a clean worktree.

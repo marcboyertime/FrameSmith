@@ -181,6 +181,12 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         XCTAssertThrowsError(try EditorialKnowledgeCatalog.load(from: cards, knownSourceIDs: ["SENTINEL"])) { error in
             guard case EditorialKnowledgeCatalogError.unknownSource = error else { return XCTFail("wrong error \(error)") }
         }
+        let escaped = docs.appendingPathComponent("escaped.md")
+        try FileManager.default.createSymbolicLink(at: escaped, withDestinationURL: root.appendingPathComponent("README.md"))
+        try writeWithSource("docs/editorial-intelligence/escaped.md")
+        XCTAssertThrowsError(try EditorialKnowledgeCatalog.load(from: cards, knownSourceIDs: ["SENTINEL"])) { error in
+            guard case EditorialKnowledgeCatalogError.unknownSource = error else { return XCTFail("wrong error \(error)") }
+        }
     }
 
     // MARK: - Executability

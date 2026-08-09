@@ -41,7 +41,7 @@ image-quality bakeoff has been run.
 ## Current implementation checkpoint
 
 Phase 1 is complete at the current repository checkpoint. `swift test`
-reports **324 tests, 0 failures**; `make test` reports
+reports **326 tests, 0 failures**; `make test` reports
 `core audit: registry=4 schema=json-ok strict-cards=valid treatment-contract=strict
 forbidden-patterns=0 cards=15 (reference_only=10 validated=5)`.
 `swift build -c release` also passes. The installed app was rebuilt/reinstalled

@@ -263,10 +263,12 @@ final class EditorialStructureLockTests: XCTestCase {
         XCTAssertEqual(RationalTime(2, 4), RationalTime(1, 2))
         XCTAssertEqual(RationalTime(Int64.min, -1), RationalTime(0), "a nonthrowing initializer canonicalizes an unrepresentable ratio safely")
         XCTAssertEqual(RationalTime(1, Int64.min), RationalTime(0), "a nonthrowing initializer canonicalizes an unrepresentable denominator safely")
+        XCTAssertEqual(RationalTime(0, Int64.min), RationalTime(0), "zero remains representable even with an extreme denominator")
         XCTAssertEqual(RationalTime(Int64.min, Int64.min), RationalTime(1), "the representable reduced form must survive Int64.min magnitudes")
         XCTAssertThrowsError(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":1,\"denominator\":0}".utf8)))
         XCTAssertThrowsError(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":-9223372036854775808,\"denominator\":-1}".utf8)))
         XCTAssertThrowsError(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":1,\"denominator\":-9223372036854775808}".utf8)))
+        XCTAssertEqual(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":0,\"denominator\":-9223372036854775808}".utf8)), RationalTime(0))
         XCTAssertEqual(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":-9223372036854775808,\"denominator\":-9223372036854775808}".utf8)), RationalTime(1))
     }
 

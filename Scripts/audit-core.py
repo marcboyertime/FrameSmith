@@ -83,7 +83,13 @@ for path in cards:
             raise SystemExit(f"{card['id']} cites {entry.get('sourceId')} without a specific claim")
         source_id = entry.get("sourceId", "")
         evidence = (root / source_id).resolve()
-        if source_id not in source_ids and not (source_id.startswith("docs/") and evidence.is_file() and docs_root in evidence.parents):
+        try:
+            evidence.relative_to(docs_root)
+            docs_root.relative_to(root)
+            is_repository_evidence = source_id.startswith("docs/") and evidence.is_file()
+        except ValueError:
+            is_repository_evidence = False
+        if source_id not in source_ids and not is_repository_evidence:
             raise SystemExit(f"{card['id']} cites unverified source {source_id}")
     validation = card["validation"]
     for required_field in ("refusalConditions", "safety", "expectedCost"):

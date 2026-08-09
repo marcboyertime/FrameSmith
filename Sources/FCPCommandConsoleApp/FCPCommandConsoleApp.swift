@@ -275,7 +275,7 @@ private final class AppModel: ObservableObject {
             var workflow = try editorialWorkflow()
             let admitted = try workflow.generate(state: &editorialState, command: command, media: currentMediaRoles(), target: target, durationFrames: positiveEditorialDurationFrames, basePlans: candidatePlans(forDurationFrames: positiveEditorialDurationFrames))
             admittedTreatmentOptions = editorialState.options
-            treatmentOptions = TreatmentOptionSet(options: admitted.map(\.treatment), rejected: [], structureFingerprint: editorialState.lock?.fingerprint ?? "", shortfallExplanation: editorialState.invalidationReason)
+            treatmentOptions = TreatmentOptionSet(options: admitted.map(\.treatment), rejected: editorialState.rejected, structureFingerprint: editorialState.lock?.fingerprint ?? "", shortfallExplanation: editorialState.shortfallExplanation)
             comparisonOptionIDs = []; treatmentHistory = []
             if admitted.isEmpty { noticeMessage = editorialState.invalidationReason ?? "No treatment can run on this media yet." }
         } catch {
@@ -353,10 +353,17 @@ private final class AppModel: ObservableObject {
         var plans: [EffectID: EffectPlan] = [:]
         guard let durationFrames else { return [:] }
         for effect in EffectID.allCases {
+            let request: String
+            switch effect {
+            case .livingStill:
+                request = "Make this a living still for \(Double(durationFrames) / 30.0) seconds."
+            case .targetedRotateZoom:
+                request = "Use a targeted rotate and zoom for \(Double(durationFrames) / 30.0) seconds."
+            default:
+                request = defaultRequest(for: effect)
+            }
             if let planned = try? session.plan(
-                request: effect == .livingStill
-                    ? "Make this a living still for \(Double(durationFrames) / 30.0) seconds."
-                    : defaultRequest(for: effect),
+                request: request,
                 primary: primary, outgoing: outgoing, incoming: incoming, target: target
             ) {
                 plans[effect] = planned.plan

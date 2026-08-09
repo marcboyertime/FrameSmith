@@ -122,7 +122,7 @@ transition.
 
 ## Verification summary
 
-- `make test`: **324 tests passed**, zero failures.
+- `make test`: **326 tests passed**, zero failures.
 - `scripts/audit-core.py`: registry 4, strict treatment contract, 15 valid
   cards, 5 validated, 10 reference-only, zero forbidden patterns.
 - Release Swift build: passed.

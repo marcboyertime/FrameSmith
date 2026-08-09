@@ -36,6 +36,9 @@ public struct RationalTime: Codable, Equatable, Sendable, Hashable, Comparable {
     private static func gcd(_ a: UInt64, _ b: UInt64) -> UInt64 { b == 0 ? max(1, a) : gcd(b, a % b) }
     private static func normalized(_ numerator: Int64, _ denominator: Int64) -> (numerator: Int64, denominator: Int64)? {
         guard denominator != 0 else { return nil }
+        // Zero has the single canonical representation regardless of the
+        // denominator magnitude, including Int64.min.
+        if numerator == 0 { return (0, 1) }
         let divisor = gcd(magnitude(numerator), magnitude(denominator))
         // `Int64.min / Int64.min` is exactly one, even though its unsigned
         // common divisor is one larger than Int64.max.
