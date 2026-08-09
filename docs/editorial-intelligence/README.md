@@ -34,7 +34,8 @@ Those actions require a separate, explicit user request. See
 
 “Surprise Me” is a bounded treatment generator. It preserves the user's selected
 media, ordering, edit points, durations, sync, and protected regions, then
-creates three meaningfully different treatment options. Each option must be:
+creates up to three meaningfully different treatment options. It may return
+fewer when semantic diversity cannot be established honestly. Each option must be:
 
 - executable with the current admitted capabilities;
 - previewable before export;
@@ -43,7 +44,7 @@ creates three meaningfully different treatment options. Each option must be:
 - different in creative treatment, not merely a random seed;
 - individually revisable without disturbing the locked editorial structure.
 
-The default three-option spread is:
+The default up-to-three-option spread is:
 
 1. **Quiet / Cinematic** — restrained, motivated, nearly invisible craft.
 2. **Expressive / Thematic** — stronger visual metaphor and atmosphere.
@@ -59,7 +60,7 @@ actual media and direction.
 - `knowledge/EDITORIAL_PLAYBOOK.md` — distilled professional craft principles.
 - `knowledge/EFFECT_DECISION_SYSTEM.md` — how to turn intent and media evidence
   into treatments without taking over the edit.
-- `knowledge/SURPRISE_ME_DESIGN.md` — three-option generation, diversity, safety,
+- `knowledge/SURPRISE_ME_DESIGN.md` — up-to-three-option generation, semantic diversity, safety,
   and UX rules.
 - `knowledge/QUALITY_RUBRIC.md` — visual, sonic, technical, and honesty gates.
 - `knowledge/TECHNIQUE_CARD_SCHEMA.md` — machine-usable knowledge-card format.
@@ -106,7 +107,6 @@ Once that prerequisite is complete, integrate this pack as the foundation for:
 
 1. provenance-bearing technique cards;
 2. treatment planning under locked editorial structure;
-3. three-option “Surprise Me” generation;
+3. up-to-three-option “Surprise Me” generation;
 4. effect-by-effect visual bakeoffs and capability expansion;
 5. feedback/history that learns the user's taste without taking away control.
-

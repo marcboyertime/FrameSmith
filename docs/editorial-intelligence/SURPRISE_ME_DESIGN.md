@@ -1,10 +1,10 @@
-# “Surprise Me” — Bounded Three-Treatment Design
+# “Surprise Me” — Bounded Up-to-Three Treatment Design
 
 ## Product promise
 
 The user supplies the clips and their order. “Surprise Me” answers:
 
-> Given this exact editorial structure, what are three excellent ways to treat
+> Given this exact editorial structure, what are up to three excellent ways to treat
 > this moment?
 
 It does not answer:
@@ -13,7 +13,7 @@ It does not answer:
 
 ## Invariants
 
-All three options must share an identical `EditorialStructureLock`:
+Every displayed option must share an identical `EditorialStructureLock`:
 
 - same media identities;
 - same clip order;
@@ -36,7 +36,7 @@ too similar to one another.
 
 ### Step 2 — establish adaptive anchors
 
-Use three default anchors, adapted to the moment:
+Use up to three default anchors, adapted to the moment:
 
 1. **Quiet / Cinematic**
    - minimal intervention;
@@ -56,7 +56,7 @@ Use three default anchors, adapted to the moment:
    - must remain professional, revisable, and honest about artifacts/cost.
 
 For a naturally quiet or sacred moment, even the “Bold” option may be subtle.
-For a chaotic or comic moment, all three may be energetic. Diversity should be
+For a chaotic or comic moment, every displayed option may be energetic. Diversity should be
 relative to the content, not a fixed intensity slider.
 
 ### Step 3 — enforce meaningful difference
@@ -126,7 +126,7 @@ It must not silently override the request. Record tendencies such as:
 - often removes excessive bloom;
 - prefers integrated serif typography;
 
-Use these as ranking priors, and keep the three options diverse enough to avoid
+Use these as ranking priors, and keep the displayed options diverse enough to avoid
 trapping the user in a feedback loop.
 
 ## Failure behavior
@@ -137,4 +137,3 @@ If fewer than three genuinely distinct executable treatments exist:
 - state why the set is smaller;
 - do not pad the UI with fake variants;
 - identify the missing capability that would unlock a stronger third option.
-

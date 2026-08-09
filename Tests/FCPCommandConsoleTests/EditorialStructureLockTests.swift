@@ -262,6 +262,8 @@ final class EditorialStructureLockTests: XCTestCase {
         XCTAssertTrue(RationalTime(Int64.min + 1, Int64.max - 1) < RationalTime(-1, 1))
         XCTAssertEqual(RationalTime(2, 4), RationalTime(1, 2))
         XCTAssertThrowsError(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":1,\"denominator\":0}".utf8)))
+        XCTAssertThrowsError(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":-9223372036854775808,\"denominator\":-1}".utf8)))
+        XCTAssertThrowsError(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":1,\"denominator\":-9223372036854775808}".utf8)))
     }
 
     func testFrameCountsMustExactlyAgreeWithRationalClipTimingAndFrameDuration() {

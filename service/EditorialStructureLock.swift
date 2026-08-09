@@ -24,8 +24,22 @@ public struct RationalTime: Codable, Equatable, Sendable, Hashable, Comparable {
     private enum CodingKeys: String, CodingKey { case numerator, denominator }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); let n = try c.decode(Int64.self, forKey: .numerator); let d = try c.decode(Int64.self, forKey: .denominator)
-        guard d != 0 else { throw DecodingError.dataCorruptedError(forKey: .denominator, in: c, debugDescription: "rational denominator cannot be zero") }
-        let sign: Int64 = d < 0 ? -1 : 1; let divisor = RationalTime.gcd(RationalTime.magnitude(n), RationalTime.magnitude(d)); numerator = (n / Int64(divisor)) * sign; denominator = (d / Int64(divisor)) * sign
+        guard d != 0, d != Int64.min else {
+            throw DecodingError.dataCorruptedError(forKey: .denominator, in: c, debugDescription: "rational denominator must have a representable positive magnitude")
+        }
+        let sign: Int64 = d < 0 ? -1 : 1
+        let divisor = RationalTime.gcd(RationalTime.magnitude(n), RationalTime.magnitude(d))
+        guard divisor <= UInt64(Int64.max) else {
+            throw DecodingError.dataCorruptedError(forKey: .denominator, in: c, debugDescription: "rational divisor is not representable")
+        }
+        let divisor64 = Int64(divisor)
+        let normalizedNumerator = (n / divisor64).multipliedReportingOverflow(by: sign)
+        let normalizedDenominator = (d / divisor64).multipliedReportingOverflow(by: sign)
+        guard !normalizedNumerator.overflow, !normalizedDenominator.overflow else {
+            throw DecodingError.dataCorruptedError(forKey: .numerator, in: c, debugDescription: "rational normalization overflows Int64")
+        }
+        numerator = normalizedNumerator.partialValue
+        denominator = normalizedDenominator.partialValue
     }
     private static func magnitude(_ value: Int64) -> UInt64 { value < 0 ? (~UInt64(bitPattern: value)) &+ 1 : UInt64(value) }
     private static func gcd(_ a: UInt64, _ b: UInt64) -> UInt64 { b == 0 ? max(1, a) : gcd(b, a % b) }

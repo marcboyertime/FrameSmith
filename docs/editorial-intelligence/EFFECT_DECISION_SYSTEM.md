@@ -94,7 +94,7 @@ A candidate is executable only if:
 
 Never surface an attractive but nonfunctional treatment as though it were ready.
 Unsupported ideas may appear separately as “not available yet,” not among the
-three primary Surprise Me options.
+up-to-three primary Surprise Me options.
 
 ## Ranking
 
@@ -114,8 +114,9 @@ quality can be reduced to a universal scalar, but use consistent factors:
 - requested editability strategy;
 - redundancy with other candidates.
 
-The highest raw score does not automatically produce all three options. Use
-diversity selection after quality gating.
+The highest raw score does not automatically produce three options. Use
+semantic-dimension diversity selection after quality gating; return fewer when
+the available constructions do not make honest alternatives.
 
 ## Revision
 
@@ -136,4 +137,3 @@ When the ideal treatment cannot be executed:
 3. choose the strongest admitted fallback;
 4. explain the visual compromise in one sentence;
 5. never fake support with a disconnected preview.
-

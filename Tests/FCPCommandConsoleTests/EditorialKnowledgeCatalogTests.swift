@@ -155,6 +155,34 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         }
     }
 
+    func testRepositoryEvidenceRejectsTraversalAndDirectories() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cards = root.appendingPathComponent("registry/editorial-techniques", isDirectory: true)
+        let docs = root.appendingPathComponent("docs/editorial-intelligence", isDirectory: true)
+        try FileManager.default.createDirectory(at: cards, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("not provenance".utf8).write(to: root.appendingPathComponent("README.md"))
+
+        let original = try Data(contentsOf: cardsDirectory.appendingPathComponent("motion.opacity.fade.v1.json"))
+        func writeWithSource(_ sourceID: String) throws {
+            var card = try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? [String: Any])
+            card["id"] = "motion.repository.evidence.v1"
+            var provenance = try XCTUnwrap(card["provenance"] as? [[String: Any]])
+            for index in provenance.indices { provenance[index]["sourceId"] = sourceID }
+            card["provenance"] = provenance
+            try JSONSerialization.data(withJSONObject: card).write(to: cards.appendingPathComponent("card.json"))
+        }
+        try writeWithSource("docs/../README.md")
+        XCTAssertThrowsError(try EditorialKnowledgeCatalog.load(from: cards, knownSourceIDs: ["SENTINEL"])) { error in
+            guard case EditorialKnowledgeCatalogError.unknownSource = error else { return XCTFail("wrong error \(error)") }
+        }
+        try writeWithSource("docs/editorial-intelligence")
+        XCTAssertThrowsError(try EditorialKnowledgeCatalog.load(from: cards, knownSourceIDs: ["SENTINEL"])) { error in
+            guard case EditorialKnowledgeCatalogError.unknownSource = error else { return XCTFail("wrong error \(error)") }
+        }
+    }
+
     // MARK: - Executability
 
     func testReferenceOnlyAndUnsupportedCardsCanNeverBecomeExecutable() throws {

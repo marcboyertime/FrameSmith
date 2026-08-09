@@ -32,6 +32,7 @@ source_ids = {
     for line in (root / "docs/editorial-intelligence/sources.csv").read_text().splitlines()[1:]
     if line.strip()
 }
+docs_root = (root / "docs").resolve()
 seen_ids = set()
 statuses = {}
 
@@ -82,7 +83,7 @@ for path in cards:
             raise SystemExit(f"{card['id']} cites {entry.get('sourceId')} without a specific claim")
         source_id = entry.get("sourceId", "")
         evidence = (root / source_id).resolve()
-        if source_id not in source_ids and not (source_id.startswith("docs/") and evidence.is_file() and root in evidence.parents):
+        if source_id not in source_ids and not (source_id.startswith("docs/") and evidence.is_file() and docs_root in evidence.parents):
             raise SystemExit(f"{card['id']} cites unverified source {source_id}")
     validation = card["validation"]
     for required_field in ("refusalConditions", "safety", "expectedCost"):

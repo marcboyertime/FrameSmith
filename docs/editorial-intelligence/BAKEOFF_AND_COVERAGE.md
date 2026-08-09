@@ -24,9 +24,9 @@ viewed on the shared time control.
 
 | Class | Source | Observed result |
 | --- | --- | --- |
-| Portrait + hair detail | `01_close_portrait_hair_detail.jpg` | three-option comparison; no masking claim, no obvious halo/warp in native treatments |
+| Portrait + hair detail | `01_close_portrait_hair_detail.jpg` | historic up-to-three-option comparison; no masking claim, no obvious halo/warp in native treatments |
 | Painting | `Marc_mushroom_queen_…png` | two genuine choices for the wording; source composition remained intact |
-| Landscape with depth | `landscape-sonoma.png` | three choices; quiet push is a uniform affine move, not synthetic parallax |
+| Landscape with depth | `landscape-sonoma.png` | historic up-to-three-choice comparison; quiet push is a uniform affine move, not synthetic parallax |
 | Architecture/grid | `architecture-grid.png` | straight lines remained straight; no distortion or masking route was used |
 | Difficult fine edges | `organic-strands.png` | thin strands remained continuous; no edge-aware treatment claim was made |
 

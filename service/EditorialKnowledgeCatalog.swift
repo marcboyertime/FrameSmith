@@ -144,9 +144,11 @@ public struct EditorialKnowledgeCatalog: Sendable {
     private static func isVerifiedRepositoryEvidence(_ sourceID: String, relativeTo directory: URL) -> Bool {
         guard sourceID.hasPrefix("docs/") else { return false }
         let root = directory.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL
+        let docsRoot = root.appendingPathComponent("docs", isDirectory: true).standardizedFileURL
         let candidate = root.appendingPathComponent(sourceID).standardizedFileURL
-        guard candidate.path.hasPrefix(root.path + "/") else { return false }
-        return FileManager.default.fileExists(atPath: candidate.path)
+        guard candidate.path.hasPrefix(docsRoot.path + "/") else { return false }
+        let values = try? candidate.resourceValues(forKeys: [.isRegularFileKey])
+        return values?.isRegularFile == true
     }
     private static func validateStrictSemantics(_ card: TechniqueCard) throws {
         func fail(_ detail: String) throws { throw EditorialKnowledgeCatalogError.strictSchemaViolation(cardID: card.id, detail: detail) }

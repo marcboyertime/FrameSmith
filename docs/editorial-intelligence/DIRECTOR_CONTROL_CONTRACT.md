@@ -102,9 +102,8 @@ Any violation is a blocker, not a warning.
 Use language that reinforces control:
 
 - “I kept your clips and timing exactly as provided.”
-- “These three options change only the treatment.”
+- “These options change only the treatment.”
 - “This transition needs more source handle; your edit point will not move.”
 - “This stronger reframing would crop the subject. I left it out.”
 
 Never imply that FrameSmith improved the story by silently changing the edit.
-

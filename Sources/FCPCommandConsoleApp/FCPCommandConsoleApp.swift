@@ -114,9 +114,35 @@ private final class AppModel: ObservableObject {
         let current = workflow.snapshot(command: command, media: currentMediaRoles(), target: target, durationFrames: positiveEditorialDurationFrames)
         var checking = workflow
         if let reason = checking.invalidateIfDrifted(&editorialState, current: current) {
-            admittedTreatmentOptions = [:]; treatmentOptions = nil; appliedTreatment = nil; comparisonOptionIDs = []; treatmentHistory = []
+            synchronizeEditorialMirrors()
             result = nil; previewChannels = nil; package = nil; exportedProject = nil
             noticeMessage = "Editorial treatment invalidated because \(reason)."
+        }
+    }
+
+    /// The workflow state is authoritative.  Keep every UI-facing mirror in
+    /// lockstep after any action that can re-admit or evict an artifact; a
+    /// comparison failure must not leave an old option card or applied badge
+    /// pointing at an execution the workflow has already cleared.
+    private func synchronizeEditorialMirrors() {
+        admittedTreatmentOptions = editorialState.options
+        comparisonOptionIDs = editorialState.comparisonIDs
+        treatmentHistory = editorialState.history
+        appliedTreatment = editorialState.applied?.treatment
+        if let existing = treatmentOptions {
+            let visible = existing.options.filter { editorialState.options[$0.optionID] != nil }
+            treatmentOptions = visible.isEmpty
+                ? nil
+                : TreatmentOptionSet(
+                    options: visible,
+                    rejected: existing.rejected,
+                    structureFingerprint: editorialState.lock?.fingerprint ?? existing.structureFingerprint,
+                    shortfallExplanation: editorialState.invalidationReason ?? existing.shortfallExplanation
+                )
+        }
+        if editorialState.applied == nil {
+            isRefiningTreatment = false
+            previewChannels = nil
         }
     }
 
@@ -373,9 +399,12 @@ private final class AppModel: ObservableObject {
                 current: current,
                 media: media
             )
-            comparisonOptionIDs = editorialState.comparisonIDs
+            synchronizeEditorialMirrors()
         }
-        catch { errorMessage = error.localizedDescription }
+        catch {
+            synchronizeEditorialMirrors()
+            errorMessage = error.localizedDescription
+        }
     }
 
     func restoreTreatment(_ index: Int) {

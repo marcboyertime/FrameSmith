@@ -312,6 +312,11 @@ public struct TreatmentOptionGenerator: Sendable {
         // Preserve the director's exact wording all the way into execution and
         // export provenance instead of leaking the seed effect phrase.
         plan.originalRequest = intent.originalWording
+        // A SelectionToken's default tokenID is an observation/session nonce,
+        // not a creative proposal input.  Replace it with a stable digest of
+        // every other encoded selection field so independently constructed but
+        // equivalent plans serialize to the same proposal artifact.
+        plan.selectionToken.tokenID = proposalTokenID(for: plan.selectionToken)
         // A treatment option is a proposal, not an execution. Preserve the
         // template operation ID and vary only real, registry-backed parameters.
         applyConstructionOverrides(to: &plan, card: card, anchor: anchor)
@@ -345,6 +350,15 @@ public struct TreatmentOptionGenerator: Sendable {
             techniqueCardVersions: [card.id: card.version],
             constructionSignature: TreatmentIdentity.constructionSignature(for: plan)
         )
+    }
+
+    private func proposalTokenID(for token: SelectionToken) -> String {
+        var canonical = token
+        canonical.tokenID = ""
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let payload = (try? encoder.encode(canonical)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        return "proposal-selection-\(TreatmentIdentity.digest([payload]))"
     }
 
     /// Overrides are deliberately limited to keys that actually exist in the

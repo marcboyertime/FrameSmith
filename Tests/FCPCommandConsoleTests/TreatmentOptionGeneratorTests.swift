@@ -124,6 +124,16 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
         XCTAssertEqual(first.options.map(\.optionID), second.options.map(\.optionID))
     }
 
+    func testIndependentEquivalentPlansEncodeAsIdenticalFullTreatmentArtifacts() throws {
+        let assets = [still("a", digest: "a")]
+        let locked = lock(assets)
+        let first = try generator().generate(lock: locked, media: [.primary: assets[0]], intent: intent("quiet cinematic"), basePlans: try basePlans(for: assets), seed: 44)
+        let second = try generator().generate(lock: locked, media: [.primary: assets[0]], intent: intent("quiet cinematic"), basePlans: try basePlans(for: assets), seed: 44)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        XCTAssertEqual(try encoder.encode(first.options), try encoder.encode(second.options))
+    }
+
     // MARK: - Diversity, not padding
 
     /// Two options that differ on fewer than two dimensions are the same idea

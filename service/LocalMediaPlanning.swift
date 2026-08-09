@@ -179,7 +179,7 @@ public struct LocalMediaPlannerSession {
         primary: LocalMediaAsset?, outgoing: LocalMediaAsset?, incoming: LocalMediaAsset?, target: Target?
     ) throws -> LocalMediaPlanningResult {
         let selection = try LocalMediaSelection(effectID: exactPlan.effectID, primary: primary, outgoing: outgoing, incoming: incoming)
-        guard selection.token == exactPlan.selectionToken else {
+        guard selectionMatchesExactPlan(selection.token, exactPlan.selectionToken) else {
             throw PlannerError.invalidSelection("The exact treatment plan no longer matches the admitted local media")
         }
         guard exactPlan.normalizedPoint == target else {
@@ -196,5 +196,21 @@ public struct LocalMediaPlannerSession {
         else if let evidence = AdmittedLocalMediaEvidence(admittedAssets: assets) { standalone = capabilityGate.decision(for: admission, capability: .standaloneFCPXMLExport, mediaEvidence: evidence) }
         else { standalone = .init(capability: .standaloneFCPXMLExport, allowed: false, reason: "No admitted local media to generate a project from") }
         return LocalMediaPlanningResult(plan: exactPlan, admission: admission, selection: selection, inputs: LocalMediaPlanInputs(request: request, target: target, primary: primary, outgoing: outgoing, incoming: incoming), localPreviewDecision: capabilityGate.decision(for: admission, capability: .localOnlyPreview), inertPackageDecision: capabilityGate.decision(for: admission, capability: .inertPayloadNeutralPackage), fcpxmlExportDecision: capabilityGate.decision(for: admission, capability: .fcpxmlExport), standaloneExportDecision: standalone, baselineParameters: exactPlan.parameters)
+    }
+
+    /// Proposal generation canonicalizes the session nonce in a local-media
+    /// token so the whole treatment artifact is reproducible.  That nonce is
+    /// not media identity or Final Cut evidence; for local media, compare the
+    /// complete remaining token payload.  Timeline-origin tokens retain their
+    /// exact tokenID binding and are never relaxed here.
+    private func selectionMatchesExactPlan(_ current: SelectionToken, _ proposed: SelectionToken) -> Bool {
+        guard current.origin == .localMedia, proposed.origin == .localMedia else {
+            return current == proposed
+        }
+        var currentCanonical = current
+        var proposedCanonical = proposed
+        currentCanonical.tokenID = ""
+        proposedCanonical.tokenID = ""
+        return currentCanonical == proposedCanonical
     }
 }

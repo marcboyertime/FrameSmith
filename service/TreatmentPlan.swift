@@ -248,6 +248,63 @@ public struct TreatmentPlan: Identifiable, Codable, Equatable, Sendable {
         self.constructionSignature = constructionSignature ?? TreatmentIdentity.constructionSignature(for: effectPlan)
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id, optionID, structureFingerprint, intent, name, idea, changes, preserved
+        case techniqueCardIDs, effectPlan, editability, previewFidelity, dimensions
+        case estimatedLatency, monetary, privacy, provenanceSummary, techniqueCardVersions
+        case constructionSignature
+    }
+
+    /// Set iteration is intentionally randomized by Swift.  Treatment options
+    /// are persisted and signed as whole artifacts, so encode semantic
+    /// dimensions in their stable wire order rather than accepting a
+    /// process-dependent `Set` representation.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(optionID, forKey: .optionID)
+        try container.encode(structureFingerprint, forKey: .structureFingerprint)
+        try container.encode(intent, forKey: .intent)
+        try container.encode(name, forKey: .name)
+        try container.encode(idea, forKey: .idea)
+        try container.encode(changes, forKey: .changes)
+        try container.encode(preserved, forKey: .preserved)
+        try container.encode(techniqueCardIDs, forKey: .techniqueCardIDs)
+        try container.encode(effectPlan, forKey: .effectPlan)
+        try container.encode(editability, forKey: .editability)
+        try container.encode(previewFidelity, forKey: .previewFidelity)
+        try container.encode(dimensions.sorted { $0.rawValue < $1.rawValue }, forKey: .dimensions)
+        try container.encode(estimatedLatency, forKey: .estimatedLatency)
+        try container.encode(monetary, forKey: .monetary)
+        try container.encode(privacy, forKey: .privacy)
+        try container.encode(provenanceSummary, forKey: .provenanceSummary)
+        try container.encode(techniqueCardVersions, forKey: .techniqueCardVersions)
+        try container.encode(constructionSignature, forKey: .constructionSignature)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        optionID = try container.decode(String.self, forKey: .optionID)
+        structureFingerprint = try container.decode(String.self, forKey: .structureFingerprint)
+        intent = try container.decode(TreatmentIntent.self, forKey: .intent)
+        name = try container.decode(String.self, forKey: .name)
+        idea = try container.decode(String.self, forKey: .idea)
+        changes = try container.decode([String].self, forKey: .changes)
+        preserved = try container.decode([String].self, forKey: .preserved)
+        techniqueCardIDs = try container.decode([String].self, forKey: .techniqueCardIDs)
+        effectPlan = try container.decode(EffectPlan.self, forKey: .effectPlan)
+        editability = try container.decode(TreatmentEditability.self, forKey: .editability)
+        previewFidelity = try container.decode(PreviewFidelity.self, forKey: .previewFidelity)
+        dimensions = Set(try container.decode([TreatmentDimension].self, forKey: .dimensions))
+        estimatedLatency = try container.decode(TechniqueCost.Latency.self, forKey: .estimatedLatency)
+        monetary = try container.decode(TechniqueCost.Monetary.self, forKey: .monetary)
+        privacy = try container.decode(TechniqueCost.Privacy.self, forKey: .privacy)
+        provenanceSummary = try container.decode([String].self, forKey: .provenanceSummary)
+        techniqueCardVersions = try container.decode([String: Int].self, forKey: .techniqueCardVersions)
+        constructionSignature = try container.decode(String.self, forKey: .constructionSignature)
+    }
+
     /// Revises one semantic dimension without disturbing the others.
     ///
     /// This is the point of keeping intent as separate fields: "less magical,
