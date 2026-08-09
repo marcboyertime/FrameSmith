@@ -27,8 +27,38 @@ card_properties = set(card_schema["properties"])
 rule_properties = set(card_schema["definitions"]["rule"]["properties"])
 risk_properties = set(card_schema["definitions"]["riskGate"]["properties"])
 cards = sorted((root / "registry/editorial-techniques").glob("*.json"))
+source_ids = {
+    line.split(",", 1)[0].strip('" ')
+    for line in (root / "docs/editorial-intelligence/sources.csv").read_text().splitlines()[1:]
+    if line.strip()
+}
 seen_ids = set()
 statuses = {}
+
+def reject_unknown_nested(value, schema, path):
+    """Walk only closed object shapes in the technique-card schema."""
+    if "$ref" in schema:
+        ref = schema["$ref"]
+        if not ref.startswith("#/definitions/"):
+            raise SystemExit(f"unsupported technique-card schema reference at {path}: {ref}")
+        schema = card_schema["definitions"][ref.rsplit("/", 1)[1]]
+    if schema.get("type") == "object":
+        if not isinstance(value, dict):
+            raise SystemExit(f"{path} is not an object")
+        properties = schema.get("properties", {})
+        if schema.get("additionalProperties") is False:
+            unknown = set(value) - set(properties)
+            if unknown:
+                raise SystemExit(f"{path} has unknown nested technique-card fields: {sorted(unknown)}")
+        for key, child in properties.items():
+            if key in value:
+                reject_unknown_nested(value[key], child, f"{path}.{key}")
+    elif schema.get("type") == "array" and isinstance(value, list):
+        item_schema = schema.get("items")
+        if item_schema:
+            for index, item in enumerate(value):
+                reject_unknown_nested(item, item_schema, f"{path}[{index}]")
+
 for path in cards:
     card = json.loads(path.read_text())
     missing = required - set(card)
@@ -37,6 +67,7 @@ for path in cards:
     unknown = set(card) - card_properties
     if unknown:
         raise SystemExit(f"{path.name} has unknown technique-card fields: {sorted(unknown)}")
+    reject_unknown_nested(card, card_schema, path.name)
     if card["id"] in seen_ids:
         raise SystemExit(f"duplicate technique card id: {card['id']}")
     seen_ids.add(card["id"])
@@ -49,6 +80,10 @@ for path in cards:
     for entry in card["provenance"]:
         if not entry.get("claim"):
             raise SystemExit(f"{card['id']} cites {entry.get('sourceId')} without a specific claim")
+        source_id = entry.get("sourceId", "")
+        evidence = (root / source_id).resolve()
+        if source_id not in source_ids and not (source_id.startswith("docs/") and evidence.is_file() and root in evidence.parents):
+            raise SystemExit(f"{card['id']} cites unverified source {source_id}")
     validation = card["validation"]
     for required_field in ("refusalConditions", "safety", "expectedCost"):
         if not card.get(required_field):

@@ -106,7 +106,10 @@ public struct TreatmentOptionGenerator: Sendable {
         self.catalog = catalog
         self.admittedCapabilities = admittedCapabilities
         self.approvedRiskCategories = approvedRiskCategories
-        self.maximumOptions = maximumOptions
+        // This is a product safety limit, not a caller preference.  A wider
+        // internal search is fine, but neither a UI nor a future caller may
+        // publish a fourth option.
+        self.maximumOptions = min(3, max(0, maximumOptions))
     }
 
     /// One internal candidate before ranking and diversity selection.
@@ -313,6 +316,10 @@ public struct TreatmentOptionGenerator: Sendable {
         // template operation ID and vary only real, registry-backed parameters.
         applyConstructionOverrides(to: &plan, card: card, anchor: anchor)
         let optionID = TreatmentIdentity.optionID(seed: seed, fingerprint: fingerprint, cardIDs: [card.id], plan: plan)
+        // Planning is reproducible and has no side effects.  The operation ID
+        // here is a stable proposal marker only; `selectingForExecution()` is
+        // the sole point that mints a fresh execution UUID.
+        plan.operationID = TreatmentIdentity.stableUUID(from: TreatmentIdentity.digest(["proposal-operation", optionID]))
 
         return TreatmentPlan(
             id: TreatmentIdentity.stableUUID(from: optionID), optionID: optionID,
@@ -376,7 +383,11 @@ public struct TreatmentOptionGenerator: Sendable {
                 "durationSeconds": .number(4), "scaleStart": .number(1),
                 "scaleEnd": .number(anchor == .quiet ? 1.08 : (anchor == .expressive ? 1.16 : 1.24)),
                 "rotationStartDegrees": .number(0), "rotationEndDegrees": .number(anchor == .quiet ? 3 : (anchor == .expressive ? 6 : 9)),
-                "direction": .string("clockwise"), "easing": .string("ease_in_out")
+                // Positive Final Cut rotation is counterclockwise.  Keeping
+                // the signed value and its declared direction aligned lets
+                // the targeted emitter admit the proposal rather than silently
+                // dropping it later.
+                "direction": .string("counterclockwise"), "easing": .string("ease_in_out")
             ]
         default:
             switch plan.effectID {

@@ -73,6 +73,23 @@ final class EditorialTreatmentWorkflowTests: XCTestCase {
         XCTAssertThrowsError(try workflow.toggleComparison(admitted[0].treatment.optionID, state: &state)) { XCTAssertEqual($0 as? EditorialTreatmentWorkflowError, .comparisonLimit) }
     }
 
+    func testCompareFreshlyReadmitsAndClearsAStaleOption() throws {
+        var workflow = try workflow(); var state = EditorialTreatmentWorkflow.State(); let still = asset()
+        let admitted = try workflow.generate(state: &state, command: "quiet", media: [.primary: still], target: nil, durationFrames: 90, basePlans: try bases(still))
+        let id = admitted[0].treatment.optionID
+        let current = workflow.snapshot(command: "quiet", media: [.primary: still], target: nil, durationFrames: 90)
+        var tamperedTreatment = admitted[0].treatment
+        tamperedTreatment.effectPlan.parameters["durationSeconds"] = .number(4)
+        tamperedTreatment.constructionSignature = TreatmentIdentity.constructionSignature(for: tamperedTreatment.effectPlan)
+        let stale = AdmittedTreatmentExecution(treatment: tamperedTreatment, structure: admitted[0].structure, media: admitted[0].media, admittedCapabilities: admitted[0].admittedCapabilities, constructionSignature: admitted[0].constructionSignature, channels: admitted[0].channels, cards: admitted[0].cards, contract: admitted[0].contract, registryEffectID: admitted[0].registryEffectID, registryDigest: admitted[0].registryDigest, emitterAvailable: true)
+        state.options[id] = stale
+        XCTAssertThrowsError(try workflow.toggleComparison(id, state: &state, current: current, media: [.primary: still])) { error in
+            guard case EditorialTreatmentWorkflowError.drifted = error else { return XCTFail("wrong error \(error)") }
+        }
+        XCTAssertNil(state.options[id])
+        XCTAssertFalse(state.comparisonIDs.contains(id))
+    }
+
     func testSnapshotRoundTripsEveryPreviewChannelAndExportRefusesMismatch() throws {
         var workflow = try workflow(); var state = EditorialTreatmentWorkflow.State(); let still = asset()
         let option = try XCTUnwrap(try workflow.generate(state: &state, command: "quiet", media: [.primary: still], target: nil, durationFrames: 90, basePlans: try bases(still)).first)

@@ -267,14 +267,14 @@ public struct TreatmentPlan: Identifiable, Codable, Equatable, Sendable {
     /// intensity along one axis are the same idea twice, and offering them as a
     /// choice wastes the user's attention.
     public func differsMaterially(from other: TreatmentPlan) -> Bool {
-        var constructionDimensions = effectPlan.effectID != other.effectPlan.effectID ? 1 : 0
-        let keys = Set(effectPlan.parameters.keys).union(other.effectPlan.parameters.keys)
-        constructionDimensions += keys.filter { effectPlan.parameters[$0] != other.effectPlan.parameters[$0] }.count
-        if effectPlan.normalizedPoint != other.effectPlan.normalizedPoint { constructionDimensions += 1 }
-        if effectPlan.representation != other.effectPlan.representation { constructionDimensions += 1 }
-        if effectPlan.selectionToken.sourceIdentities != other.effectPlan.selectionToken.sourceIdentities { constructionDimensions += 1 }
+        // Parameters describe a construction; they are not independent creative
+        // axes.  Counting changed keys used to present slider nudges as diverse
+        // choices.  Only the semantic dimensions declared on each treatment
+        // may establish variety, while the signature still proves the builds
+        // are actually distinct.
+        let semanticDifferences = dimensions.symmetricDifference(other.dimensions).count
         return constructionSignature != other.constructionSignature
-            && constructionDimensions >= 2
+            && semanticDifferences >= 2
     }
 
     public func actualConstructionDifferenceCount(from other: TreatmentPlan) -> Int {
@@ -332,6 +332,11 @@ public struct TreatmentAdmission: Sendable {
             guard card.lockedStructureEffect == .none else {
                 throw TreatmentAdmissionError.structureTouchingTechnique(id)
             }
+            guard card.construction.requiredEffectID == treatment.effectPlan.effectID.rawValue else {
+                throw TreatmentAdmissionError.effectPlanRejected(
+                    "\(id) requires \(card.construction.requiredEffectID ?? "no executable effect"), not \(treatment.effectPlan.effectID.rawValue)"
+                )
+            }
             guard card.isExecutable(admittedCapabilities: admittedCapabilities) else {
                 throw TreatmentAdmissionError.cardNotExecutable(
                     id, reason: card.unavailabilityReason(admittedCapabilities: admittedCapabilities) ?? "unavailable"
@@ -363,24 +368,38 @@ public struct TreatmentAdmission: Sendable {
             guard let emitter = execution.catalog.emitter(for: treatment.effectPlan.effectID) else { throw TreatmentAdmissionError.effectPlanRejected("no emitter registered") }
             channels = try emitter.channels(plan: treatment.effectPlan, media: media)
         } catch { throw TreatmentAdmissionError.effectPlanRejected(error.localizedDescription) }
-        // A treatment construction may not quietly choose a different project
-        // length from the director's lock. Emitters expose duration as seconds,
-        // so accept it only when it resolves to the exact locked frame count at
-        // the lock's declared rate (and is itself frame-aligned).
-        let emittedFrameValue = channels.durationSeconds * Double(lock.frameRate)
-        guard emittedFrameValue.isFinite else {
-            throw TreatmentAdmissionError.effectPlanRejected("construction duration is not finite")
+        // Duration is an editorial fact.  Do not round a binary floating-point
+        // value into a frame count: the lock already carries the exact rational
+        // time for every clip and its exact frameDuration.  A channel duration
+        // that cannot be represented as a finite decimal rational is refused
+        // rather than being silently rounded onto a neighbouring frame.
+        var lockedFrames = 0
+        var frameCountOverflowed = false
+        for clip in lock.clips {
+            let sum = lockedFrames.addingReportingOverflow(clip.durationFrames)
+            frameCountOverflowed = frameCountOverflowed || sum.overflow
+            lockedFrames = sum.partialValue
         }
-        let emittedFrames = Int(emittedFrameValue.rounded())
-        let lockedFrames = lock.clips.reduce(0) { $0 + $1.durationFrames }
-        guard abs(emittedFrameValue - Double(emittedFrames)) < 1e-9,
-              emittedFrames == lockedFrames else {
+        let lockedProduct = Int64(lockedFrames).multipliedReportingOverflow(by: lock.frameDuration.numerator)
+        guard !frameCountOverflowed, !lockedProduct.overflow,
+              let emittedDuration = exactDecimalDuration(channels.durationSeconds),
+              RationalTime(lockedProduct.partialValue, lock.frameDuration.denominator) == emittedDuration else {
+            let lockedDuration = frameCountOverflowed || lockedProduct.overflow
+                ? "unrepresentable"
+                : "\(RationalTime(lockedProduct.partialValue, lock.frameDuration.denominator).numerator)/\(RationalTime(lockedProduct.partialValue, lock.frameDuration.denominator).denominator)s"
             throw TreatmentAdmissionError.effectPlanRejected(
-                "construction duration \(channels.durationSeconds)s resolves to \(emittedFrameValue) frames, but the director locked \(lockedFrames) frames at \(lock.frameRate) fps"
+                "construction duration \(channels.durationSeconds)s does not exactly match the director-locked rational duration \(lockedDuration)"
             )
         }
-        if cardSnapshots.contains(where: { $0.card.id == "look.crt.old_television.v1" }), !isBoundedCRTBase(channels) {
-            throw TreatmentAdmissionError.safetyBlocked("CRT automatic admission is limited to the measured 4s full→0.82→full base dip; repeated or stronger flicker requires remeasurement")
+        if cardSnapshots.contains(where: { $0.card.id == "look.crt.old_television.v1" }) {
+            // The validated CRT card declares no connected overlay, and the
+            // current viewer has no shared-construction preview for one.
+            guard channels.overlay == nil else {
+                throw TreatmentAdmissionError.safetyBlocked("CRT automatic admission refuses connected overlays because this card declares none and the current viewer cannot preview one")
+            }
+            guard permitsAutomaticCRTBase(channels) else {
+                throw TreatmentAdmissionError.safetyBlocked("CRT automatic admission is limited to the measured 4s full→0.82→full base dip; repeated or stronger flicker requires remeasurement")
+            }
         }
         let signature = TreatmentIdentity.constructionSignature(for: treatment.effectPlan)
         guard signature == treatment.constructionSignature else { throw TreatmentAdmissionError.effectPlanRejected("construction signature changed") }
@@ -391,12 +410,56 @@ public struct TreatmentAdmission: Sendable {
         return AdmittedTreatmentExecution(treatment: treatment, structure: currentStructure, media: media, admittedCapabilities: admittedCapabilities, constructionSignature: TreatmentIdentity.digest([signature, channelSnapshot.canonicalPayload]), channels: channelSnapshot, cards: cardSnapshots, contract: contract, registryEffectID: treatment.effectPlan.effectID.rawValue, registryDigest: registryDigest, emitterAvailable: true)
     }
 
-    private func isBoundedCRTBase(_ channels: NativeFCPXMLEffectChannels) -> Bool {
+    func isBoundedCRTBase(_ channels: NativeFCPXMLEffectChannels) -> Bool {
         let keyframes = channels.opacity.amount
         guard keyframes.count == 3,
               keyframes.map(\.value) == ["1", "0.82", "1"] else { return false }
         let seconds = keyframes.map { $0.time.seconds - keyframes[0].time.seconds }
         return seconds == [0, 0.5, 1] && channels.durationSeconds == 4
+    }
+
+    func permitsAutomaticCRTBase(_ channels: NativeFCPXMLEffectChannels) -> Bool {
+        channels.overlay == nil && isBoundedCRTBase(channels)
+    }
+
+    /// Converts the channel's serialised duration to an exact base-10 rational
+    /// without multiplying or rounding a `Double` into frames.  The shortest
+    /// Swift representation is bounded to a small decimal exponent; values
+    /// outside Int64 range simply fail admission.
+    private func exactDecimalDuration(_ value: Double) -> RationalTime? {
+        guard value.isFinite, value >= 0 else { return nil }
+        var text = String(value)
+        var exponent = 0
+        if let marker = text.firstIndex(where: { $0 == "e" || $0 == "E" }) {
+            exponent = Int(text[text.index(after: marker)...]) ?? 0
+            text = String(text[..<marker])
+        }
+        let negative = text.hasPrefix("-")
+        if negative { text.removeFirst() }
+        let parts = text.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count <= 2 else { return nil }
+        let whole = String(parts.first ?? "")
+        let fraction = parts.count == 2 ? String(parts[1]) : ""
+        let digits = whole + fraction
+        guard !digits.isEmpty, let unsigned = Int64(digits) else { return nil }
+        let signed = negative ? -unsigned : unsigned
+        let decimalPlaces = fraction.count - exponent
+        if decimalPlaces >= 0 {
+            guard decimalPlaces < 19 else { return nil }
+            return RationalTime(signed, Int64.pow10(decimalPlaces))
+        }
+        let multiplier = Int64.pow10(-decimalPlaces)
+        let product = signed.multipliedReportingOverflow(by: multiplier)
+        return product.overflow ? nil : RationalTime(product.partialValue)
+    }
+}
+
+private extension Int64 {
+    static func pow10(_ exponent: Int) -> Int64 {
+        guard exponent >= 0 && exponent < 19 else { return 0 }
+        var result: Int64 = 1
+        for _ in 0..<exponent { result *= 10 }
+        return result
     }
 }
 

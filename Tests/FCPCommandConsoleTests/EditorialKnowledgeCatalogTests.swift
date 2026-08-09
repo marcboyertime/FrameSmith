@@ -88,7 +88,7 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
          "validation":{"implemented":false,"visuallyVerified":false}}
         """
         try Data(liar.utf8).write(to: scratch.appendingPathComponent("liar.json"))
-        XCTAssertThrowsError(try EditorialKnowledgeCatalog.load(from: scratch)) { error in
+        XCTAssertThrowsError(try EditorialKnowledgeCatalog.load(from: scratch, knownSourceIDs: ["APPLE-FCP-008"])) { error in
             guard case EditorialKnowledgeCatalogError.executableClaimWithoutImplementation = error else {
                 return XCTFail("expected an executable-claim rejection, got \(error)")
             }
@@ -103,7 +103,7 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         let source = cardsDirectory.appendingPathComponent("motion.opacity.fade.v1.json")
         try FileManager.default.copyItem(at: source, to: scratch.appendingPathComponent("a.json"))
         try FileManager.default.copyItem(at: source, to: scratch.appendingPathComponent("b.json"))
-        XCTAssertThrowsError(try EditorialKnowledgeCatalog.load(from: scratch)) { error in
+        XCTAssertThrowsError(try EditorialKnowledgeCatalog.load(from: scratch, knownSourceIDs: ["APPLE-FCP-011", "docs/LIVING_STILL_EDITABILITY_PASS.md"])) { error in
             guard case EditorialKnowledgeCatalogError.duplicateID = error else {
                 return XCTFail("expected a duplicate-id rejection, got \(error)")
             }
@@ -128,6 +128,29 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         XCTAssertThrowsError(try EditorialKnowledgeCatalog.load(from: scratch, knownSourceIDs: ["APPLE-FCP-008"])) { error in
             guard case EditorialKnowledgeCatalogError.unknownSource = error else {
                 return XCTFail("expected an unknown-source rejection, got \(error)")
+            }
+        }
+    }
+
+    func testNestedUnknownFieldsAndEmptySourceSetFailClosed() throws {
+        let scratch = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let source = try String(contentsOf: cardsDirectory.appendingPathComponent("motion.opacity.fade.v1.json"))
+        var nested = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(source.utf8)) as? [String: Any])
+        var construction = try XCTUnwrap(nested["construction"] as? [String: Any])
+        construction["smuggled"] = true
+        nested["construction"] = construction
+        try JSONSerialization.data(withJSONObject: nested).write(to: scratch.appendingPathComponent("nested.json"))
+        XCTAssertThrowsError(try EditorialKnowledgeCatalog.load(from: scratch, knownSourceIDs: ["APPLE-FCP-011", "docs/LIVING_STILL_EDITABILITY_PASS.md"]))
+
+        var unverified = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(source.utf8)) as? [String: Any])
+        unverified["id"] = "motion.empty.source_set.v1"
+        try JSONSerialization.data(withJSONObject: unverified).write(to: scratch.appendingPathComponent("empty.json"))
+        try FileManager.default.removeItem(at: scratch.appendingPathComponent("nested.json"))
+        XCTAssertThrowsError(try EditorialKnowledgeCatalog.load(from: scratch, knownSourceIDs: [])) { error in
+            guard case EditorialKnowledgeCatalogError.unknownSource = error else {
+                return XCTFail("expected fail-closed source rejection, got \(error)")
             }
         }
     }

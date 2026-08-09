@@ -115,6 +115,15 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
         XCTAssertEqual(first.options.map { $0.effectPlan.operationID }, second.options.map { $0.effectPlan.operationID }, "generation must not mint an execution operation ID")
     }
 
+    func testIndependentGenerationDoesNotRetainRandomTemplateOperationIDs() throws {
+        let assets = [still("a", digest: "a")]
+        let locked = lock(assets)
+        let first = try generator().generate(lock: locked, media: [.primary: assets[0]], intent: intent("quiet"), basePlans: try basePlans(for: assets), seed: 9)
+        let second = try generator().generate(lock: locked, media: [.primary: assets[0]], intent: intent("quiet"), basePlans: try basePlans(for: assets), seed: 9)
+        XCTAssertEqual(first.options.map { $0.effectPlan.operationID }, second.options.map { $0.effectPlan.operationID })
+        XCTAssertEqual(first.options.map(\.optionID), second.options.map(\.optionID))
+    }
+
     // MARK: - Diversity, not padding
 
     /// Two options that differ on fewer than two dimensions are the same idea
@@ -153,6 +162,9 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
             intent: intent("anything"), basePlans: try basePlans(for: assets)
         )
         XCTAssertLessThanOrEqual(set.options.count, 3)
+        let unboundedCaller = TreatmentOptionGenerator(catalog: try catalog(), admittedCapabilities: capabilities, maximumOptions: 120)
+            .generate(lock: lock(assets), media: [.primary: assets[0]], intent: intent("anything"), basePlans: try basePlans(for: assets))
+        XCTAssertLessThanOrEqual(unboundedCaller.options.count, 3)
     }
 
     /// Fewer honest options is correct; the shortfall must be explained rather
@@ -330,6 +342,29 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
         }
     }
 
+    func testFocalPositiveRotationIsCounterclockwiseAndAdmitsAt120Frames() throws {
+        let asset = still("focal", digest: "f")
+        let locked = EditorialStructureLock.establish(orderedMedia: [asset], clipDurationFrames: [120], frameRate: 30)
+        let focalCard = try XCTUnwrap(catalog().card(id: "motion.focal.target_push.v1"))
+        let set = TreatmentOptionGenerator(catalog: .init(cards: [focalCard]), admittedCapabilities: capabilities)
+            .generate(lock: locked, media: [.primary: asset], intent: intent("focus here"), basePlans: try basePlans(for: [asset]))
+        let option = try XCTUnwrap(set.options.first)
+        XCTAssertEqual(option.effectPlan.parameters["rotationEndDegrees"]?.numberValue, 3)
+        XCTAssertEqual(option.effectPlan.parameters["direction"], .string("counterclockwise"))
+        XCTAssertNoThrow(try TreatmentAdmission(lock: locked, catalog: .init(cards: [focalCard]), admittedCapabilities: capabilities, registry: try registry(), treatmentContractValidator: try TreatmentPlanContractValidator.discover()).admit(option, currentStructure: locked, media: [.primary: asset], impactEvidence: []))
+    }
+
+    func testAdmissionRequiresTheCardEffectToMatchThePlanEffect() throws {
+        let assets = [still("a", digest: "a")]
+        let locked = lock(assets)
+        var option = try XCTUnwrap(try generator().generate(lock: locked, media: [.primary: assets[0]], intent: intent("quiet"), basePlans: try basePlans(for: assets)).options.first)
+        option.effectPlan.effectID = .oldTelevision
+        option.constructionSignature = TreatmentIdentity.constructionSignature(for: option.effectPlan)
+        XCTAssertThrowsError(try TreatmentAdmission(lock: locked, catalog: try catalog(), admittedCapabilities: capabilities, registry: try registry()).admit(option, currentStructure: locked, media: [.primary: assets[0]], impactEvidence: [])) { error in
+            guard case TreatmentAdmissionError.effectPlanRejected = error else { return XCTFail("wrong error \(error)") }
+        }
+    }
+
     func testAdmissionReturnsImmutableExecutionAndMintsOnlyOnSelection() throws {
         let assets = [still("a", digest: "a")]
         let locked = lock(assets)
@@ -380,6 +415,31 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
         let card = try XCTUnwrap(try catalog().card(id: "look.crt.old_television.v1"))
         XCTAssertTrue(card.riskGates.allSatisfy { $0.level == .low && $0.decision == .allowedAutomatically && $0.basis.contains("full→0.82→full") })
         XCTAssertTrue(card.safetyGates.allSatisfy { $0.basis.contains("repeated or stronger flicker is refused") })
+        let overlay = NativeFCPXMLOverlayDescriptor(startFrameWithinParent: 0, durationFrames: 120, opacity: 1, blendMode: .overlay)
+        let connected = NativeFCPXMLEffectChannels(transform: channels.transform, opacity: channels.opacity, saturation: channels.saturation, durationSeconds: channels.durationSeconds, origin: channels.origin, frameWidth: channels.frameWidth, frameHeight: channels.frameHeight, overlay: overlay)
+        let admission = TreatmentAdmission(lock: lock([asset]), catalog: try catalog(), admittedCapabilities: capabilities, registry: try registry())
+        XCTAssertFalse(admission.permitsAutomaticCRTBase(connected))
+
+        let overlayAsset = still("overlay", digest: "o")
+        let crtOnly = EditorialKnowledgeCatalog(cards: [card])
+        let locked = EditorialStructureLock.establish(orderedMedia: [asset], clipDurationFrames: [120], frameRate: 30)
+        let treatment = try XCTUnwrap(TreatmentOptionGenerator(catalog: crtOnly, admittedCapabilities: capabilities).generate(
+            lock: locked,
+            media: [.primary: asset, .overlay: overlayAsset],
+            intent: intent("old television", intensity: .restrained),
+            basePlans: [.oldTelevision: plan]
+        ).options.first)
+        XCTAssertThrowsError(try TreatmentAdmission(lock: locked, catalog: crtOnly, admittedCapabilities: capabilities, registry: try registry()).admit(
+            treatment,
+            currentStructure: locked,
+            media: [.primary: asset, .overlay: overlayAsset],
+            impactEvidence: []
+        )) { error in
+            guard case TreatmentAdmissionError.safetyBlocked(let reason) = error else {
+                return XCTFail("expected CRT overlay safety refusal, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("connected overlays"), reason)
+        }
     }
 
     func testAdmissionRefusesAConstructionThatChangesDirectorLockedDuration() throws {
@@ -404,22 +464,32 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
             guard case .effectPlanRejected(let detail) = error as? TreatmentAdmissionError else {
                 return XCTFail("wrong error: \(error)")
             }
-            XCTAssertTrue(detail.contains("director locked 90 frames"), detail)
+            XCTAssertTrue(detail.contains("director-locked rational duration"), detail)
         }
     }
 
-    func testThreeSafeConcreteOptionsRemainWhenCRTIsRemoved() throws {
+    func testSemanticDiversityDoesNotPadParameterVariants() throws {
         let asset = still("safe", digest: "a")
         let cards = try catalog().cards.filter { $0.id != "look.crt.old_television.v1" }
         let set = TreatmentOptionGenerator(catalog: .init(cards: cards), admittedCapabilities: capabilities).generate(
             lock: lock([asset]), media: [.primary: asset], intent: intent("quiet cinematic", intensity: .present), basePlans: try basePlans(for: [asset])
         )
-        XCTAssertEqual(set.options.count, 3)
+        XCTAssertLessThanOrEqual(set.options.count, 3)
         XCTAssertTrue(set.options.allSatisfy { $0.techniqueCardIDs != ["look.crt.old_television.v1"] && (3...6).contains($0.changes.count) })
         for i in set.options.indices {
             for j in set.options.indices where j > i {
                 XCTAssertGreaterThanOrEqual(set.options[i].actualConstructionDifferenceCount(from: set.options[j]), 2)
             }
         }
+    }
+
+    func testParameterChangesWithoutSemanticDimensionsAreNotDiversity() throws {
+        let assets = [still("a", digest: "a")]
+        let base = try XCTUnwrap(try basePlans(for: assets)[.livingStill])
+        var changed = base
+        changed.parameters["pushInScaleEnd"] = .number(1.5)
+        let one = TreatmentPlan(structureFingerprint: lock(assets).fingerprint, intent: intent("quiet"), name: "one", idea: "one", changes: [], techniqueCardIDs: ["motion.still.quiet_push.v1"], effectPlan: base, editability: .finalCutNative, previewFidelity: .sharedConstruction, dimensions: [.motionLanguage])
+        let two = TreatmentPlan(structureFingerprint: one.structureFingerprint, intent: one.intent, name: "two", idea: "two", changes: [], techniqueCardIDs: ["motion.still.quiet_push.v1"], effectPlan: changed, editability: .finalCutNative, previewFidelity: .sharedConstruction, dimensions: [.motionLanguage])
+        XCTAssertFalse(one.differsMaterially(from: two))
     }
 }

@@ -358,7 +358,23 @@ private final class AppModel: ObservableObject {
     }
 
     func toggleComparison(_ option: TreatmentPlan) {
-        do { var workflow = try editorialWorkflow(); try workflow.toggleComparison(option.optionID, state: &editorialState); comparisonOptionIDs = editorialState.comparisonIDs }
+        do {
+            var workflow = try editorialWorkflow()
+            let media = currentMediaRoles()
+            let current = workflow.snapshot(
+                command: command,
+                media: media,
+                target: target,
+                durationFrames: positiveEditorialDurationFrames
+            )
+            try workflow.toggleComparison(
+                option.optionID,
+                state: &editorialState,
+                current: current,
+                media: media
+            )
+            comparisonOptionIDs = editorialState.comparisonIDs
+        }
         catch { errorMessage = error.localizedDescription }
     }
 

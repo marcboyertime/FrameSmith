@@ -85,10 +85,12 @@ public struct EditorialKnowledgeCatalog: Sendable {
             if card.status == .validated, !(card.validation.implemented && card.validation.visuallyVerified) {
                 throw EditorialKnowledgeCatalogError.executableClaimWithoutImplementation(card.id)
             }
-            if !effectiveSources.isEmpty {
-                for entry in card.provenance where !effectiveSources.contains(entry.sourceId) {
-                    let looksLikeRepositoryEvidence = entry.sourceId.contains("/") || entry.sourceId.hasPrefix("docs")
-                    if !looksLikeRepositoryEvidence { throw EditorialKnowledgeCatalogError.unknownSource(cardID: card.id, sourceID: entry.sourceId) }
+            // Provenance is fail-closed.  An empty source set means no source
+            // has been verified, not that every source is implicitly trusted.
+            for entry in card.provenance where !effectiveSources.contains(entry.sourceId) {
+                guard !effectiveSources.isEmpty,
+                      isVerifiedRepositoryEvidence(entry.sourceId, relativeTo: directory) else {
+                    throw EditorialKnowledgeCatalogError.unknownSource(cardID: card.id, sourceID: entry.sourceId)
                 }
             }
             try validateStrictObject(object, file: file.lastPathComponent)
@@ -103,6 +105,48 @@ public struct EditorialKnowledgeCatalog: Sendable {
         let unknown = Set(object.keys).subtracting(required.union(["conflicts", "notes"]))
         guard unknown.isEmpty else { throw EditorialKnowledgeCatalogError.malformedCard(file, "unknown keys: \(unknown.sorted())") }
         guard required.isSubset(of: Set(object.keys)) else { throw EditorialKnowledgeCatalogError.malformedCard(file, "missing keys: \(required.subtracting(object.keys).sorted())") }
+        try validateClosedNestedObjects(object, file: file)
+    }
+
+    private static func validateClosedNestedObjects(_ object: [String: Any], file: String) throws {
+        func rejectUnknown(_ value: Any?, allowed: Set<String>, path: String) throws {
+            guard let dictionary = value as? [String: Any] else {
+                throw EditorialKnowledgeCatalogError.malformedCard(file, "\(path) is not an object")
+            }
+            let unknown = Set(dictionary.keys).subtracting(allowed)
+            guard unknown.isEmpty else {
+                throw EditorialKnowledgeCatalogError.malformedCard(file, "unknown keys in \(path): \(unknown.sorted())")
+            }
+        }
+        func rejectUnknownArray(_ value: Any?, allowed: Set<String>, path: String) throws {
+            guard let array = value as? [Any] else {
+                throw EditorialKnowledgeCatalogError.malformedCard(file, "\(path) is not an array")
+            }
+            for (index, item) in array.enumerated() {
+                try rejectUnknown(item, allowed: allowed, path: "\(path)[\(index)]")
+            }
+        }
+
+        try rejectUnknown(object["construction"], allowed: ["preferredBackends", "fallbackBackends", "requiredCapabilities", "requiredEffectID", "previewFidelity"], path: "construction")
+        try rejectUnknownArray(object["parameters"], allowed: ["key", "type", "unit", "range", "default", "liveness"], path: "parameters")
+        try rejectUnknownArray(object["prerequisiteRules"], allowed: ["kind", "mediaKind", "role", "count", "hasAudio", "minWidth", "minHeight"], path: "prerequisiteRules")
+        try rejectUnknownArray(object["refusalRules"], allowed: ["kind", "mediaKind", "role", "count", "hasAudio", "minWidth", "minHeight"], path: "refusalRules")
+        try rejectUnknownArray(object["riskGates"], allowed: ["category", "level", "decision", "basis"], path: "riskGates")
+        try rejectUnknownArray(object["safetyGates"], allowed: ["category", "level", "decision", "basis"], path: "safetyGates")
+        try rejectUnknown(object["expectedCost"], allowed: ["latency", "monetary", "privacy"], path: "expectedCost")
+        try rejectUnknownArray(object["provenance"], allowed: ["sourceId", "claim", "sourceRole", "confidence"], path: "provenance")
+        try rejectUnknown(object["validation"], allowed: ["implemented", "visuallyVerified", "finalCutEvidence", "verifiedOn", "notes"], path: "validation")
+        if object["conflicts"] != nil {
+            try rejectUnknownArray(object["conflicts"], allowed: ["description", "sourceIds", "resolution"], path: "conflicts")
+        }
+    }
+
+    private static func isVerifiedRepositoryEvidence(_ sourceID: String, relativeTo directory: URL) -> Bool {
+        guard sourceID.hasPrefix("docs/") else { return false }
+        let root = directory.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL
+        let candidate = root.appendingPathComponent(sourceID).standardizedFileURL
+        guard candidate.path.hasPrefix(root.path + "/") else { return false }
+        return FileManager.default.fileExists(atPath: candidate.path)
     }
     private static func validateStrictSemantics(_ card: TechniqueCard) throws {
         func fail(_ detail: String) throws { throw EditorialKnowledgeCatalogError.strictSchemaViolation(cardID: card.id, detail: detail) }

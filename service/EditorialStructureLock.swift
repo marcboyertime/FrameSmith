@@ -146,7 +146,31 @@ public struct EditorialStructureLock: Codable, Equatable, Sendable {
     public let frameDuration: RationalTime
 
     public init(clips: [LockedClipPlacement], protectedRegions: [ProtectedRegion] = [], narrationDigest: String? = nil, musicStructureDigest: String? = nil, authorizedDeltas: [AuthorizedStructuralDelta] = [], frameRate: Int = 30, frameDuration: RationalTime? = nil) {
-        self.clips = clips; self.protectedRegions = protectedRegions; self.narrationDigest = narrationDigest; self.musicStructureDigest = musicStructureDigest; self.authorizedDeltas = authorizedDeltas; self.frameRate = frameRate; self.frameDuration = frameDuration ?? RationalTime(1, Int64(max(1, frameRate)))
+        let resolvedFrameDuration = frameDuration ?? RationalTime(1, Int64(max(1, frameRate)))
+        // Older callers supplied only frame-count fields, whose historical
+        // default rational values were the bare counts.  Convert that legacy
+        // shorthand once at the boundary.  Any explicitly supplied rational
+        // value that is not the old shorthand remains intact and is rejected
+        // by `selfIntrinsicViolations()` if it disagrees with its frame count.
+        self.clips = clips.map { clip in
+            let timelineStart = clip.timelineStart == RationalTime(Int64(clip.timelineStartFrame))
+                ? Self.time(forFrames: clip.timelineStartFrame, frameDuration: resolvedFrameDuration)
+                : clip.timelineStart
+            let duration = clip.duration == RationalTime(Int64(clip.durationFrames))
+                ? Self.time(forFrames: clip.durationFrames, frameDuration: resolvedFrameDuration)
+                : clip.duration
+            let sourceStart = clip.sourceStart == RationalTime(Int64(clip.sourceStartFrame))
+                ? Self.time(forFrames: clip.sourceStartFrame, frameDuration: resolvedFrameDuration)
+                : clip.sourceStart
+            return LockedClipPlacement(
+                sourceIdentity: clip.sourceIdentity, index: clip.index,
+                timelineStartFrame: clip.timelineStartFrame, durationFrames: clip.durationFrames,
+                sourceStartFrame: clip.sourceStartFrame, speedMultiplier: clip.speedMultiplier,
+                audioSyncOffsetFrames: clip.audioSyncOffsetFrames, timelineStart: timelineStart,
+                duration: duration, sourceStart: sourceStart
+            )
+        }
+        self.protectedRegions = protectedRegions; self.narrationDigest = narrationDigest; self.musicStructureDigest = musicStructureDigest; self.authorizedDeltas = authorizedDeltas; self.frameRate = frameRate; self.frameDuration = resolvedFrameDuration
     }
     public static func establish(orderedMedia: [LocalMediaAsset], clipDurationFrames: [Int], frameRate: Int = 30, protectedRegions: [ProtectedRegion] = []) -> EditorialStructureLock {
         var cursor = 0
@@ -202,8 +226,39 @@ public struct EditorialStructureLock: Codable, Equatable, Sendable {
         if frameRate <= 0 || frameDuration.numerator <= 0 || frameDuration.denominator <= 0 || clips.map(\.index) != Array(clips.indices) { result.append(.invalidClipIndices) }
         let names = protectedRegions.map(\.identifier)
         if Set(names).count != names.count || protectedRegions.contains(where: { $0.identifier.isEmpty || !$0.x.isFinite || !$0.y.isFinite || !$0.width.isFinite || !$0.height.isFinite || !$0.maximumOccludedFraction.isFinite || $0.x < 0 || $0.y < 0 || $0.width <= 0 || $0.height <= 0 || $0.x + $0.width > 1 || $0.y + $0.height > 1 || !(0...1).contains($0.maximumOccludedFraction) }) { result.append(.invalidClipIndices) }
-        for clip in clips { if clip.sourceIdentity.itemID.isEmpty || clip.sourceIdentity.canonicalPath.isEmpty || clip.sourceIdentity.sha256.count != 64 { result.append(.invalidSourceIdentity(index: clip.index)) }; if clip.durationFrames < 0 || clip.timelineStartFrame < 0 || clip.sourceStartFrame < 0 || !clip.speedMultiplier.isFinite || clip.speedMultiplier <= 0 || clip.duration.numerator < 0 { result.append(.invalidTiming(index: clip.index)) } }
+        // `frameRate` is the legacy nominal integer (24/30/60), while
+        // `frameDuration` is authoritative and may represent an exact NTSC
+        // rate such as 1001/30000.  Require the exact reciprocal to round to
+        // that nominal integer without converting either side through Double.
+        let twiceDenominator = frameDuration.denominator.multipliedReportingOverflow(by: 2)
+        let lowerRate = Int64(frameRate).multipliedReportingOverflow(by: 2)
+        let upperRate = lowerRate.partialValue.addingReportingOverflow(1)
+        let lowerNominal = lowerRate.partialValue.subtractingReportingOverflow(1)
+        let lowerBound = lowerNominal.partialValue.multipliedReportingOverflow(by: frameDuration.numerator)
+        let upperBound = upperRate.partialValue.multipliedReportingOverflow(by: frameDuration.numerator)
+        let rateMatchesFrameDuration = frameRate > 0
+            && !twiceDenominator.overflow && !lowerRate.overflow
+            && !upperRate.overflow && !lowerNominal.overflow
+            && !lowerBound.overflow && !upperBound.overflow
+            && twiceDenominator.partialValue >= lowerBound.partialValue
+            && twiceDenominator.partialValue < upperBound.partialValue
+        if !rateMatchesFrameDuration { result.append(.invalidTiming(index: -1)) }
+        for clip in clips {
+            if clip.sourceIdentity.itemID.isEmpty || clip.sourceIdentity.canonicalPath.isEmpty || clip.sourceIdentity.sha256.count != 64 { result.append(.invalidSourceIdentity(index: clip.index)) }
+            let countsMatchRationals = clip.timelineStart == Self.time(forFrames: clip.timelineStartFrame, frameDuration: frameDuration)
+                && clip.duration == Self.time(forFrames: clip.durationFrames, frameDuration: frameDuration)
+                && clip.sourceStart == Self.time(forFrames: clip.sourceStartFrame, frameDuration: frameDuration)
+            if clip.durationFrames < 0 || clip.timelineStartFrame < 0 || clip.sourceStartFrame < 0 || !clip.speedMultiplier.isFinite || clip.speedMultiplier <= 0 || clip.duration.numerator < 0 || !countsMatchRationals { result.append(.invalidTiming(index: clip.index)) }
+        }
         return result
+    }
+    private static func time(forFrames frames: Int, frameDuration: RationalTime) -> RationalTime {
+        let product = Int64(frames).multipliedReportingOverflow(by: frameDuration.numerator)
+        // An overflowing frame count cannot agree with a valid rational lock;
+        // retain a sentinel so intrinsic validation fails without trapping on
+        // untrusted decoded timeline data.
+        guard !product.overflow else { return RationalTime(Int64.max) }
+        return RationalTime(product.partialValue, frameDuration.denominator)
     }
     private func compare<T: Equatable>(_ before: T, _ after: T, kind: AuthorizedStructuralDelta.Kind, index: Int, violation: EditorialStructureViolation, into found: inout [EditorialStructureViolation]) { if before != after, !authorizes(kind, index, before: String(describing: before), after: String(describing: after)) { found.append(violation) } }
     private func authorizes(_ kind: AuthorizedStructuralDelta.Kind, _ index: Int, before: String, after: String) -> Bool { authorizedDeltas.contains { $0.kind == kind && $0.affectedClipIndices == [index] && $0.beforeValue == before && $0.afterValue == after && !$0.userRequest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } }

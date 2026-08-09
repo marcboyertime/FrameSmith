@@ -264,6 +264,34 @@ final class EditorialStructureLockTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":1,\"denominator\":0}".utf8)))
     }
 
+    func testFrameCountsMustExactlyAgreeWithRationalClipTimingAndFrameDuration() {
+        let base = lock()
+        let badClip = LockedClipPlacement(
+            sourceIdentity: base.clips[0].sourceIdentity, index: 0,
+            timelineStartFrame: 0, durationFrames: 90,
+            duration: RationalTime(89, 30)
+        )
+        let inconsistent = EditorialStructureLock(
+            clips: [badClip, base.clips[1], base.clips[2]], frameRate: 30,
+            frameDuration: RationalTime(1, 30)
+        )
+        XCTAssertTrue(inconsistent.violations(comparedTo: inconsistent).contains(.invalidTiming(index: 0)))
+
+        let wrongFrameDuration = EditorialStructureLock(
+            clips: base.clips, frameRate: 30, frameDuration: RationalTime(1, 24)
+        )
+        XCTAssertTrue(wrongFrameDuration.violations(comparedTo: wrongFrameDuration).contains(.invalidTiming(index: -1)))
+
+        let ntsc = EditorialStructureLock(
+            clips: [LockedClipPlacement(
+                sourceIdentity: base.clips[0].sourceIdentity, index: 0,
+                timelineStartFrame: 0, durationFrames: 30000
+            )],
+            frameRate: 30, frameDuration: RationalTime(1001, 30000)
+        )
+        XCTAssertFalse(ntsc.violations(comparedTo: ntsc).contains(.invalidTiming(index: -1)), "the exact 30000/1001 rate must remain representable under nominal 30 fps metadata")
+    }
+
     func testExactRationalAuthorizationAllowsOnlyTheNamedTimingValue() {
         let original = lock()
         let exact = AuthorizedStructuralDelta(kind: .changeDuration, affectedClipIndices: [1], userRequest: "exact rational trim", beforeValue: "120", afterValue: "60")

@@ -98,12 +98,14 @@ public struct EditorialTreatmentWorkflow {
         guard media[.outgoing] == nil, media[.incoming] == nil else { throw EditorialTreatmentWorkflowError.unsupportedScope("outgoing and incoming clips are not supported in this first still-only release") }
         let lock = EditorialStructureLock.establish(orderedMedia: [primary], clipDurationFrames: [frames], frameRate: 30)
         let current = snapshot(command: command, media: media, target: target, durationFrames: frames)
-        let generator = TreatmentOptionGenerator(catalog: catalog, admittedCapabilities: admittedCapabilities, maximumOptions: 4)
+        let generator = TreatmentOptionGenerator(catalog: catalog, admittedCapabilities: admittedCapabilities, maximumOptions: 3)
         let set = generator.generate(lock: lock, media: media, intent: TreatmentIntent(originalWording: command.isEmpty ? "surprise me" : command, intensity: .restrained), basePlans: basePlans)
         let admission = TreatmentAdmission(lock: lock, catalog: catalog, admittedCapabilities: admittedCapabilities, registry: registry, treatmentContractValidator: treatmentContractValidator)
         var admitted: [AdmittedTreatmentExecution] = []
         for option in set.options {
-            if let execution = try? admission.admit(option, currentStructure: lock, media: media, impactEvidence: []) { admitted.append(execution) }
+            // Generation only publishes admitted constructions.  Do not turn a
+            // bad focal/rotation recipe into an invisible missing option.
+            admitted.append(try admission.admit(option, currentStructure: lock, media: media, impactEvidence: []))
         }
         state.snapshot = current; state.lock = lock; state.options = Dictionary(uniqueKeysWithValues: admitted.map { ($0.treatment.optionID, $0) })
         state.applied = nil; state.comparisonIDs = []; state.history = []; state.invalidationReason = admitted.isEmpty ? (set.shortfallExplanation ?? "No option could be admitted for this still.") : nil
@@ -153,11 +155,55 @@ public struct EditorialTreatmentWorkflow {
         return restored
     }
 
-    public mutating func toggleComparison(_ id: String, state: inout State) throws {
+    public mutating func toggleComparison(
+        _ id: String,
+        state: inout State,
+        current: EditorialTreatmentInputSnapshot,
+        media: [LocalMediaRole: LocalMediaAsset]
+    ) throws {
+        guard state.snapshot == current else {
+            let reason = invalidateIfDrifted(&state, current: current) ?? "an input or installed contract changed"
+            throw EditorialTreatmentWorkflowError.drifted(reason)
+        }
         guard state.options[id] != nil else { throw EditorialTreatmentWorkflowError.unknownOption(id) }
         if let index = state.comparisonIDs.firstIndex(of: id) { state.comparisonIDs.remove(at: index); return }
         guard state.comparisonIDs.count < 3 else { throw EditorialTreatmentWorkflowError.comparisonLimit }
+
+        // Compare is an execution-adjacent preview action.  Re-admit every
+        // member of the comparison, not merely the newly tapped card, against
+        // the current structure, catalog, schema, registry, capability profile
+        // and emitter construction.  A stale artifact is removed immediately.
+        for candidateID in state.comparisonIDs + [id] {
+            guard let candidate = state.options[candidateID] else {
+                state.comparisonIDs.removeAll { $0 == candidateID }
+                throw EditorialTreatmentWorkflowError.unknownOption(candidateID)
+            }
+            do {
+                let readmitted = try readmit(candidate, current: current, media: media)
+                state.options[candidateID] = readmitted
+            } catch {
+                clearStaleOption(candidateID, from: &state)
+                throw EditorialTreatmentWorkflowError.drifted(error.localizedDescription)
+            }
+        }
         state.comparisonIDs.append(id)
+    }
+
+    /// Compatibility entry point for callers that have not yet supplied live
+    /// UI inputs.  It still re-admits against all current in-process contracts;
+    /// UI callers should use the overload above to prove current media too.
+    public mutating func toggleComparison(_ id: String, state: inout State) throws {
+        guard let snapshot = state.snapshot, let option = state.options[id] else {
+            throw EditorialTreatmentWorkflowError.unknownOption(id)
+        }
+        try toggleComparison(id, state: &state, current: snapshot, media: option.media)
+    }
+
+    private func clearStaleOption(_ id: String, from state: inout State) {
+        state.options.removeValue(forKey: id)
+        state.comparisonIDs.removeAll { $0 == id }
+        if state.applied?.treatment.optionID == id { state.applied = nil }
+        state.invalidationReason = "an admitted treatment became stale during comparison"
     }
 
     private func driftReason(_ old: EditorialTreatmentInputSnapshot, _ new: EditorialTreatmentInputSnapshot) -> String {
