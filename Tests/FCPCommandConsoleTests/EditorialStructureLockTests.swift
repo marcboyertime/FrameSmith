@@ -257,13 +257,17 @@ final class EditorialStructureLockTests: XCTestCase {
         XCTAssertTrue(protected.violations(comparedTo: protected, impactEvidence: [.init(identifier: "face", occludedFraction: 0.1)]).isEmpty)
     }
 
-    func testRationalTimeOrderingIsExactAtInt64ExtremesAndRejectsZeroDenominatorDecode() throws {
+    func testRationalTimeOrderingIsExactAtInt64ExtremesAndNeverTrapsForUnrepresentableInputs() throws {
         XCTAssertTrue(RationalTime(Int64.max - 1, Int64.max) < RationalTime(Int64.max, Int64.max - 1))
         XCTAssertTrue(RationalTime(Int64.min + 1, Int64.max - 1) < RationalTime(-1, 1))
         XCTAssertEqual(RationalTime(2, 4), RationalTime(1, 2))
+        XCTAssertEqual(RationalTime(Int64.min, -1), RationalTime(0), "a nonthrowing initializer canonicalizes an unrepresentable ratio safely")
+        XCTAssertEqual(RationalTime(1, Int64.min), RationalTime(0), "a nonthrowing initializer canonicalizes an unrepresentable denominator safely")
+        XCTAssertEqual(RationalTime(Int64.min, Int64.min), RationalTime(1), "the representable reduced form must survive Int64.min magnitudes")
         XCTAssertThrowsError(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":1,\"denominator\":0}".utf8)))
         XCTAssertThrowsError(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":-9223372036854775808,\"denominator\":-1}".utf8)))
         XCTAssertThrowsError(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":1,\"denominator\":-9223372036854775808}".utf8)))
+        XCTAssertEqual(try JSONDecoder().decode(RationalTime.self, from: Data("{\"numerator\":-9223372036854775808,\"denominator\":-9223372036854775808}".utf8)), RationalTime(1))
     }
 
     func testFrameCountsMustExactlyAgreeWithRationalClipTimingAndFrameDuration() {
@@ -292,6 +296,28 @@ final class EditorialStructureLockTests: XCTestCase {
             frameRate: 30, frameDuration: RationalTime(1001, 30000)
         )
         XCTAssertFalse(ntsc.violations(comparedTo: ntsc).contains(.invalidTiming(index: -1)), "the exact 30000/1001 rate must remain representable under nominal 30 fps metadata")
+    }
+
+    func testExplicitRawFrameRationalIsNotRewrittenAsLegacyShorthand() {
+        let source = identity("explicit", digest: "e")
+        let explicit = LockedClipPlacement(
+            sourceIdentity: source, index: 0, timelineStartFrame: 0, durationFrames: 90,
+            duration: RationalTime(90, 1)
+        )
+        let lockWithExplicitTiming = EditorialStructureLock(
+            clips: [explicit], frameRate: 30, frameDuration: RationalTime(1, 30)
+        )
+        XCTAssertEqual(lockWithExplicitTiming.clips[0].duration, RationalTime(90, 1))
+        XCTAssertTrue(lockWithExplicitTiming.violations(comparedTo: lockWithExplicitTiming).contains(.invalidTiming(index: 0)))
+
+        let unspecified = LockedClipPlacement(
+            sourceIdentity: source, index: 0, timelineStartFrame: 0, durationFrames: 90
+        )
+        let lockWithLegacyFields = EditorialStructureLock(
+            clips: [unspecified], frameRate: 30, frameDuration: RationalTime(1, 30)
+        )
+        XCTAssertEqual(lockWithLegacyFields.clips[0].duration, RationalTime(3, 1))
+        XCTAssertFalse(lockWithLegacyFields.violations(comparedTo: lockWithLegacyFields).contains(.invalidTiming(index: 0)))
     }
 
     func testExactRationalAuthorizationAllowsOnlyTheNamedTimingValue() {

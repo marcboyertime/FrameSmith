@@ -2,7 +2,7 @@
 
 FrameSmith is the product name; the repository, Swift package, bundle, and
 legacy command identifiers remain `FCPCommandConsole` for compatibility. Phase
-1 is complete at the current **314-test** checkpoint.
+1 is complete at the current **324-test** checkpoint.
 
 It is a real local SwiftUI macOS app for turning admitted stills or movies and
 a creative instruction into a schema-versioned FrameSmith plan. It admits media
@@ -44,7 +44,7 @@ make install-app
 make launch-app
 ```
 
-At this checkpoint, `swift test` reports 314 tests and 0 failures;
+At this checkpoint, `swift test` reports 324 tests and 0 failures;
 `make test` reports `core audit: registry=4 schema=json-ok strict-cards=valid
 treatment-contract=strict forbidden-patterns=0 cards=15 (reference_only=10
 validated=5)`. Installing or launching an app is a separate local-artifact step,

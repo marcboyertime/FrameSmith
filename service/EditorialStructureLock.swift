@@ -7,11 +7,13 @@ public struct RationalTime: Codable, Equatable, Sendable, Hashable, Comparable {
     public let numerator: Int64
     public let denominator: Int64
     public init(_ numerator: Int64, _ denominator: Int64 = 1) {
-        precondition(denominator != 0, "A rational time denominator cannot be zero")
-        let sign: Int64 = denominator < 0 ? -1 : 1
-        let divisor = RationalTime.gcd(RationalTime.magnitude(numerator), RationalTime.magnitude(denominator))
-        self.numerator = (numerator / Int64(divisor)) * sign
-        self.denominator = (denominator / Int64(divisor)) * sign
+        // This API predates throwing construction.  Preserve every
+        // representable ratio, but canonicalize a zero denominator or a ratio
+        // whose positive canonical form cannot fit in Int64 to zero rather
+        // than trapping.  Decoding is stricter and rejects those inputs.
+        let normalized = RationalTime.normalized(numerator, denominator) ?? (0, 1)
+        self.numerator = normalized.numerator
+        self.denominator = normalized.denominator
     }
     public static func < (lhs: RationalTime, rhs: RationalTime) -> Bool {
         if lhs.numerator == rhs.numerator && lhs.denominator == rhs.denominator { return false }
@@ -24,25 +26,29 @@ public struct RationalTime: Codable, Equatable, Sendable, Hashable, Comparable {
     private enum CodingKeys: String, CodingKey { case numerator, denominator }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); let n = try c.decode(Int64.self, forKey: .numerator); let d = try c.decode(Int64.self, forKey: .denominator)
-        guard d != 0, d != Int64.min else {
-            throw DecodingError.dataCorruptedError(forKey: .denominator, in: c, debugDescription: "rational denominator must have a representable positive magnitude")
+        guard let normalized = RationalTime.normalized(n, d) else {
+            throw DecodingError.dataCorruptedError(forKey: .denominator, in: c, debugDescription: "rational time cannot be represented with a positive Int64 denominator")
         }
-        let sign: Int64 = d < 0 ? -1 : 1
-        let divisor = RationalTime.gcd(RationalTime.magnitude(n), RationalTime.magnitude(d))
-        guard divisor <= UInt64(Int64.max) else {
-            throw DecodingError.dataCorruptedError(forKey: .denominator, in: c, debugDescription: "rational divisor is not representable")
-        }
-        let divisor64 = Int64(divisor)
-        let normalizedNumerator = (n / divisor64).multipliedReportingOverflow(by: sign)
-        let normalizedDenominator = (d / divisor64).multipliedReportingOverflow(by: sign)
-        guard !normalizedNumerator.overflow, !normalizedDenominator.overflow else {
-            throw DecodingError.dataCorruptedError(forKey: .numerator, in: c, debugDescription: "rational normalization overflows Int64")
-        }
-        numerator = normalizedNumerator.partialValue
-        denominator = normalizedDenominator.partialValue
+        numerator = normalized.numerator
+        denominator = normalized.denominator
     }
     private static func magnitude(_ value: Int64) -> UInt64 { value < 0 ? (~UInt64(bitPattern: value)) &+ 1 : UInt64(value) }
     private static func gcd(_ a: UInt64, _ b: UInt64) -> UInt64 { b == 0 ? max(1, a) : gcd(b, a % b) }
+    private static func normalized(_ numerator: Int64, _ denominator: Int64) -> (numerator: Int64, denominator: Int64)? {
+        guard denominator != 0 else { return nil }
+        let divisor = gcd(magnitude(numerator), magnitude(denominator))
+        // `Int64.min / Int64.min` is exactly one, even though its unsigned
+        // common divisor is one larger than Int64.max.
+        if divisor == UInt64(Int64.max) + 1 {
+            return numerator == Int64.min && denominator == Int64.min ? (1, 1) : nil
+        }
+        let divisor64 = Int64(divisor)
+        let sign: Int64 = denominator < 0 ? -1 : 1
+        let normalizedNumerator = (numerator / divisor64).multipliedReportingOverflow(by: sign)
+        let normalizedDenominator = (denominator / divisor64).multipliedReportingOverflow(by: sign)
+        guard !normalizedNumerator.overflow, !normalizedDenominator.overflow else { return nil }
+        return (normalizedNumerator.partialValue, normalizedDenominator.partialValue)
+    }
     /// Exact continued-fraction comparison for positive fractions. It never
     /// multiplies numerators/denominators and therefore cannot overflow.
     private static func positiveLess(_ a0: UInt64, _ b0: UInt64, _ c0: UInt64, _ d0: UInt64) -> Bool {
@@ -73,12 +79,47 @@ public struct LockedClipPlacement: Codable, Equatable, Sendable {
     public let timelineStart: RationalTime
     public let duration: RationalTime
     public let sourceStart: RationalTime
+    // These are intentionally not part of the wire format.  A caller that
+    // omitted a rational time asked us to derive it from the frame count;
+    // supplying even the historical raw-frame shorthand is an explicit claim
+    // that must survive validation unchanged.
+    fileprivate let hasExplicitTimelineStart: Bool
+    fileprivate let hasExplicitDuration: Bool
+    fileprivate let hasExplicitSourceStart: Bool
 
     public init(sourceIdentity: SourceIdentity, index: Int, timelineStartFrame: Int, durationFrames: Int, sourceStartFrame: Int = 0, speedMultiplier: Double = 1.0, audioSyncOffsetFrames: Int = 0, timelineStart: RationalTime? = nil, duration: RationalTime? = nil, sourceStart: RationalTime? = nil) {
         self.sourceIdentity = sourceIdentity; self.index = index; self.timelineStartFrame = timelineStartFrame; self.durationFrames = durationFrames; self.sourceStartFrame = sourceStartFrame; self.speedMultiplier = speedMultiplier; self.audioSyncOffsetFrames = audioSyncOffsetFrames
+        self.hasExplicitTimelineStart = timelineStart != nil
+        self.hasExplicitDuration = duration != nil
+        self.hasExplicitSourceStart = sourceStart != nil
         self.timelineStart = timelineStart ?? RationalTime(Int64(timelineStartFrame))
         self.duration = duration ?? RationalTime(Int64(durationFrames))
         self.sourceStart = sourceStart ?? RationalTime(Int64(sourceStartFrame))
+    }
+    private enum CodingKeys: String, CodingKey { case sourceIdentity, index, timelineStartFrame, durationFrames, sourceStartFrame, speedMultiplier, audioSyncOffsetFrames, timelineStart, duration, sourceStart }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            sourceIdentity: try c.decode(SourceIdentity.self, forKey: .sourceIdentity),
+            index: try c.decode(Int.self, forKey: .index),
+            timelineStartFrame: try c.decode(Int.self, forKey: .timelineStartFrame),
+            durationFrames: try c.decode(Int.self, forKey: .durationFrames),
+            sourceStartFrame: try c.decode(Int.self, forKey: .sourceStartFrame),
+            speedMultiplier: try c.decode(Double.self, forKey: .speedMultiplier),
+            audioSyncOffsetFrames: try c.decode(Int.self, forKey: .audioSyncOffsetFrames),
+            timelineStart: try c.decode(RationalTime.self, forKey: .timelineStart),
+            duration: try c.decode(RationalTime.self, forKey: .duration),
+            sourceStart: try c.decode(RationalTime.self, forKey: .sourceStart)
+        )
+    }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(sourceIdentity, forKey: .sourceIdentity); try c.encode(index, forKey: .index); try c.encode(timelineStartFrame, forKey: .timelineStartFrame)
+        try c.encode(durationFrames, forKey: .durationFrames); try c.encode(sourceStartFrame, forKey: .sourceStartFrame); try c.encode(speedMultiplier, forKey: .speedMultiplier)
+        try c.encode(audioSyncOffsetFrames, forKey: .audioSyncOffsetFrames); try c.encode(timelineStart, forKey: .timelineStart); try c.encode(duration, forKey: .duration); try c.encode(sourceStart, forKey: .sourceStart)
+    }
+    public static func == (lhs: LockedClipPlacement, rhs: LockedClipPlacement) -> Bool {
+        lhs.sourceIdentity == rhs.sourceIdentity && lhs.index == rhs.index && lhs.timelineStartFrame == rhs.timelineStartFrame && lhs.durationFrames == rhs.durationFrames && lhs.sourceStartFrame == rhs.sourceStartFrame && lhs.speedMultiplier == rhs.speedMultiplier && lhs.audioSyncOffsetFrames == rhs.audioSyncOffsetFrames && lhs.timelineStart == rhs.timelineStart && lhs.duration == rhs.duration && lhs.sourceStart == rhs.sourceStart
     }
     public var timelineEndFrame: Int { timelineStartFrame + durationFrames }
 }
@@ -162,20 +203,14 @@ public struct EditorialStructureLock: Codable, Equatable, Sendable {
     public init(clips: [LockedClipPlacement], protectedRegions: [ProtectedRegion] = [], narrationDigest: String? = nil, musicStructureDigest: String? = nil, authorizedDeltas: [AuthorizedStructuralDelta] = [], frameRate: Int = 30, frameDuration: RationalTime? = nil) {
         let resolvedFrameDuration = frameDuration ?? RationalTime(1, Int64(max(1, frameRate)))
         // Older callers supplied only frame-count fields, whose historical
-        // default rational values were the bare counts.  Convert that legacy
-        // shorthand once at the boundary.  Any explicitly supplied rational
-        // value that is not the old shorthand remains intact and is rejected
-        // by `selfIntrinsicViolations()` if it disagrees with its frame count.
+        // default rational values were the bare counts. Convert only fields
+        // omitted by the caller; an explicit rational is never rewritten and
+        // is rejected by `selfIntrinsicViolations()` if it disagrees with its
+        // frame count.
         self.clips = clips.map { clip in
-            let timelineStart = clip.timelineStart == RationalTime(Int64(clip.timelineStartFrame))
-                ? Self.time(forFrames: clip.timelineStartFrame, frameDuration: resolvedFrameDuration)
-                : clip.timelineStart
-            let duration = clip.duration == RationalTime(Int64(clip.durationFrames))
-                ? Self.time(forFrames: clip.durationFrames, frameDuration: resolvedFrameDuration)
-                : clip.duration
-            let sourceStart = clip.sourceStart == RationalTime(Int64(clip.sourceStartFrame))
-                ? Self.time(forFrames: clip.sourceStartFrame, frameDuration: resolvedFrameDuration)
-                : clip.sourceStart
+            let timelineStart = clip.hasExplicitTimelineStart ? clip.timelineStart : Self.time(forFrames: clip.timelineStartFrame, frameDuration: resolvedFrameDuration)
+            let duration = clip.hasExplicitDuration ? clip.duration : Self.time(forFrames: clip.durationFrames, frameDuration: resolvedFrameDuration)
+            let sourceStart = clip.hasExplicitSourceStart ? clip.sourceStart : Self.time(forFrames: clip.sourceStartFrame, frameDuration: resolvedFrameDuration)
             return LockedClipPlacement(
                 sourceIdentity: clip.sourceIdentity, index: clip.index,
                 timelineStartFrame: clip.timelineStartFrame, durationFrames: clip.durationFrames,

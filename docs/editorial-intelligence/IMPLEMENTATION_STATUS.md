@@ -5,15 +5,12 @@ Recorded 2026-08-08 for Final Cut Pro **12.3 (450152)**.
 ## Delivery boundary
 
 The implementation baseline was `e174a5f` (`Record installed parameter acceptance`).
-The foundation is delivered by these local commits:
-
-- `856d25a` — strict knowledge catalog, structure lock, treatment contract,
-  deterministic option generation, and admission.
-- `02e600e` — installed-app Surprise Me workflow, comparison, refinement,
-  history, restore, and admitted export.
-- `90bc72c` — registry and emitter parameter-truth reconciliation.
-- `7bd6d45` — exact director wording preserved through execution and export
-  provenance.
+The foundation is delivered by the local editorial-intelligence commit series:
+strict catalog and structure admission, installed-app Surprise Me workflow,
+registry/emitter parameter truth, wording provenance, and subsequent
+determinism, provenance, and timing hardening. Use the current local `git log`
+for the exact commit chain rather than treating this status document as a
+release ledger.
 
 No remote push is part of this milestone.
 
@@ -115,15 +112,17 @@ The installed app exposes the complete single-still foundation:
   schema, registry, or construction evidence drifts;
 - admitted package and project export.
 
-For one still with a confirmed focal target, the demonstrated set is Opacity
-fade, Quiet push and drift, and Old television / CRT. Without a target, the set
-honestly shortens rather than substituting the center. Two-clip dissolve remains
-an emitter/admission path, not a claim that the current single-still comparison
-viewer previews a transition.
+For one still with a confirmed focal target, the current deterministic option
+probe demonstrates two options: Opacity fade and Old television / CRT. It
+reports an honest semantic-diversity shortfall rather than padding toward the
+up-to-three limit. Without a target, the set may shorten further rather than
+substituting the center. Two-clip dissolve remains an emitter/admission path,
+not a claim that the current single-still comparison viewer previews a
+transition.
 
 ## Verification summary
 
-- `make test`: **314 tests passed**, zero failures.
+- `make test`: **324 tests passed**, zero failures.
 - `scripts/audit-core.py`: registry 4, strict treatment contract, 15 valid
   cards, 5 validated, 10 reference-only, zero forbidden patterns.
 - Release Swift build: passed.

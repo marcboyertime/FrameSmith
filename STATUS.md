@@ -10,14 +10,16 @@ duplicating, substituting, retiming, slipping sync, or moving an edit point is
 refused. Validation compares fields rather than only a fingerprint, because a
 hash says *that* something changed and a director deserves to know *what*.
 
-Eleven provenance-bearing technique cards: **5 validated, 6 reference_only**.
+Fifteen provenance-bearing technique cards: **5 validated, 10 reference_only**.
 Validated means this repository built the construction and a returned FCPXML
 admitted it — never that a source described the technique.
 
 Surprise Me ships for one scenario end to end: a single admitted still with a
-confirmed focal target returns three materially different treatments, each
-carrying the same editorial-structure fingerprint. Coverage, diversity
-reasoning, manual verification, and limitations are recorded in
+confirmed focal target returns up to three materially different treatments,
+each carrying the same editorial-structure fingerprint. The current deterministic
+confirmed-target probe returns two (Opacity fade and Old television / CRT) and
+an honest shortfall explanation instead of padding with a near-duplicate.
+Coverage, diversity reasoning, manual verification, and limitations are recorded in
 `docs/editorial-intelligence/BAKEOFF_AND_COVERAGE.md`.
 
 All four effects now have production emitters. The 2026-08-07 real-Final-Cut
@@ -38,8 +40,8 @@ image-quality bakeoff has been run.
 
 ## Current implementation checkpoint
 
-Phase 1 is complete at the current repository checkpoint. `swift test` and
-`swift test` reports **314 tests, 0 failures**; `make test` reports
+Phase 1 is complete at the current repository checkpoint. `swift test`
+reports **324 tests, 0 failures**; `make test` reports
 `core audit: registry=4 schema=json-ok strict-cards=valid treatment-contract=strict
 forbidden-patterns=0 cards=15 (reference_only=10 validated=5)`.
 `swift build -c release` also passes. The installed app was rebuilt/reinstalled
