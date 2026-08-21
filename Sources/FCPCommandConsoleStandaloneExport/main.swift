@@ -51,11 +51,34 @@ struct FCPCommandConsoleStandaloneExportCLI {
             let gate = CapabilityGate(
                 manualSemanticsEvidence: installed.map { FinalCutSemanticProfileStore.evidence(forInstalled: $0) } ?? .unknown
             )
-            let builder = StandaloneFCPXMLExportBuilder(gate: gate)
+            let media = mediaRoles(
+                effectID: configuration.effectID,
+                first: asset,
+                second: secondAsset
+            )
+            guard let emitter = StandaloneEmitterCatalog().emitter(for: plan.effectID) else {
+                throw StandaloneExportError.noEmitter(
+                    plan.effectID,
+                    reason: StandaloneFCPXMLExportBuilder.missingEmitterReason(for: plan.effectID)
+                )
+            }
+            let construction: StandaloneExportConstruction
+            if let rendered = emitter as? any StandaloneRenderedEffectEmitter {
+                let prepared = try rendered.prepareRenderedAsset(
+                    plan: plan,
+                    media: media,
+                    outputRoot: StandaloneFCPXMLExportBuilder.defaultRenderCacheRoot
+                )
+                construction = .rendered(prepared)
+            } else {
+                construction = .native
+            }
+            let builder = StandaloneFCPXMLExportBuilder(gate: gate, registry: registry)
             let package = try builder.export(
                 plan: plan,
-                media: mediaRoles(effectID: configuration.effectID, first: asset, second: secondAsset),
+                media: media,
                 mediaEvidence: mediaEvidence,
+                construction: construction,
                 installedFinalCut: installed
             )
 

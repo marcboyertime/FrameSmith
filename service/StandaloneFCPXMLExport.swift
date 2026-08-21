@@ -469,6 +469,16 @@ public struct TargetedRotateZoomStandaloneEmitter: StandaloneEffectEmitter {
 
 // MARK: - Builder
 
+/// The complete construction supplied to standalone export.
+///
+/// Rendered export accepts only bytes prepared before the builder is entered.
+/// There is deliberately no optional/default rendered asset and no renderer
+/// callback at this boundary.
+public enum StandaloneExportConstruction: Equatable, Sendable {
+    case native
+    case rendered(RenderedEffectAsset)
+}
+
 /// Generates a **new** Final Cut project from admitted local media.
 ///
 /// The claim boundary is the whole point of this type. It writes a project to
@@ -490,7 +500,6 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
 
     public let gate: CapabilityGate
     public let outputRoot: URL
-    public let renderCacheRoot: URL
     public let fcpxmlVersion: String
     public let emitters: [EffectID: any StandaloneEffectEmitter]
     public let catalog: StandaloneEmitterCatalog
@@ -500,14 +509,12 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
     public init(
         gate: CapabilityGate,
         outputRoot: URL = StandaloneFCPXMLExportBuilder.defaultOutputRoot,
-        renderCacheRoot: URL = StandaloneFCPXMLExportBuilder.defaultRenderCacheRoot,
         fcpxmlVersion: String = StandaloneFCPXMLExportBuilder.preferredFCPXMLVersion,
         emitters: [any StandaloneEffectEmitter] = [LivingStillStandaloneEmitter(), TargetedRotateZoomStandaloneEmitter(), NaturalDissolveStandaloneEmitter(), OldTelevisionStandaloneEmitter()],
         registry: EffectRegistry? = nil
     ) {
         self.gate = gate
         self.outputRoot = outputRoot
-        self.renderCacheRoot = renderCacheRoot
         self.fcpxmlVersion = fcpxmlVersion
         self.catalog = StandaloneEmitterCatalog(emitters: emitters)
         self.emitters = catalog.emitters
@@ -544,7 +551,7 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         plan: EffectPlan,
         media: [LocalMediaRole: LocalMediaAsset],
         mediaEvidence: AdmittedLocalMediaEvidence,
-        preparedRenderedAsset: RenderedEffectAsset? = nil,
+        construction: StandaloneExportConstruction,
         installedFinalCut: FinalCutVersionIdentity? = InstalledFinalCutVersionReader().read(),
         generatedAt: Date = Date()
     ) throws -> Package {
@@ -576,17 +583,34 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         }
 
         let renderedEmitter = emitter as? any StandaloneRenderedEffectEmitter
-        if renderedEmitter != nil {
+        let preparedRenderedAsset: RenderedEffectAsset?
+        switch (renderedEmitter, construction) {
+        case (.some, .native):
+            throw StandaloneExportError.admittedArtifactMismatch(
+                "rendered export requires an already prepared treatment movie; export never renders"
+            )
+        case (.none, .rendered):
+            throw StandaloneExportError.admittedArtifactMismatch(
+                "a rendered asset was supplied for a native construction"
+            )
+        case (.none, .native):
+            preparedRenderedAsset = nil
+        case (.some, .rendered(let asset)):
+            preparedRenderedAsset = asset
             try ConnectedRenderedMovieAdmissionScope.validateContext(
                 plan: plan,
                 media: media,
                 installedFinalCut: installedFinalCut,
                 fcpxmlVersion: fcpxmlVersion
             )
+            try ConnectedRenderedMovieAdmissionScope.validatePreparedAsset(asset)
+            try asset.validate(plan: plan, media: media)
         }
 
-        // 2. An emitter must exist. A gate pass without one is a real gap, not
-        //    something to paper over with a partial document.
+        // 2. Output-root creation, staging, and source copying happen only
+        //    after the complete native/rendered construction is present and
+        //    validated. Missing rendered bytes therefore leave no filesystem
+        //    side effects.
         try validateOutputRoot(outputRoot)
         let fileManager = FileManager.default
         let packageRoot = outputRoot.appendingPathComponent(plan.operationID.uuidString, isDirectory: true)
@@ -620,11 +644,12 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
 
             let prepared: RenderedEffectAsset?
             let xml: String
-            if let renderedEmitter {
-                let asset = try preparedRenderedAsset ?? renderedEmitter.prepareRenderedAsset(
-                    plan: plan, media: media, outputRoot: renderCacheRoot)
-                try ConnectedRenderedMovieAdmissionScope.validatePreparedAsset(asset)
-                try asset.validate(plan: plan, media: media)
+            if renderedEmitter != nil {
+                guard let asset = preparedRenderedAsset else {
+                    throw StandaloneExportError.admittedArtifactMismatch(
+                        "rendered export requires an already prepared treatment movie"
+                    )
+                }
 
                 let generatedRoot = mediaRoot.appendingPathComponent("Generated", isDirectory: true)
                 try fileManager.createDirectory(at: generatedRoot, withIntermediateDirectories: false)
@@ -654,9 +679,6 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
                 )
                 prepared = asset
             } else {
-                guard preparedRenderedAsset == nil else {
-                    throw StandaloneExportError.admittedArtifactMismatch("a rendered asset was supplied for a native construction")
-                }
                 xml = try emitter.emitDocument(
                     plan: plan, media: media, publishedMediaURLs: publishedURLs, version: fcpxmlVersion)
                 prepared = nil
@@ -811,7 +833,7 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
     public func export(
         admitted execution: AdmittedTreatmentExecution,
         mediaEvidence: AdmittedLocalMediaEvidence,
-        preparedRenderedAsset: RenderedEffectAsset? = nil,
+        preview: AdmittedTreatmentPreview,
         installedFinalCut: FinalCutVersionIdentity? = InstalledFinalCutVersionReader().read(),
         generatedAt: Date = Date()
     ) throws -> Package {
@@ -820,11 +842,19 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         let current = try emitter.channels(plan: execution.treatment.effectPlan, media: execution.media)
         guard execution.channels.matches(current) else { throw StandaloneExportError.admittedArtifactMismatch("channel digest \(AdmittedChannelSnapshot(channels: current).digest) does not match \(execution.channels.digest)") }
         guard execution.registryEffectID == execution.treatment.effectPlan.effectID.rawValue else { throw StandaloneExportError.admittedArtifactMismatch("registry effect identity drifted") }
+        try TreatmentPreviewAdmission.validate(preview, against: execution)
+        let construction: StandaloneExportConstruction
+        switch preview.representation {
+        case .native:
+            construction = .native
+        case .rendered(let asset):
+            construction = .rendered(asset)
+        }
         return try export(
             plan: execution.treatment.effectPlan,
             media: execution.media,
             mediaEvidence: mediaEvidence,
-            preparedRenderedAsset: preparedRenderedAsset,
+            construction: construction,
             installedFinalCut: installedFinalCut,
             generatedAt: generatedAt
         )
