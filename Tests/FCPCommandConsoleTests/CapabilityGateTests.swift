@@ -111,11 +111,11 @@ final class CapabilityGateTests: XCTestCase {
         )
         XCTAssertEqual(
             ManualFCPXMLSemanticsEvidence.requiredContracts(for: .livingStill),
-            [.assetAdmission, .transformKeyframes, .opacityKeyframes, .nativeColorAdjustment]
+            [.assetAdmission, .connectedRenderedMovieLayer]
         )
         XCTAssertEqual(
             ManualFCPXMLSemanticsEvidence.requiredContracts(for: .oldTelevision),
-            [.assetAdmission, .opacityKeyframes, .nativeColorAdjustment, .connectedOverlayLayers]
+            [.assetAdmission, .connectedRenderedMovieLayer]
         )
     }
 
@@ -136,7 +136,8 @@ final class CapabilityGateTests: XCTestCase {
                 "transform_keyframes",
                 "opacity_keyframes",
                 "native_color_adjustment",
-                "connected_overlay_layers"
+                "connected_overlay_layers",
+                "connected_rendered_movie_layer"
             ]
         )
         XCTAssertFalse(FCPXMLSemanticContract.allCases.contains { $0.rawValue.contains("bare") })

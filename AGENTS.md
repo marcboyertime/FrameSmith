@@ -1,4 +1,4 @@
-# FCPCommandConsole / FrameSmith project policy
+# FrameSmith project policy
 
 Private local project. **FrameSmith** is the product name; `FCPCommandConsole`
 remains the repository, bundle, and command identifier.

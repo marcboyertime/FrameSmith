@@ -15,24 +15,28 @@ final class ParameterTruthRegressionTests: XCTestCase {
             parameters: Dictionary(uniqueKeysWithValues: definition.parameters.compactMap { parameter in parameter.defaultValue.map { (parameter.name, $0) } }), representation: definition.representation, editableProperties: definition.editableProperties, generatedAssets: definition.generatedAssets, previewStrategy: definition.preview, verification: definition.verification, fallback: definition.fallback, preconditionRevision: "r")
     }
 
-    func testLivingStillChannelsAndXMLFollowPlanValues() throws {
+    func testLivingStillParametersBindThePreparedRenderWhileScalarChannelsRemainNeutral() throws {
         let media = asset(); let baseline = try plan(.livingStill, asset: media); let defaultChannels = try LivingStillStandaloneEmitter().channels(plan: baseline, media: [.primary: media]); var plan = baseline
         plan.parameters["durationSeconds"] = .number(5)
-        plan.parameters["pushInScaleStart"] = .number(1.2); plan.parameters["pushInScaleEnd"] = .number(1.5)
-        plan.parameters["panX"] = .number(0.1); plan.parameters["panY"] = .number(0.2)
-        plan.parameters["fadeDurationSeconds"] = .number(1); plan.parameters["opacityStart"] = .number(0.8); plan.parameters["opacityEnd"] = .number(0.2)
+        plan.parameters["motionStrength"] = .number(0.7); plan.parameters["pushIn"] = .number(0.08)
+        plan.parameters["panX"] = .number(0.03); plan.parameters["panY"] = .number(0.02)
+        plan.parameters["depthSmoothing"] = .number(0.65)
         try PlanValidator(registry: registry()).validate(plan)
         let emitter = LivingStillStandaloneEmitter(); let channels = try emitter.channels(plan: plan, media: [.primary: media])
-        XCTAssertNotEqual(channels.durationSeconds, defaultChannels.durationSeconds); XCTAssertEqual(channels.durationSeconds, 5); XCTAssertEqual(channels.transform.scale.first?.value, "1.2 1.2"); XCTAssertEqual(channels.transform.scale.last?.value, "1.5 1.5")
-        XCTAssertEqual(channels.transform.positionY.last?.value, "-20") // 0.2 height fraction, sign-flipped
-        XCTAssertEqual(channels.opacity.amount.first?.value, "0.8"); XCTAssertEqual(channels.opacity.amount.last?.value, "0.2")
-        let xml = try emitter.emitDocument(plan: plan, media: [.primary: media], publishedMediaURLs: [.primary: media.url], version: "1.14")
-        XCTAssertTrue(xml.contains("duration=\"5s\"")); XCTAssertTrue(xml.contains("value=\"-20\"")); XCTAssertTrue(xml.contains("value=\"1.5 1.5\""))
-        plan.parameters["pushInScaleEnd"] = .number(1); XCTAssertThrowsError(try PlanValidator(registry: registry()).validate(plan))
-        plan = baseline; plan.parameters["fadeDurationSeconds"] = .number(10); XCTAssertThrowsError(try PlanValidator(registry: registry()).validate(plan))
-        for keyframe in channels.transform.positionX + channels.transform.positionY + channels.transform.scale + channels.opacity.amount {
-            XCTAssertTrue(xml.contains("time=\"\(keyframe.time.attributeValue)\"")); XCTAssertTrue(xml.contains("value=\"\(keyframe.value)\""))
+        XCTAssertNotEqual(channels.durationSeconds, defaultChannels.durationSeconds); XCTAssertEqual(channels.durationSeconds, 5)
+        XCTAssertTrue(channels.transform.isEmpty); XCTAssertTrue(channels.opacity.isEmpty)
+        XCTAssertNil(channels.saturation); XCTAssertNil(channels.overlay); XCTAssertEqual(channels.origin, .still)
+        XCTAssertNotEqual(
+            try RenderedConstructionIdentity.digest(plan: baseline, media: [.primary: media]),
+            try RenderedConstructionIdentity.digest(plan: plan, media: [.primary: media])
+        )
+        XCTAssertThrowsError(try emitter.emitDocument(plan: plan, media: [.primary: media], publishedMediaURLs: [.primary: media.url], version: "1.14")) { error in
+            guard case StandaloneExportError.invalidRecipe(let reason) = error else { return XCTFail("wrong error: \(error)") }
+            XCTAssertTrue(reason.contains("checksum-bound prepared depth render"), reason)
         }
+        plan.parameters["pushInScaleEnd"] = .number(1); XCTAssertThrowsError(try PlanValidator(registry: registry()).validate(plan))
+        plan = baseline; plan.parameters["pushIn"] = .number(0.2); XCTAssertThrowsError(try PlanValidator(registry: registry()).validate(plan))
+        plan = baseline; plan.parameters["modelID"] = .string("unpinned-model"); XCTAssertThrowsError(try PlanValidator(registry: registry()).validate(plan))
     }
 
     func testTargetedOriginsDirectionAndMovieOverflow() throws {
@@ -59,8 +63,8 @@ final class ParameterTruthRegressionTests: XCTestCase {
         let media = asset(); let session = LocalMediaPlannerSession(registry: try registry())
         let result = try session.plan(request: "living still", primary: media, outgoing: nil, incoming: nil, target: nil)
         let service = LocalMediaPlanRevisionService(registry: try registry(), schemaValidator: try PlanSchemaValidator(schemaURL: root().appendingPathComponent("schemas/effect-plan.schema.json")))
-        let revised = try service.revise(result, patch: ["panY": .number(0.1)])
-        XCTAssertNotEqual(revised.plan.operationID, result.plan.operationID); XCTAssertEqual(revised.baselineParameters, result.baselineParameters); XCTAssertEqual(result.plan.parameters["panY"]?.numberValue, 0)
+        let revised = try service.revise(result, patch: ["panY": .number(0.03)])
+        XCTAssertNotEqual(revised.plan.operationID, result.plan.operationID); XCTAssertEqual(revised.baselineParameters, result.baselineParameters); XCTAssertEqual(result.plan.parameters["panY"]?.numberValue, -0.006)
         XCTAssertThrowsError(try service.revise(result, patch: ["colorEnrichment": .number(0.2)])); XCTAssertThrowsError(try service.revise(result, patch: ["panY": .string("bad")]))
         // All four effects gained production emitters on 2026-08-07, so the
         // catalog reports no absence for any of them.
@@ -69,7 +73,7 @@ final class ParameterTruthRegressionTests: XCTestCase {
             XCTAssertNil(StandaloneEmitterCatalog().absenceReason(for: effect), effect.rawValue)
         }
         XCTAssertThrowsError(try service.revise(result, patch: ["preserveOriginal": .boolean(false)])); XCTAssertThrowsError(try service.revise(result, patch: ["unknown": .number(1)]))
-        XCTAssertThrowsError(try LocalMediaPlanRevisionService(registry: try registry()).revise(result, patch: ["panY": .number(0.1)]))
+        XCTAssertThrowsError(try LocalMediaPlanRevisionService(registry: try registry()).revise(result, patch: ["panY": .number(0.03)]))
         let reset = try service.reset(revised, parameter: "panY"); XCTAssertEqual(reset.plan.parameters["panY"], result.baselineParameters["panY"])
     }
 
@@ -113,7 +117,7 @@ final class ParameterTruthRegressionTests: XCTestCase {
         let media = asset(); let session = LocalMediaPlannerSession(registry: try registry())
         let original = try session.plan(request: "living still", primary: media, outgoing: nil, incoming: nil, target: nil)
         let service = LocalMediaPlanRevisionService(registry: try registry(), schemaValidator: try PlanSchemaValidator(schemaURL: root().appendingPathComponent("schemas/effect-plan.schema.json")))
-        let edited = try service.revise(original, patch: ["durationSeconds": .number(6), "panX": .number(0.2)])
+        let edited = try service.revise(original, patch: ["durationSeconds": .number(6), "panX": .number(0.02)])
         let reset = try service.resetAllCreative(edited)
         XCTAssertNotEqual(reset.plan.operationID, edited.plan.operationID); XCTAssertEqual(reset.plan.originalRequest, original.plan.originalRequest); XCTAssertEqual(reset.selection, original.selection); XCTAssertEqual(reset.inputs, original.inputs); XCTAssertEqual(reset.baselineParameters, original.baselineParameters)
         for definition in try registry().definition(for: .livingStill).parameters where (definition.presentation ?? .failClosed).exposure.isEditable { XCTAssertEqual(reset.plan.parameters[definition.name], original.baselineParameters[definition.name]) }
@@ -137,7 +141,7 @@ final class ParameterTruthRegressionTests: XCTestCase {
         // Simulate a registry edit that no longer matches the admitted plan.
         var definitions = Array((try registry()).definitions.values)
         let livingStill = try XCTUnwrap(definitions.firstIndex { $0.identifier == .livingStill })
-        definitions[livingStill].representation = .layeredMedia
+        definitions[livingStill].generatedAssets = []
         let driftedRegistry = try EffectRegistry(definitions: definitions)
         XCTAssertThrowsError(try ValidatedPlanExecution(registry: driftedRegistry).validate(plan: plan, media: [.primary: media]))
 

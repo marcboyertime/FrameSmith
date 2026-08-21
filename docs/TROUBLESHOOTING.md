@@ -5,10 +5,10 @@
 Run `make install-app`, then:
 
 ```sh
-codesign --verify --deep --strict /Users/marcboyer/Applications/FCPCommandConsole.app
-plutil -extract CFBundleIdentifier raw /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Info.plist
-test -f /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json
-test -f /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Resources/schemas/effect-plan.schema.json
+codesign --verify --deep --strict /Users/marcboyer/Applications/FrameSmith.app
+plutil -extract CFBundleIdentifier raw /Users/marcboyer/Applications/FrameSmith.app/Contents/Info.plist
+test -f /Users/marcboyer/Applications/FrameSmith.app/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json
+test -f /Users/marcboyer/Applications/FrameSmith.app/Contents/Resources/schemas/effect-plan.schema.json
 ```
 
 The ID must be `com.marcboyer.FCPCommandConsole`. The installer refuses a

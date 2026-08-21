@@ -1,5 +1,16 @@
 # Prompt for the next Claude
 
+> **Current override — 2026-08-08:** this handoff contains dated Phase 1 history
+> below; do not treat its Old Television overlay exercise or Living Still depth-
+> model acquisition language as an open queue. Living Still v2 and Old
+> Television v2 are now validated rendered treatments. The pinned Apple Core ML
+> model is acquired, the 10-source × 2-effect production bakeoff passed bounded
+> visual review, exact preview/export artifact parity is implemented, and the
+> connected rendered-movie layer returned from Final Cut 12.3 over both still
+> and movie parents. `motion.opacity.fade.v1` is reference-only. Read `STATUS.md`
+> and `docs/editorial-intelligence/IMPLEMENTATION_STATUS.md` for current truth;
+> preserve the historical sections here only as provenance.
+
 Read this file, then `docs/PHASE1_ACCEPTANCE.md`, then
 `docs/POST_PHASE1_ROADMAP.md`. **Phase 1 is closed; your work starts at §6.**
 
@@ -339,9 +350,9 @@ Cheap, and worth closing when convenient rather than never:
 
 - **Continuity checks** after code changes: `git status --short`,
   `swift build`, `swift test`, `make test`, `git diff --check`.
-- Current checkpoint: **326 tests, 0 failures**; core audit
+- Current card checkpoint: core audit
   `registry=4 schema=json-ok strict-cards=valid treatment-contract=strict
-  forbidden-patterns=0 cards=15 (reference_only=10 validated=5)`.
+  forbidden-patterns=0 cards=15 (reference_only=11 validated=4)`.
   Verify current Git state rather than assuming a clean worktree.
 - Probe executables: `swift run fcpcommandconsole-roundtrip-spike`,
   `swift run fcpcommandconsole-living-still-probe`. They are deliberately

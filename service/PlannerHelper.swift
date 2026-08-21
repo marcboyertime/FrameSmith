@@ -635,11 +635,11 @@ public struct PlannerHelperResources {
     public let schemaValidator: PlanSchemaValidator
 
     private static let expectedHashes: [String: String] = [
-        "registry/effects/look.old_television.json": "01234fcffdebfb7a7cf57aa171f2253f33169b5ed42edb2bb3ccdd31e9dd9a9f",
-        "registry/effects/motion.living_still.json": "70224f52497c745fd32326ef34f77cfdc11687f7ceb862a1f463c09e1239e38f",
+        "registry/effects/look.old_television.json": "5b94090a92af8133486938c078346f7cd78c5cad923bb37df04b3c13cf996310",
+        "registry/effects/motion.living_still.json": "775af5c11791cbf8115683acfee72ed27ced3916f101f4d3a80801b38b62cd96",
         "registry/effects/native.targeted_rotate_zoom.json": "20d511f53cf1f5e33d554357e4806ded15b6de564a4912558fb4ff05e5d57cbd",
         "registry/effects/transition.natural_dissolve.json": "30686fe7d71e618a3ecc98ef4658c2b45e1e1f401bc5f00c74da4b80b9d3a573",
-        "schemas/effect-plan.schema.json": "4387255973853dabba3d1ab62eb94bbb7e8e649a5516733ea3508a586520bf01"
+        "schemas/effect-plan.schema.json": "6925c4732b6aaf313dd075bf1e71fa7c1081d8cca62abea94b1c46aef9b148a4"
     ]
 
     public init(rootURL: URL) throws {

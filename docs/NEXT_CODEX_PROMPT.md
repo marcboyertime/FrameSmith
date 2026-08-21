@@ -1,5 +1,13 @@
 # Next implementation prompt
 
+> **Superseded queue warning — 2026-08-08:** the Old Television optional-still
+> overlay and Living Still v2 acquisition tasks below are historical. Current
+> v2 uses a validated connected rendered-movie layer, not the native/optional-
+> still route. The pinned Apple Core ML depth model is acquired, the 20-movie
+> production bakeoff passed bounded visual review, and Final Cut 12.3 returned
+> the rendered-movie construction over still and movie parents. Start with
+> `STATUS.md`; do not re-run the stale acquisition queue.
+
 Phase 1 is complete and all four effects already have production standalone
 emitters. The next checkpoint is evidence and decision work, not another
 Natural Dissolve or Old Television productionization pass. First run a fresh,

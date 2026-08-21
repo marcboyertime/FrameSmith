@@ -8,8 +8,8 @@ Run commands from `/Users/marcboyer/Developer/FCPCommandConsole`.
 swift build
 swift test
 make install-app
-codesign --verify --deep --strict /Users/marcboyer/Applications/FCPCommandConsole.app
-plutil -extract CFBundleIdentifier raw /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Info.plist
+codesign --verify --deep --strict /Users/marcboyer/Applications/FrameSmith.app
+plutil -extract CFBundleIdentifier raw /Users/marcboyer/Applications/FrameSmith.app/Contents/Info.plist
 make launch-app
 ```
 

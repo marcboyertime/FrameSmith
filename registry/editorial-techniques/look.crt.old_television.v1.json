@@ -1,10 +1,10 @@
 {
   "id": "look.crt.old_television.v1",
-  "version": 1,
+  "version": 2,
   "name": "Old television / CRT treatment",
   "domain": "look",
   "status": "validated",
-  "summary": "Verified base flicker and colour treatment evoking a CRT display; no overlay construction is claimed.",
+  "summary": "A sustained locally rendered CRT treatment with scanlines, temporal noise, curvature and overscan, chroma shift, ghosting, bloom, jitter and tracking disturbance, vignette, and continuous micro-flicker capped at two percent — never a fade approximation.",
   "creativeJobs": [
     "place a moment in the past",
     "suggest a mediated or recorded image",
@@ -24,41 +24,154 @@
   "lockedStructureEffect": "none",
   "construction": {
     "preferredBackends": [
-      "native_fcpxml"
+      "baked_render"
     ],
     "requiredCapabilities": [
       "asset_admission",
-      "opacity_keyframes",
-      "native_color_adjustment"
+      "connected_rendered_movie_layer"
     ],
     "previewFidelity": "shared_construction",
     "requiredEffectID": "look.old_television"
   },
-  "parameters": [],
+  "parameters": [
+    {
+      "key": "durationSeconds",
+      "type": "duration",
+      "unit": "s",
+      "range": [0.1, 30.0],
+      "default": 4.0,
+      "liveness": "live"
+    },
+    {
+      "key": "profile",
+      "type": "enum",
+      "default": "broadcast-mono",
+      "liveness": "live"
+    },
+    {
+      "key": "intensity",
+      "type": "float",
+      "unit": "normalized",
+      "range": [0.0, 1.0],
+      "default": 0.68,
+      "liveness": "live"
+    },
+    {
+      "key": "scanlineStrength",
+      "type": "float",
+      "unit": "normalized",
+      "range": [0.0, 1.0],
+      "default": 0.42,
+      "liveness": "live"
+    },
+    {
+      "key": "noiseStrength",
+      "type": "float",
+      "unit": "normalized",
+      "range": [0.0, 1.0],
+      "default": 0.28,
+      "liveness": "live"
+    },
+    {
+      "key": "syncInstability",
+      "type": "float",
+      "unit": "normalized",
+      "range": [0.0, 1.0],
+      "default": 0.22,
+      "liveness": "live"
+    },
+    {
+      "key": "chromaSeparation",
+      "type": "float",
+      "unit": "normalized",
+      "range": [0.0, 1.0],
+      "default": 0.18,
+      "liveness": "live"
+    },
+    {
+      "key": "bloomStrength",
+      "type": "float",
+      "unit": "normalized",
+      "range": [0.0, 1.0],
+      "default": 0.20,
+      "liveness": "live"
+    },
+    {
+      "key": "vignetteStrength",
+      "type": "float",
+      "unit": "normalized",
+      "range": [0.0, 1.0],
+      "default": 0.34,
+      "liveness": "live"
+    },
+    {
+      "key": "ghostingStrength",
+      "type": "float",
+      "unit": "normalized",
+      "range": [0.0, 1.0],
+      "default": 0.10,
+      "liveness": "live"
+    },
+    {
+      "key": "flickerStrength",
+      "type": "float",
+      "unit": "normalized",
+      "range": [0.0, 1.0],
+      "default": 0.12,
+      "liveness": "live"
+    },
+    {
+      "key": "seed",
+      "type": "int",
+      "unit": "integer seed",
+      "range": [0, 2147483647],
+      "default": 7341,
+      "liveness": "live"
+    }
+  ],
   "qualityChecks": [
-    "flicker reads as a display artefact rather than a render error"
+    "scanlines remain visible without obscuring eyes or text",
+    "micro-flicker reads as display energy rather than a fade or flash",
+    "scanlines, temporal noise, geometry, ghosting, bloom, sync movement, and vignette persist across the complete duration",
+    "tube geometry never exposes black corners",
+    "project-export movie is exactly 1920x1080, 30 fps, 120 frames, four seconds, ProRes 422 HQ apch/yuv422p10le, and video-only",
+    "the Final Cut parent matches one of the two tested source-resource profiles and keeps a four-second spine extent",
+    "previewed and exported movie SHA-256 values match"
   ],
   "failureModes": [
-    "flicker fast enough to raise a photosensitivity concern",
-    "an overlay offset measured against the timeline instead of the parent clip, which silently misplaces it"
+    "digital-looking independent RGB noise",
+    "full-frame opacity dips or flashes",
+    "tracking displacement that bends faces or makes titles unreadable"
   ],
   "safety": [
     "check against the three-flashes-per-second threshold before shipping any flicker"
   ],
-  "riskGates": [{"category":"photosensitive_flash","level":"low","decision":"allowed_automatically","basis":"Admitted base emitter is exactly full→0.82→full at frames 0, duration/8, and duration/4; with the 4s default it completes one dip/recovery by 1s, so no one-second interval contains more than one flash event."}], "safetyGates": [{"category":"photosensitive_flash","level":"low","decision":"allowed_automatically","basis":"Bounded only to the admitted single-dip base construction with floor 0.82. Any repeated or stronger flicker is refused until remeasured against the W3C three-flashes-per-second criterion."}],
+  "riskGates": [{"category":"photosensitive_flash","level":"low","decision":"allowed_automatically","basis":"The closed renderer caps continuous luma modulation at 0.020 times intensity times flickerStrength, so absolute amplitude cannot exceed two percent and no full-frame opacity event exists."}], "safetyGates": [{"category":"photosensitive_flash","level":"low","decision":"allowed_automatically","basis":"The production graph accepts only typed 0...1 controls, emits no opacity channel, keeps luma modulation within the fixed two-percent ceiling, and was reviewed across ten sustained four-second renders."}],
   "editability": [
-    "final_cut_native"
+    "framesmith_regeneration"
   ],
   "provenance": [
     {
       "sourceId": "APPLE-FCP-029",
-      "claim": "Final Cut supports blend modes on connected clips",
+      "claim": "Final Cut supports connected clips above the primary storyline",
       "sourceRole": "technical_authority",
       "confidence": "official_documentation"
     },
     {
       "sourceId": "docs/CONNECTED_LAYERS_GROUND_TRUTH.md",
-      "claim": "a connected clip is a child of the spine asset-clip with lane=1 and a parent-relative offset; blend mode is written as an index-and-name string",
+      "claim": "a connected clip is a child of the spine asset-clip with lane=1 and a parent-relative offset",
+      "confidence": "direct_evidence"
+    },
+    {
+      "sourceId": "docs/editorial-intelligence/BAKEOFF_AND_COVERAGE.md",
+      "claim": "ten representative production movies established sustained CRT behavior through frame 119 and exact preview/export artifact parity",
+      "sourceRole": "technical_authority",
+      "confidence": "direct_evidence"
+    },
+    {
+      "sourceId": "docs/CONNECTED_RENDERED_MOVIE_ADMISSION_PASS.md",
+      "claim": "Final Cut 12.3 returned the exact FCPXML 1.14 construction over the tested 1920x1080 timing-free/audio-free still source and the tested 1920x1080 30 fps eight-second audio-bearing movie source, each with a four-second spine and one opaque four-second video-only ProRes 422 HQ apch treatment",
+      "sourceRole": "technical_authority",
       "confidence": "direct_evidence"
     },
     {
@@ -72,20 +185,24 @@
     "implemented": true,
     "visuallyVerified": true,
     "finalCutEvidence": [
-      "f92bbd703ba0efcf4300d3fc4f4f28a32d4acc3cd0926b77a863d9b29ad46da2",
-      "22402588484c63c974f6ab4f787d6d016f34f2f4c303d3cd3219bdc96a4c090c"
+      "26eb90634a82dbbe7dfc1150a7288c25dc972c973ef1bfce5181ac9af8a377de",
+      "87c95fa47679788adbff8ac9854bdfa2b485c9acff0bc6c9abdcb573a2cb9bc7"
     ],
-    "notes": "Generalized emitter admitted 2026-08-07 for the verified base flicker and Color Adjustments construction. No overlay is part of this card; overlay lane, parent-relative offset, and blend mode remain unadmitted.",
+    "notes": "Validated as a sustained, locally rendered, content-addressed, video-only ProRes 422 HQ apch/yuv422p10le CRT treatment connected above the unchanged source. Project export is restricted to 1920x1080, 30 fps, 120 frames, and four seconds; arbitrary duration/aspect renders are preview-only and refused for project export. Final Cut evidence is further bounded to a tested 1920x1080 timing-free/audio-free still source or a tested 1920x1080, 30 fps, eight-second audio-bearing movie source, each used for a four-second spine extent. Preview and export consume the exact same SHA-256-bound movie. All ten audit cases retained monochrome treatment and scanlines through frame 119 with 120 unique frames; observed global luma range was approximately 1.43–3.49 of 255 and no CRT dropout was observed. This is FrameSmith-regenerable baked output, not the retired native base recipe and not an opacity fade.",
     "verifiedOn": [
-      "clip-a.mov colour bars, base treatment without an overlay"
+      "/Users/marcboyer/Movies/FCPCommandConsole/exports/bakeoff/v2-production/old-television-v2: ten representative four-second 30 fps movies",
+      "Final Cut Pro 12.3 (450152): connected rendered movie over still, operation 564186C4-F931-466D-ABDF-16980F9C11F4",
+      "Final Cut Pro 12.3 (450152): connected rendered movie over movie, operation 3DF48DA4-DF68-4692-ACAA-4A6F73D9DEC4"
     ]
   },
   "expectedCost": {
-    "latency": "instant",
+    "latency": "seconds",
     "monetary": "free",
     "privacy": "local_only"
   },
   "refusalConditions": [
-    "Do not apply when the stated prerequisite is not met."
+    "the admitted source cannot cover the complete locked treatment duration",
+    "the typed renderer request, FFmpeg identity, source identity, or prepared movie fails verification",
+    "the requested treatment would require a full-frame opacity flash or fade"
   ]
 }

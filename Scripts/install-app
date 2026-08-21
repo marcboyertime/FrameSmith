@@ -10,7 +10,8 @@ set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 app_parent="$HOME/Applications"
-target="$app_parent/FCPCommandConsole.app"
+target="$app_parent/FrameSmith.app"
+legacy_target="$app_parent/FCPCommandConsole.app"
 bundle_id="com.marcboyer.FCPCommandConsole"
 
 fail() { echo "$1" >&2; exit 1; }
@@ -25,18 +26,25 @@ if [ -e "$app_parent" ] && [ ! -d "$app_parent" ]; then
 fi
 mkdir -p "$app_parent"
 app_parent=$(CDPATH= cd -- "$app_parent" && pwd -P)
-target="$app_parent/FCPCommandConsole.app"
+target="$app_parent/FrameSmith.app"
+legacy_target="$app_parent/FCPCommandConsole.app"
 
 # A dangling symlink is invisible to `-e`; check the link itself first so it
 # cannot be silently written through.
-if [ -L "$target" ]; then
-  fail "Refusing to replace a symlinked bundle: $target"
-fi
-if [ -e "$target" ] && [ ! -d "$target" ]; then
-  fail "Refusing to replace a non-bundle path: $target"
-fi
+for candidate in "$target" "$legacy_target"; do
+  if [ -L "$candidate" ]; then
+    fail "Refusing to replace a symlinked bundle: $candidate"
+  fi
+  if [ -e "$candidate" ] && [ ! -d "$candidate" ]; then
+    fail "Refusing to replace a non-bundle path: $candidate"
+  fi
+done
 
 cd "$project_root"
+# Living Still v2 is a production path, so an installed app may not defer model
+# acquisition until the user presses Preview. The acquisition script is pinned
+# and hash-verifying; an existing valid artifact is reused without network I/O.
+"$project_root/Scripts/acquire-depth-model"
 swift build -c release --product FCPCommandConsoleApp
 bin_dir=$(swift build -c release --show-bin-path)
 binary="$bin_dir/FCPCommandConsoleApp"
@@ -46,8 +54,8 @@ if [ -L "$binary" ]; then
   fail "Built product is a symlink: $binary"
 fi
 
-stage_root=$(mktemp -d "$app_parent/.FCPCommandConsole.app.stage.XXXXXX")
-stage_bundle="$stage_root/FCPCommandConsole.app"
+stage_root=$(mktemp -d "$app_parent/.FrameSmith.app.stage.XXXXXX")
+stage_bundle="$stage_root/FrameSmith.app"
 cleanup() { rm -rf "$stage_root"; }
 trap cleanup EXIT HUP INT TERM
 
@@ -61,7 +69,9 @@ esac
 
 mkdir -p "$stage_bundle/Contents/MacOS" "$stage_bundle/Contents/Resources/registry"
 cp "$binary" "$stage_bundle/Contents/MacOS/FCPCommandConsoleApp"
+cp "$project_root/assets/branding/FrameSmith.icns" "$stage_bundle/Contents/Resources/FrameSmith.icns"
 ditto "$project_root/registry/effects" "$stage_bundle/Contents/Resources/registry/effects"
+ditto "$project_root/registry/models" "$stage_bundle/Contents/Resources/registry/models"
 # Technique cards ship with the app: the catalog must work with no network and
 # no checkout, so Surprise Me cannot depend on the developer's working copy.
 ditto "$project_root/registry/editorial-techniques" "$stage_bundle/Contents/Resources/registry/editorial-techniques"
@@ -73,10 +83,11 @@ cat > "$stage_bundle/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
-  <key>CFBundleDisplayName</key><string>FCPCommandConsole</string>
+  <key>CFBundleDisplayName</key><string>FrameSmith</string>
   <key>CFBundleExecutable</key><string>FCPCommandConsoleApp</string>
+  <key>CFBundleIconFile</key><string>FrameSmith</string>
   <key>CFBundleIdentifier</key><string>com.marcboyer.FCPCommandConsole</string>
-  <key>CFBundleName</key><string>FCPCommandConsole</string>
+  <key>CFBundleName</key><string>FrameSmith</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1</string>
   <key>CFBundleVersion</key><string>1</string>
@@ -88,7 +99,9 @@ PLIST
 plutil -lint "$stage_bundle/Contents/Info.plist" >/dev/null
 staged_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$stage_bundle/Contents/Info.plist")
 [ "$staged_id" = "$bundle_id" ] || fail "Staged bundle identifier is wrong: $staged_id"
+test -f "$stage_bundle/Contents/Resources/FrameSmith.icns"
 test -f "$stage_bundle/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json"
+test -f "$stage_bundle/Contents/Resources/registry/models/depth-anything-v2-small.json"
 test -f "$stage_bundle/Contents/Resources/registry/editorial-techniques/motion.still.quiet_push.v1.json"
 test -f "$stage_bundle/Contents/Resources/schemas/effect-plan.schema.json"
 test -f "$stage_bundle/Contents/Resources/schemas/treatment-plan.schema.json"
@@ -103,7 +116,11 @@ verify_installed() {
   if [ -L "$1" ] || [ -L "$1/Contents/Info.plist" ]; then return 1; fi
   installed_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null || true)
   [ "$installed_id" = "$bundle_id" ] || return 1
+  installed_icon=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$1/Contents/Info.plist" 2>/dev/null || true)
+  [ "$installed_icon" = "FrameSmith" ] || return 1
+  [ -f "$1/Contents/Resources/FrameSmith.icns" ] || return 1
   [ -f "$1/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json" ] || return 1
+  [ -f "$1/Contents/Resources/registry/models/depth-anything-v2-small.json" ] || return 1
   [ -f "$1/Contents/Resources/registry/editorial-techniques/motion.still.quiet_push.v1.json" ] || return 1
   [ -f "$1/Contents/Resources/schemas/effect-plan.schema.json" ] || return 1
   [ -f "$1/Contents/Resources/schemas/treatment-plan.schema.json" ] || return 1
@@ -123,27 +140,27 @@ if [ -d "$target" ]; then
   fi
   if diff -qr "$target" "$stage_bundle" >/dev/null 2>&1; then
     echo "Installed bundle is already byte-identical: $target"
-    exit 0
-  fi
-  backup="$app_parent/.FCPCommandConsole.app.backup.$(date +%Y%m%d%H%M%S).$$"
-  if [ -e "$backup" ] || [ -L "$backup" ]; then
-    fail "Backup path already exists: $backup"
-  fi
+  else
+    backup="$app_parent/.FrameSmith.app.backup.$(date +%Y%m%d%H%M%S).$$"
+    if [ -e "$backup" ] || [ -L "$backup" ]; then
+      fail "Backup path already exists: $backup"
+    fi
 
-  # POSIX cannot exchange two non-empty directories in one step, so the swap is
-  # two renames within one directory. Both are individually atomic, and the
-  # window between them is a rollback point rather than a lost install.
-  mv "$target" "$backup"
-  if ! mv "$stage_bundle" "$target"; then
-    mv "$backup" "$target"
-    fail "Install failed; restored previous bundle at $target"
+    # POSIX cannot exchange two non-empty directories in one step, so the swap is
+    # two renames within one directory. Both are individually atomic, and the
+    # window between them is a rollback point rather than a lost install.
+    mv "$target" "$backup"
+    if ! mv "$stage_bundle" "$target"; then
+      mv "$backup" "$target"
+      fail "Install failed; restored previous bundle at $target"
+    fi
+    if ! verify_installed "$target"; then
+      rm -rf "$target"
+      mv "$backup" "$target"
+      fail "Installed bundle failed verification; restored previous bundle at $target"
+    fi
+    echo "Installed $target (previous owned bundle preserved at $backup)"
   fi
-  if ! verify_installed "$target"; then
-    rm -rf "$target"
-    mv "$backup" "$target"
-    fail "Installed bundle failed verification; restored previous bundle at $target"
-  fi
-  echo "Installed $target (previous owned bundle preserved at $backup)"
 else
   mv "$stage_bundle" "$target"
   if ! verify_installed "$target"; then
@@ -151,4 +168,23 @@ else
     fail "Installed bundle failed verification and was removed: $target"
   fi
   echo "Installed $target"
+fi
+
+# Retire the legacy visible product name only after the FrameSmith bundle has
+# been installed and verified. Keep the prior owned bundle as a hidden backup
+# so the branding migration is recoverable and no stale Dock target remains.
+if [ -d "$legacy_target" ]; then
+  if [ -L "$legacy_target/Contents/Info.plist" ]; then
+    fail "Refusing to read a symlinked Info.plist: $legacy_target/Contents/Info.plist"
+  fi
+  legacy_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$legacy_target/Contents/Info.plist" 2>/dev/null || true)
+  if [ "$legacy_id" != "$bundle_id" ]; then
+    fail "Refusing to retire non-owned legacy bundle: $legacy_target"
+  fi
+  legacy_backup="$app_parent/.FCPCommandConsole.app.backup.$(date +%Y%m%d%H%M%S).$$"
+  if [ -e "$legacy_backup" ] || [ -L "$legacy_backup" ]; then
+    fail "Legacy backup path already exists: $legacy_backup"
+  fi
+  mv "$legacy_target" "$legacy_backup"
+  echo "Retired legacy app name; previous bundle preserved at $legacy_backup"
 fi

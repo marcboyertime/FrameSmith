@@ -8,6 +8,7 @@ umask 077
 export LC_ALL=C
 
 provenance_root="/Users/marcboyer/Movies/FCPCommandConsole/provenance"
+runtime_root="/Users/marcboyer/Movies/FCPCommandConsole"
 library_root="/Users/marcboyer/Movies/FCPCommandConsole/FCPCommandConsole Test.fcpbundle"
 isolated_home="/Users/marcboyer/Movies/FCPCommandConsole/isolated-final-cut-home"
 stock_final_cut_executable="/Applications/Final Cut Pro.app/Contents/MacOS/Final Cut Pro"
@@ -91,7 +92,7 @@ validate_output_directory() {
 
 capture_tree_inventory() {
     local root="$1" output="$2" symlink_policy="${3:-reject}"
-    local paths_sorted relative path type mode device inode size mtime_ns metadata hash link_target mtime_seconds
+    local paths_sorted relative path type mode device inode size mtime_ns metadata hash link_target mtime_seconds canonical_link_target
     if [[ -d "$root" && ! -L "$root" ]]; then
         require_exact_directory "$root" "inventory root"
     elif [[ -f "$root" && ! -L "$root" ]]; then
@@ -112,9 +113,16 @@ capture_tree_inventory() {
         validate_relative_field "$relative" "inventory relative path"
         link_target=""
         if [[ -L "$path" ]]; then
-            [[ "$symlink_policy" == "allow-library-fcpcache" && "$relative" == ".fcpcache" ]] || fail "symlink encountered in read-only inventory: $path"
+            [[ "$symlink_policy" == "allow-library-managed-links" ]] || fail "symlink encountered in read-only inventory: $path"
             link_target="$(/usr/bin/readlink "$path")" || fail "cannot read allowed library cache symlink: $path"
-            [[ "$link_target" == "." ]] || fail "library .fcpcache symlink target drifted: $link_target"
+            case "$relative:$link_target" in
+                ".fcpcache:.") ;;
+                ".fcpdata:./__.fcpdata.apple.com") ;;
+                *)
+                    canonical_link_target="$(/bin/realpath "$path")" || fail "managed library symlink target is missing: $relative -> $link_target"
+                    [[ "$canonical_link_target" == "$runtime_root"/* ]] || fail "managed library symlink escapes the fixed runtime root: $relative -> $canonical_link_target"
+                    ;;
+            esac
             type="symlink"
         elif [[ -d "$path" ]]; then
             type="directory"
@@ -301,7 +309,7 @@ main() {
     require_exact_directory "$isolated_home" "isolated Final Cut home"
     capture_process_guard "$output_dir"
     library_inventory="$output_dir/library-inventory.tsv"
-    capture_tree_inventory "$library_root" "$library_inventory" "allow-library-fcpcache"
+    capture_tree_inventory "$library_root" "$library_inventory" "allow-library-managed-links"
     local library_inventory_hash="$capture_tree_hash"
     capture_library_databases "$output_dir"
     cache_inventory="$output_dir/isolated-registry-cache-inventory.tsv"

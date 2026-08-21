@@ -1,332 +1,158 @@
-# Living Still v2 — bakeoff
-
-Status: **all 10 classes measured. Candidate B demoted on visual evidence.
-Candidate C leads but is untested pending a depth-model decision.**
-
-Started 2026-08-07 from HEAD `16f4e77` on `standalone-app`, macOS 26.3 arm64,
-Final Cut Pro 12.3 (450152), Swift 6.3.3.
-
-This document decides the v2 architecture from evidence. It replaces the
-conclusion in `docs/LIVING_STILL_V2_DESIGN.md`, which chose two-plane native
-layers because they stay editable in Final Cut. That reasoning came from a
-doctrine that has since been retired: **visual quality now outranks
-editability**, and the earlier decision was never tested against a rendered
-depth alternative at all.
-
-## Prerequisite gate — PASSED
-
-Verified against code at `16f4e77`, not against the prompt's checkpoint (which
-was 29 commits stale and described work that has since landed).
-
-| Condition | Evidence |
-| --- | --- |
-| v1 parameters plan-driven end to end | `LivingStillCompositionBuilder.build(from: plan)`; targeted emitter enforces exact registry key match (`StandaloneFCPXMLExport.swift:272–285`) |
-| Preview and export share one construction | both resolve through `emitter.channels()` via `AppModel.effectChannels(for:)` |
-| Typed → schema → re-admission → capability | `PlanRevision.swift:38, 42, 47, 53` |
-| Revision invalidates stale export state, safe identity | `operationID = UUID()` (`PlanRevision.swift:37`); app clears `package`/`exportedProject` (`FCPCommandConsoleApp.swift:372–373`) |
-| Centralized emitter discovery | `StandaloneEmitterCatalog`; the app constructs no emitters directly |
-| Inspector exposes only working parameters | `ParameterExposure` + `docs/PARAMETER_LIVENESS.md` |
-| Suite and audit | 282 tests, 0 failures; `registry=4 schema=json-ok forbidden-patterns=0` |
-
-## Feasibility established
-
-**Apple Vision foreground instance masking is available** — revision 1, ships
-with the OS, runs offline, needs no model download and no acquisition decision.
-Candidates B and D are therefore testable today at zero dependency cost. This is
-why the analysis pipeline was built first.
-
-**No Core ML depth model is installed.** Candidate C requires acquiring Depth
-Anything V2 Small (Apache-2.0 upstream; Apple publishes Core ML variants). Not
-yet requested, because the bakeoff should not acquire a dependency before the
-cheaper candidates have been measured.
-
-`service/LivingStillAnalysis.swift` implements orientation normalization,
-subject finding, coverage, and a boundary-complexity heuristic.
-`fcpcommandconsole-bakeoff` runs it and writes mask visualizations outside git.
-
-### First real result
-
-`living-still.png` (the synthetic fixture) returns **`subject = none`**, and the
-harness correctly declines to produce a mask.
-
-That is the outcome that matters most for honesty: a scene with no foreground
-subject must not be given an invented one. A two-plane construction on a
-no-subject image is exactly how cardboard-cutout motion happens, and the
-analyzer refuses rather than guessing.
-
-## Candidates
-
-| | Approach | Dependencies | Status |
-| --- | --- | --- | --- |
-| **A** | v1 native push/pan/colour/fade | none | control and fallback, not a v2 candidate |
-| **B** | Vision two-plane parallax — subject matte, alpha PNG foreground, reconstructed plate, native lanes | none (Vision is OS) | testable now |
-| **C** | Core ML monocular depth → depth-aware warp, rendered movie | Depth Anything V2 Small | blocked on acquisition decision |
-| **D** | Hybrid — Vision matte for the subject edge, depth for intra-scene geometry, rendered | both | blocked with C |
-
-Candidate B's alpha-in-a-connected-layer behaviour is **unadmitted**. The
-connected-layer contract was admitted only for an opaque lane-1 overlay, so B
-needs its own Final Cut capture before any claim is made about it.
-
-## Rubric
-
-Scored 0–5. Visual quality and intent fidelity carry the highest weight;
-editability is a secondary score and explicitly **not** a veto.
-
-| Criterion | Weight |
-| --- | --- |
-| Perceived depth | 3 |
-| Camera-motion coherence | 3 |
-| Subject-edge quality | 3 |
-| Disocclusion / clean-plate quality | 3 |
-| Face, hand, text, straight-line stability | 3 |
-| Temporal smoothness | 2 |
-| Border / crop safety | 2 |
-| Colour and profile fidelity | 2 |
-| Preview/export agreement | 2 |
-| Latency and memory | 1 |
-| Offline reliability | 1 |
-| User adjustability | 1 |
-| Final Cut editability | 1 |
-| Package size and implementation burden | 1 |
-
-### Hard artifact vetoes
-
-A candidate cannot become the default if ordinary test images show any of these
-at the intended motion strength, regardless of score:
-
-- foreground halo
-- exposed hole or black border
-- duplicated edge strip
-- rubber-sheet face or body distortion
-- bent architecture or text
-- depth inversion (background moving in front)
-- visible layer seam or detached sticker motion
-- gamma, colour-space, orientation, or aspect drift
-- unstable frame-to-frame sampling
-
-## Matrix run 1 — subject analysis, 7 of 10 classes
-
-Fixtures live in `~/Movies/FCPCommandConsole/fixtures/bakeoff/` (outside git).
-Six are synthetic; `landscape-sonoma.png` is a real photograph converted from
-the system wallpaper set.
-
-Synthetic is deliberately chosen for the **geometric** classes rather than being
-a compromise. Ground truth is known exactly, so a bent line, a warped glyph, or
-a duplicated edge strip is *measurable* instead of a matter of opinion. Photos
-are only genuinely required for the organic classes, where the failure is a
-matte losing hair rather than a geometry error.
-
-| Fixture | Class | Normalized | Subject | Complexity |
-| --- | --- | --- | --- | --- |
-| `architecture-grid` | 5 straight lines | 1920×1080 | **none** | — |
-| `text-signage` | 8 text / pattern | 1920×1080 | **none** | — |
-| `landscape-sonoma` | 6 landscape (real photo) | 6016×6016 | **none** | — |
-| `product-crisp` | 4 crisp edges | 1920×1080 | single, 13.5% | 0.003 |
-| `layered-depth` | 7 depth planes | 1920×1080 | **multiple (2)** | 0.003 |
-| `portrait-frame` | 10 portrait | 1080×1920 | single, 6.1% | 0.002 |
-| `low-contrast` | 9 low contrast | 1920×1080 | single, 4.9% | 0.003 |
-
-### What this already decides
-
-**The `subject = none` cases are a routing signal, not a failure.** Architecture,
-text, and a real landscape all correctly return no foreground instance. Those
-images must never receive a two-plane layered treatment — there is nothing to
-put on the near plane, and forcing one is exactly how cardboard-cutout motion
-happens. Auto must route them to a depth method or to v1.
-
-That this holds on a **real 6016×6016 photograph** and not only on synthetic
-fixtures is what makes it trustworthy.
-
-**Ambiguity is detected rather than guessed.** `layered-depth` returns
-`multiple (2)`, which is the case that requires the user to pick a subject
-before a subject-dependent treatment can be offered honestly.
-
-**Portrait orientation survives normalization.** `portrait-frame` reports
-1080×1920 and still finds its subject, so the orientation pipeline is not
-silently transposing the mask.
-
-### Matrix run 2 — the complexity metric was broken
-
-Run 1's complexity scores were all 0.002–0.003, which looked like "clean
-synthetic fixtures" and was actually a dead metric.
-
-Two organic fixtures were generated to test it: `organic-strands` (1400 fine
-strands radiating from a mass — hair geometry without claiming to be a
-photograph) and `organic-jagged` (a ragged but continuous silhouette).
-
-**Prediction, recorded before running: strands should score several times higher
-than a clean product silhouette, or the metric is useless.**
-
-It failed. Strands `0.004`, product `0.003`. Noise.
-
-#### Root cause
-
-Not Vision. The matte comes back at full 1920×1080 and does contain the
-strands. The metric threw the signal away:
-
-1. `CIEdges` produces one-pixel edges; `CIAreaAverage` then diluted them across
-   two million pixels into the noise floor;
-2. dividing by coverage *penalised* the strands case for having a large
-   subject, which is backwards.
-
-#### Fix
-
-A matte over hair is mostly **partial alpha**; a clean silhouette is almost
-entirely binary. So the soft-edge fraction *is* the complexity, and no edge
-detector is needed. Measuring alpha distribution directly:
-
-| Fixture | Soft-edge fraction |
-| --- | --- |
-| `organic-strands` | **0.034** |
-| `product-crisp` (thin bars) | 0.017 |
-| `organic-jagged` | 0.015 |
-| `layered-depth` | 0.015 |
-| `portrait-frame` | 0.005 |
-| `low-contrast` | 0.004 |
-
-A clean 2× separation for the case the metric exists to catch, and an 8× range
-overall. `product-crisp` scoring above `organic-jagged` is correct rather than
-noise — it contains twelve thin vertical bars, which are genuinely thin
-structures.
-
-Coverage now includes partial pixels too. Excluding them under-reported exactly
-the mattes that matter most.
-
-Pinned by `LivingStillAnalysisTests` so it cannot silently regress to a metric
-that returns a plausible number for every input — which is worse than no metric,
-because routing built on it looks principled while being random.
-
-### Remaining gap
-
-The three organic classes are still uncovered by *photographic* media. The
-strands fixture exercises the metric's high end but is drawn, so it cannot show
-colour contamination at a hair boundary or a matte failing against a busy
-background.
-
-## Matrix run 3 — real photographs, and the decisive finding
-
-Twelve photographs were added covering the three organic classes. Full set is
-now 21 fixtures.
-
-### Vision returns a hard silhouette, not a hair matte
-
-This is the finding that decides the architecture, and it is visual rather than
-numeric.
-
-**Correction to a first reading.** This was initially argued from two images,
-the portrait and the animal. The animal is a smooth-bodied creature — a squid —
-so a hard silhouette is the *correct* matte for it and it evidences nothing
-about fine structure. That half of the claim was withdrawn.
-
-The portrait carries the finding on its own, and carries it further. The source
-has abundant curly hair with many flyaway strands. Vision's matte cuts through
-it in a **smooth arc**: not one strand survives. Worse, the composite shows an
-**olive-green fringe** along the hair boundary — background colour pulled inside
-the matte.
-
-That fringe is the `foreground halo` veto, visible in still analysis before
-anything has moved.
-
-`VNGenerateForegroundInstanceMaskRequest` is a *subject selection* API. It
-answers "which pixels are the subject" well. It does not produce the
-hair-preserving alpha matte that compositing a foreground plate requires.
-
-### What that does to Candidate B
-
-Candidate B composites a foreground cut out with this matte over a reconstructed
-plate, then moves the two planes independently. With a hard silhouette on hair
-or fur, that is a sticker sliding over a backdrop — which trips two hard vetoes
-outright:
-
-- visible layer seam or detached sticker motion
-- foreground halo (any plate reconstruction error lands directly on a hard edge)
-
-**Candidate B therefore has a quality ceiling on exactly the subjects users most
-want to bring to life.** It is not disqualified for crisp-edged subjects — a
-product, a building, a graphic shape — where a hard silhouette is the correct
-answer. But it cannot be the default.
-
-This is direct evidence against `docs/LIVING_STILL_V2_DESIGN.md`, which chose
-two-plane native layers. That choice was made on editability grounds without
-ever inspecting a matte.
-
-### The complexity metric measures something other than advertised
-
-| Fixture | Complexity |
-| --- | --- |
-| `organic-strands` (synthetic) | 0.034 |
-| `01_close_portrait_hair_detail` (real hair) | 0.017 |
-| `product-crisp` (rectangles and bars) | 0.017 |
-
-Real hair and a rectangle score **identically**, and the synthetic strands score
-double. That is not the metric failing again — it is the metric faithfully
-reporting that *Vision gave all three a hard silhouette*. The synthetic fixture
-scores higher only because its strands are large enough that the silhouette
-itself becomes ragged.
-
-The consequence is worth stating plainly:
-
-> **Hair risk cannot be assessed from Vision's mask, because Vision has already
-> discarded the hair.** Any such assessment has to come from the source image.
-
-So `boundaryComplexity` measures *silhouette raggedness*. That is a real and
-useful signal — it predicts how much a plate reconstruction has to invent along
-the edge — but it is not a hair detector, and must not be used as one.
-
-### Where the evidence now points
-
-| Candidate | Status after run 3 |
-| --- | --- |
-| **A** (v1) | control; still the safe fallback |
-| **B** (two-plane native) | **demoted** — hard-silhouette ceiling on organic subjects; viable only for crisp-edged subjects |
-| **C** (depth warp) | **now the leading hypothesis** — a continuous warp needs no binary matte, so the seam that disqualifies B cannot occur |
-| **D** (hybrid) | inherits B's matte problem precisely at the subject edge |
-
-C avoids the failure mode structurally rather than mitigating it. That is a
-strong argument, and it is also **still untested** — no depth model is
-installed, and a depth warp has its own characteristic failures (rubber-sheet
-distortion, depth inversion, disocclusion smearing) that only appear in motion.
-
-**The decision is not final until C is measured.** Recorded here because the
-evidence against B is already conclusive and should not be re-litigated.
-
-## Blocker — representative media
-
-The original fixture set — colour bars and a rectangle pattern — could show
-none of the failures the rubric exists to catch. Six purpose-built synthetic
-fixtures plus one real photograph now cover seven classes (see run 1 above).
-
-**Three organic classes remain, and synthetic cannot substitute for them.** A
-drawn shape has a clean edge by construction, so it cannot exercise a matte
-losing hair, fringing on a thin limb, or fur against a busy background. The
-boundary-complexity heuristic is likewise unexercised above 0.003.
-
-A second, practical constraint: **macOS TCC blocks command-line access to
-`~/Downloads`, `~/Documents`, and `~/Desktop`.** The app can read those through
-the open panel's powerbox, but the bakeoff CLI gets `Operation not permitted`.
-
-So representative images must be placed somewhere the CLI can read. The approved
-runtime root works and is already outside git:
-
-```
-~/Movies/FCPCommandConsole/fixtures/bakeoff/
-```
-
-### Still needed — three images
-
-1. close portrait with visible hair detail
-2. full body with hands and thin limbs
-3. animal or irregular organic subject
-
-Drop them in `~/Movies/FCPCommandConsole/fixtures/bakeoff/`. They are read
-locally, never uploaded, and never modified. Rough matches are fine — the point
-is coverage of failure modes, not photographic quality.
+# Living Still v2 — production bakeoff and decision
+
+Status: **Candidate C selected, implemented, and accepted. The final ProRes 422
+HQ/apch matrix passed all ten independent visual and stream checks.** The shared
+still-parent HQ rendered-movie construction is separately admitted in Final Cut
+12.3.
+
+Recorded 2026-08-08. Final Living Still runtime artifacts remain outside git
+under `/Users/marcboyer/Movies/FCPCommandConsole/exports/bakeoff/v2-production-hq`.
 
 ## Decision
 
-**Not yet made.** It will record which construction becomes the default, which
-becomes the editable alternative, which remains the fallback, what was rejected
-and why, and what evidence would justify revisiting it.
+The default is a continuous Core ML depth warp rendered to a checksum-bound,
+video-only ProRes 422 HQ movie. The earlier Vision two-plane proposal is demoted: its
+portrait matte removed flyaway hair and introduced an edge fringe, creating the
+exact moving seam that the effect must avoid. Direct Final Cut editability did
+not justify that visual ceiling.
 
-Per the prompt: if no candidate clearly beats v1 on the representative set, no
-v2 ships. A worse effect with a better name is not a milestone.
+| Candidate | Result |
+| --- | --- |
+| A — historical native push/pan/fade | control only; not a Living Still v2 backend or fallback |
+| B — Vision two-plane native layers | rejected as the default because organic subjects expose a hard-silhouette seam and halo risk |
+| C — continuous Core ML depth warp | selected and validated at `motionStrength=0.90`, `pushIn=0.030` |
+| D — Vision-edge/depth hybrid | not selected because it inherits B's failure at the subject boundary |
+
+This replaces the old editability-first decision. Living Still v2 is
+FrameSmith-regenerable baked output, not a native Final Cut transform and not an
+opacity fade. The independent opacity technique card remains `reference_only`.
+
+## Selected production construction
+
+- Pinned model: Apple Core ML Depth Anything V2 Small FP16.
+- Exact source revision:
+  `cfef6f6f2a70783dedc0bfae40cecbc2052285d3`.
+- License: Apache-2.0.
+- Privacy: local Core ML inference; no media upload.
+- Default timing: four seconds at 30 fps, exactly 120 frames.
+- Selected motion recipe: depth-motion strength 0.90 and global push 0.030
+  (three percent), with the existing two-axis drift and smoothing defaults.
+- Inference count: one FP16 depth inference per source/recipe, reused across all
+  120 frames.
+- Project-export output: deterministic content-addressed, opaque video-only
+  ProRes 422 HQ (`apch`, `yuv422p10le`), exactly 1920×1080, 30 fps, 120 frames,
+  and four seconds.
+- Placement: one full-duration lane-1 rendered movie above the unchanged still
+  spine.
+- Parity: preview opens the exact prepared movie that export checksum-verifies
+  and copies. Export never computes a second render.
+
+Other duration/aspect combinations may be rendered for preview experiments,
+but project export refuses them until separately admitted.
+
+The artifact identity records source, pinned model files and compiled identity,
+raw and processed depth fields, renderer/runtime identity, recipe, codec, and
+pixel format. A verified movie at the same address is reused; drift or a
+different occupant fails closed.
+
+The selected recipe came from a controlled comparison against the earlier
+0.55/0.045 default and a 0.75/0.035 candidate. The winning 0.90/0.030 candidate
+was the strongest tested artifact-free option while the global push fell from
+4.5 to 3.0 percent. The final HQ encode reproduced the layered candidate's
+camera-removed frame-119 component span within 0.052 pixels.
+
+## Production matrix
+
+The active production evidence contains **10 representative inputs × 2 rendered
+effects = 20 accepted HQ movies**. Every movie is four seconds at 30 fps. The
+final Living Still files are under `v2-production-hq/living-still-v2`; the Old
+Television files remain under `v2-production/old-television-v2`.
+
+| # | Representative case | Living Still evidence |
+| ---: | --- | --- |
+| 1 | close portrait / hair detail | `living-still-depth-aeafd395150f29caff2c33667eb43c1b.mov` |
+| 2 | full body / hands / thin limbs | `living-still-depth-a7dcb56e6b825ab105201700be4bf1a9.mov` |
+| 3 | animal / irregular organic subject | `living-still-depth-fa718b6625ae0ffc260032b71fcf4b89.mov` |
+| 4 | architecture / grid | `living-still-depth-3a885449e4222199780a7689470d326d.mov` |
+| 5 | text / signage | `living-still-depth-06e7444efff850e0327443b9ead5ab12.mov` |
+| 6 | crisp product edges | `living-still-depth-7a67bc977ab73d3442556e680e9b391f.mov` |
+| 7 | landscape with depth | `living-still-depth-95cfa3e7f649e7b1af824c81683add18.mov` |
+| 8 | low contrast | `living-still-depth-e3bde6e2071ca19a7fa58b083532eec3.mov` |
+| 9 | portrait orientation | `living-still-depth-e79af3e9b98b6e2f2ca471e411dafe01.mov` |
+| 10 | layered depth | `living-still-depth-958a7806c287409b693d1fac78d091d9.mov` |
+
+The exact final file-to-source/SHA-256 mapping is preserved in
+`v2-production/review/final-hq-independent-audit-20260808/file-map.tsv`.
+Multi-time contact sheets, native edge/corner crops, and final metrics are in
+that audit directory.
+
+## Visual gate
+
+The representative review covered the complete ten-case set and the temporal
+path rather than a single poster frame. It screened the hard vetoes established
+before implementation:
+
+- foreground halos and binary layer seams;
+- exposed holes, black borders, or duplicated edge strips;
+- rubber-sheet faces, hands, bodies, text, or architecture;
+- depth inversion;
+- unstable frame-to-frame sampling; and
+- orientation, aspect, gamma, or color drift.
+
+The final HQ matrix passed all ten representative visual and stream checks. All
+movies decoded as ProRes 422 HQ `apch`, `yuv422p10le`, 30 fps, 120 frames,
+4.000 seconds, and video-only. Dense temporal, native-frame, center, edge, and
+corner review found sustained motion without black/frozen clips, exposed canvas,
+tearing, holes, egregious warping, crop failure, or illegible text/product
+detail.
+
+The result is restrained professional depth rather than dramatic 3D. Global
+push/pan remains visually important and low-contrast motion is deliberately
+subtle. The layered fixture nevertheless directly demonstrates non-global
+separation after removing the exact global camera transform: the four colored
+components span 1.806 pixels horizontally at frame 60 and 3.426 pixels at frame
+119, 37.45 percent stronger at frame 119 than the earlier production recipe.
+The independent camera-only image diagnostic leaves 0.320576/255 RGB MAE at
+frame 119, or 12.0549 percent of start-to-end MAE. That residual is diagnostic,
+not pure depth amplitude, because Pillow bicubic is not Core Image and the
+decoded codecs differ; the flat-component centroid span is the stronger
+relative-motion evidence.
+
+One minor limitation is preserved rather than hidden: exact duplicate frames
+were confined to the head—0.033 seconds in seven cases, 0.067 seconds in
+product and layered-depth, and 0.100 seconds in low-contrast—before continuous
+motion. No later exact duplicates were found. This bounded smootherstep
+quantization remains a useful regression signal.
+
+The text-signage border proxy peaked at 0.009098 (0.91 percent) at frame 80.
+Native edge strips establish that the pixels are sparse black source letters
+and grid moving under the push/pan, not a contiguous strip or exposed canvas.
+The final verdict and machine-readable metrics are in
+`review/final-hq-independent-audit-20260808/FINAL_REPORT.md` and its `metrics/`
+directory.
+
+## Preview/export and Final Cut evidence
+
+Preview/export parity is exact at the artifact boundary: both consumers use one
+prepared movie and bind its SHA-256. The Final Cut probe independently tested
+the FCPXML construction that carries that movie above a still.
+
+| Context | Operation | Returned FCPXML SHA-256 | Result |
+| --- | --- | --- | --- |
+| connected rendered movie over still | `564186C4-F931-466D-ABDF-16980F9C11F4` | `26eb90634a82dbbe7dfc1150a7288c25dc972c973ef1bfce5181ac9af8a377de` | passed on Final Cut Pro 12.3 (450152) |
+
+The returned document admits only FCPXML 1.14 on Final Cut 12.3 (450152), with
+one 1920×1080, 30 fps, 120-frame, four-second, opaque video-only ProRes 422 HQ
+movie connected above a tested 1920×1080 timing-free, audio-free still source;
+the spine video and treatment extents were both four seconds. Arbitrary
+duration/aspect project export is refused. The probe does not make pixels native
+or substitute for the separate effect-specific visual matrix; both evidence
+classes now pass within their recorded scopes.
+
+## Revisit conditions
+
+Re-open the decision if a new model or compositor can materially improve the
+representative matrix without weakening determinism, local privacy, provenance,
+or exact preview/export parity. A future result also needs its own scoped Final
+Cut admission if it changes the connected-layer construction. Native
+editability alone is not enough to displace the current winner.

@@ -1,5 +1,14 @@
 # Standalone architecture
 
+> **Current-path notice (2026-08-08):** This page records the original inert-
+> planner architecture and is retained for historical context. The production
+> standalone FCPXML path, including Living Still v2 and Old Television v2 as
+> connected rendered-movie treatments, is documented in `STATUS.md`,
+> `docs/editorial-intelligence/IMPLEMENTATION_STATUS.md`, and
+> `docs/CONNECTED_RENDERED_MOVIE_ADMISSION_PASS.md`. The native Living Still
+> opacity/color and native Old Television overlay requirements below are not v2
+> production contracts.
+
 ## Scope
 
 The product is a standalone local planner and evidence-preserving package tool.

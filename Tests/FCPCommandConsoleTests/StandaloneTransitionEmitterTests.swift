@@ -33,14 +33,21 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
 
     private let oldTelevisionDefaults: [String: ParameterValue] = [
         "durationSeconds": .number(4),
-        "saturation": .number(25),
-        "flickerFloor": .number(0.82),
-        "overlayOpacity": .number(0.35),
-        "overlayStartSeconds": .number(1),
-        "overlayDurationSeconds": .number(2),
-        "blendMode": .string("overlay"),
-        "overlayTiming": .string("bounded-range"),
-        "overlayTransform": .string("identity")
+        "profile": .string("broadcast-mono"),
+        "intensity": .number(0.68),
+        "scanlineStrength": .number(0.42),
+        "noiseStrength": .number(0.28),
+        "syncInstability": .number(0.22),
+        "chromaSeparation": .number(0.18),
+        "bloomStrength": .number(0.20),
+        "vignetteStrength": .number(0.34),
+        "ghostingStrength": .number(0.10),
+        "flickerStrength": .number(0.12),
+        "seed": .integer(7341),
+        "outputLongEdge": .integer(1920),
+        "fps": .integer(30),
+        "renderMethod": .string("ffmpeg-crt-v2"),
+        "preserveOriginal": .boolean(true)
     ]
 
     private func plan(_ effect: EffectID, parameters: [String: ParameterValue] = [:]) -> EffectPlan {
@@ -48,15 +55,62 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         let resolvedParameters = effect == .oldTelevision
             ? oldTelevisionDefaults.merging(parameters) { _, override in override }
             : parameters
+        let renderedAsset = GeneratedAssetDefinition(
+            kind: "crt-treatment-movie",
+            format: "prores-422-10bit",
+            alpha: false,
+            deterministic: true
+        )
         return EffectPlan(
             originalRequest: "test",
             confidence: 1,
             effectID: effect,
             selectionToken: SelectionToken(selectionType: .singleClip, clipIDs: ["a"], sourceIdentities: [source], revision: "r1"),
             parameters: resolvedParameters,
-            representation: .fcpxmlNative,
-            fallback: "none",
+            representation: effect == .oldTelevision ? .layeredMedia : .fcpxmlNative,
+            generatedAssets: effect == .oldTelevision ? [renderedAsset] : [],
+            previewStrategy: effect == .oldTelevision ? "checksum-bound-rendered-movie" : "",
+            fallback: effect == .oldTelevision ? "refuse-if-crt-renderer-unavailable" : "none",
             preconditionRevision: "r1"
+        )
+    }
+
+    /// A checksum-bound prepared asset without invoking the renderer. The
+    /// shared FCPXML boundary validates its file, source, construction, timing,
+    /// and digest before it may become the connected layer.
+    private func preparedCRTAsset(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset],
+        frameCount: Int = 120,
+        durationSeconds: Double = 4
+    ) throws -> RenderedEffectAsset {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "fcpcc-rendered-crt-emitter-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("old-television.mov")
+        try Data("sealed rendered CRT fixture".utf8).write(to: url)
+        let primary = try XCTUnwrap(media[.primary])
+        return RenderedEffectAsset(
+            url: url,
+            sha256: try ContentHasher.sha256File(url),
+            constructionDigest: try RenderedConstructionIdentity.digest(plan: plan, media: media),
+            rendererRecipeDigest: String(repeating: "r", count: 64),
+            sourceSHA256: primary.sha256,
+            width: 1920,
+            height: 1080,
+            fps: 30,
+            frameCount: frameCount,
+            durationSeconds: durationSeconds,
+            videoFormat: .proRes422HQ10Bit,
+            videoOnly: true,
+            provenance: [
+                "renderer": OldTelevisionRenderAdapter.rendererVersion,
+                "codecProfile": "HQ",
+                "codecFourCC": "apch"
+            ]
         )
     }
 
@@ -219,44 +273,61 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
 
     // MARK: - Old television construction rules
 
-    func testOldTelevisionEmitsFlickerColourAndAConnectedOverlay() throws {
+    func testOldTelevisionChannelsAreNeutralAndDirectEmissionRequiresPreparedRender() throws {
         let base = movie("base", digest: "a")
-        let overlay = still("texture", digest: "t")
-        let xml = try OldTelevisionStandaloneEmitter().emitDocument(
-            plan: plan(.oldTelevision, parameters: [
-                "durationSeconds": .number(4), "overlayOpacity": .number(0.5), "overlayStartSeconds": .number(1)
-            ]),
-            media: [.primary: base, .overlay: overlay],
-            publishedMediaURLs: [.primary: base.url, .overlay: overlay.url],
+        let treatment = plan(.oldTelevision)
+        let channels = try OldTelevisionStandaloneEmitter().channels(
+            plan: treatment,
+            media: [.primary: base]
+        )
+        XCTAssertTrue(channels.transform.isEmpty)
+        XCTAssertTrue(channels.opacity.isEmpty, "micro-flicker is baked into pixels, never an opacity fade")
+        XCTAssertNil(channels.saturation, "the rendered treatment must not add an indicative native colour filter")
+        XCTAssertNil(channels.overlay, "the optional user-still overlay path was retired")
+        XCTAssertEqual(channels.durationSeconds, 4)
+
+        XCTAssertThrowsError(try OldTelevisionStandaloneEmitter().emitDocument(
+            plan: treatment,
+            media: [.primary: base],
+            publishedMediaURLs: [.primary: base.url],
+            version: "1.14"
+        )) { error in
+            guard case StandaloneExportError.invalidRecipe(let reason) = error else {
+                return XCTFail("expected prepared-render refusal, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("checksum-bound prepared render"), reason)
+        }
+    }
+
+    func testPreparedRenderedMovieIsAFullDurationParentRelativeLayerAndPreservesSpineAudio() throws {
+        let base = movie("base", digest: "a")
+        let treatment = plan(.oldTelevision)
+        let media: [LocalMediaRole: LocalMediaAsset] = [.primary: base]
+        let prepared = try preparedCRTAsset(plan: treatment, media: media)
+        let xml = try OldTelevisionStandaloneEmitter().emitPreparedDocument(
+            plan: treatment,
+            media: media,
+            publishedMediaURLs: [.primary: base.url],
+            preparedAsset: prepared,
+            publishedPreparedURL: URL(fileURLWithPath: "/tmp/package/Media/old-television.mov"),
             version: "1.14"
         )
-        // Animated flicker uses the param form.
-        XCTAssertTrue(xml.contains(#"<param name="amount">"#), "flicker must be an animated param")
-        // The connected layer, in the captured shape.
-        XCTAssertTrue(xml.contains(#"<video ref="r3" lane="1""#), "overlay must be a connected child at lane 1")
-        // Static blend uses the attribute form with the observed mode string.
-        XCTAssertTrue(xml.contains(#"<adjust-blend amount="0.5" mode="14 (Overlay)"/>"#), xml)
-        // Colour filter present.
-        XCTAssertTrue(xml.contains("Color Adjustments"))
-    }
 
-    /// The single most dangerous overlay finding: a timeline-relative offset is
-    /// valid FCPXML that silently misplaces the overlay.
-    func testOverlayOffsetIsParentRelative() throws {
-        let base = movie("base", digest: "a")
-        let overlay = still("texture", digest: "t")
-        let channels = try OldTelevisionStandaloneEmitter().channels(
-            plan: plan(.oldTelevision, parameters: [
-                "durationSeconds": .number(4), "overlayStartSeconds": .number(1)
-            ]),
-            media: [.primary: base, .overlay: overlay]
+        XCTAssertTrue(
+            xml.contains(#"<video ref="r3" lane="1" offset="0s" name="old-television.mov" start="0s" duration="4s"/>"#),
+            xml
         )
-        let descriptor = try XCTUnwrap(channels.overlay)
-        XCTAssertEqual(descriptor.startFrameWithinParent, 30, "1s into a parent that starts at 0 is frame 30")
-        XCTAssertEqual(descriptor.blendMode, .overlay)
+        XCTAssertEqual(
+            xml.components(separatedBy: #"hasAudio="1""#).count - 1,
+            1,
+            "only the unchanged spine source retains audio"
+        )
+        XCTAssertFalse(xml.contains("Color Adjustments"), xml)
+        XCTAssertFalse(xml.contains("adjust-blend"), xml)
+        XCTAssertFalse(xml.contains(#"<param name="amount">"#), xml)
     }
 
-    func testRegistryPlannedOldTelevisionDrivesNativeBaseAndOptionalOverlay() throws {
+    func testRegistryPlannedOldTelevisionDrivesNeutralChannelsAndOneGeneratedMovie() throws {
         let registry = try registry()
         let selection = SelectionToken(
             selectionType: .singleClip,
@@ -270,34 +341,31 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         )
         let planned = try DeterministicPlanner(registry: registry).plan(request: "old television", selection: selection)
         try PlanValidator(registry: registry).validate(planned)
-        XCTAssertTrue(planned.generatedAssets.isEmpty)
+        let definition = try registry.definition(for: .oldTelevision)
+        let canonical = Dictionary(uniqueKeysWithValues: definition.parameters.map { ($0.name, $0.defaultValue!) })
+        XCTAssertEqual(planned.parameters, canonical)
+        XCTAssertEqual(planned.generatedAssets, [
+            GeneratedAssetDefinition(
+                kind: "crt-treatment-movie",
+                format: "prores-422-10bit",
+                alpha: false,
+                deterministic: true
+            )
+        ])
+        XCTAssertEqual(planned.previewStrategy, "checksum-bound-rendered-movie")
+        XCTAssertEqual(planned.fallback, "refuse-if-crt-renderer-unavailable")
 
         let base = movie("base", digest: "a")
-        let overlay = still("texture", digest: "t")
         let emitter = OldTelevisionStandaloneEmitter()
-        let channels = try emitter.channels(plan: planned, media: [.primary: base, .overlay: overlay])
+        let channels = try emitter.channels(plan: planned, media: [.primary: base])
         XCTAssertEqual(channels.durationSeconds, 4)
-        XCTAssertEqual(channels.saturation, 25)
-        XCTAssertEqual(channels.opacity.amount.map(\.value), ["1", "0.82", "1"])
-        let descriptor = try XCTUnwrap(channels.overlay)
-        XCTAssertEqual(descriptor.startFrameWithinParent, 30)
-        XCTAssertEqual(descriptor.durationFrames, 60)
-        XCTAssertEqual(descriptor.opacity, 0.35)
-        XCTAssertEqual(descriptor.blendMode, .overlay)
-
-        let xml = try emitter.emitDocument(
-            plan: planned,
-            media: [.primary: base, .overlay: overlay],
-            publishedMediaURLs: [.primary: base.url, .overlay: overlay.url],
-            version: "1.14"
-        )
-        XCTAssertTrue(xml.contains(#"<param name="Saturation" key="16" value="25"/>"#), xml)
-        XCTAssertTrue(xml.contains(#"value="0.82""#), xml)
-        XCTAssertTrue(xml.contains(#"<video ref="r3" lane="1" offset="1s" name="texture" start="3600s" duration="2s">"#), xml)
-        XCTAssertTrue(xml.contains(#"<adjust-blend amount="0.35" mode="14 (Overlay)"/>"#), xml)
+        XCTAssertTrue(channels.transform.isEmpty)
+        XCTAssertTrue(channels.opacity.isEmpty)
+        XCTAssertNil(channels.saturation)
+        XCTAssertNil(channels.overlay)
 
         var missing = planned
-        missing.parameters.removeValue(forKey: "saturation")
+        missing.parameters.removeValue(forKey: "intensity")
         XCTAssertThrowsError(try emitter.channels(plan: missing, media: [.primary: base])) { error in
             guard case StandaloneExportError.invalidRecipe = error else { return XCTFail("expected invalid recipe, got \(error)") }
         }
@@ -308,42 +376,65 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         }
     }
 
-    func testOverlayMayNotOutliveItsParentClip() {
+    func testPreparedRenderMustMatchTheExactParentDuration() throws {
         let base = movie("base", digest: "a")
-        let overlay = still("texture", digest: "t")
-        XCTAssertNoThrow(try OldTelevisionStandaloneEmitter().channels(
-            plan: plan(.oldTelevision, parameters: [
-                "durationSeconds": .number(2), "overlayStartSeconds": .number(1), "overlayDurationSeconds": .number(1)
-            ]),
-            media: [.primary: base, .overlay: overlay]
-        ))
+        let treatment = plan(.oldTelevision)
+        let media: [LocalMediaRole: LocalMediaAsset] = [.primary: base]
+        let short = try preparedCRTAsset(
+            plan: treatment,
+            media: media,
+            frameCount: 90,
+            durationSeconds: 3
+        )
+        XCTAssertThrowsError(try OldTelevisionStandaloneEmitter().emitPreparedDocument(
+            plan: treatment,
+            media: media,
+            publishedMediaURLs: [.primary: base.url],
+            preparedAsset: short,
+            publishedPreparedURL: URL(fileURLWithPath: "/tmp/package/Media/short.mov"),
+            version: "1.14"
+        )) { error in
+            guard case StandaloneExportError.admittedArtifactMismatch(let reason) = error else {
+                return XCTFail("expected exact-timing refusal, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("timing does not match"), reason)
+        }
     }
 
-    /// Without an overlay the effect still emits a valid base treatment rather
-    /// than failing — flicker and colour are useful on their own.
-    func testOldTelevisionWorksWithoutAnOverlay() throws {
-        let base = movie("base", digest: "a")
-        let xml = try OldTelevisionStandaloneEmitter().emitDocument(
-            plan: plan(.oldTelevision, parameters: ["durationSeconds": .number(3)]),
-            media: [.primary: base],
+    func testPreparedOldTelevisionSupportsAStillWithoutReusingItsOneHourOrigin() throws {
+        let base = still("still-base", digest: "s")
+        let treatment = plan(.oldTelevision, parameters: ["durationSeconds": .number(3)])
+        let media: [LocalMediaRole: LocalMediaAsset] = [.primary: base]
+        let prepared = try preparedCRTAsset(
+            plan: treatment,
+            media: media,
+            frameCount: 90,
+            durationSeconds: 3
+        )
+        let xml = try OldTelevisionStandaloneEmitter().emitPreparedDocument(
+            plan: treatment,
+            media: media,
             publishedMediaURLs: [.primary: base.url],
+            preparedAsset: prepared,
+            publishedPreparedURL: URL(fileURLWithPath: "/tmp/package/Media/old-television.mov"),
             version: "1.14"
         )
-        XCTAssertFalse(xml.contains(#"lane="1""#))
-        XCTAssertTrue(xml.contains("Color Adjustments"))
+        XCTAssertTrue(xml.contains(#"start="3600s" duration="3s""#), xml)
+        XCTAssertTrue(
+            xml.contains(#"<video ref="r3" lane="1" offset="0s" name="old-television.mov" start="0s" duration="3s"/>"#),
+            xml
+        )
     }
 
-    /// Stills and movies do not share a keyframe origin, and the flicker is
-    /// animated, so getting this wrong places every keyframe an hour off.
-    func testFlickerUsesTheCorrectOriginForEachMediaKind() throws {
+    func testNeutralChannelsKeepMediaKindOriginWithoutOpacityFlicker() throws {
         let emitter = OldTelevisionStandaloneEmitter()
         let movieChannels = try emitter.channels(plan: plan(.oldTelevision), media: [.primary: movie("m", digest: "a")])
         XCTAssertEqual(movieChannels.origin, .movieFromZero)
-        XCTAssertEqual(movieChannels.opacity.amount.first?.time.attributeValue, "0s")
+        XCTAssertTrue(movieChannels.opacity.isEmpty)
 
         let stillChannels = try emitter.channels(plan: plan(.oldTelevision), media: [.primary: still("s", digest: "s")])
         XCTAssertEqual(stillChannels.origin, .still)
-        XCTAssertEqual(stillChannels.opacity.amount.first?.time.attributeValue, "3600s")
+        XCTAssertTrue(stillChannels.opacity.isEmpty)
     }
 
     // MARK: - Preview and export share one construction
@@ -366,16 +457,24 @@ final class StandaloneTransitionEmitterTests: XCTestCase {
         )
 
         let base = movie("base", digest: "c")
-        let overlay = still("texture", digest: "t")
         let television = OldTelevisionStandaloneEmitter()
-        let televisionPlan = plan(.oldTelevision, parameters: ["overlayOpacity": .number(0.35)])
-        let televisionChannels = try television.channels(plan: televisionPlan, media: [.primary: base, .overlay: overlay])
-        let televisionXML = try television.emitDocument(
-            plan: televisionPlan, media: [.primary: base, .overlay: overlay],
-            publishedMediaURLs: [.primary: base.url, .overlay: overlay.url], version: "1.14"
+        let televisionPlan = plan(.oldTelevision)
+        let televisionMedia: [LocalMediaRole: LocalMediaAsset] = [.primary: base]
+        let televisionChannels = try television.channels(plan: televisionPlan, media: televisionMedia)
+        let prepared = try preparedCRTAsset(plan: televisionPlan, media: televisionMedia)
+        let televisionXML = try television.emitPreparedDocument(
+            plan: televisionPlan,
+            media: televisionMedia,
+            publishedMediaURLs: [.primary: base.url],
+            preparedAsset: prepared,
+            publishedPreparedURL: URL(fileURLWithPath: "/tmp/package/Media/old-television.mov"),
+            version: "1.14"
         )
-        let descriptor = try XCTUnwrap(televisionChannels.overlay)
-        XCTAssertEqual(descriptor.opacity, 0.35)
-        XCTAssertTrue(televisionXML.contains(#"amount="0.35""#), "the previewed overlay opacity must be the emitted one")
+        XCTAssertTrue(televisionChannels.opacity.isEmpty)
+        XCTAssertNil(televisionChannels.overlay)
+        XCTAssertTrue(
+            televisionXML.contains(#"<video ref="r3" lane="1" offset="0s" name="old-television.mov" start="0s" duration="4s"/>"#),
+            "preview and export must share the prepared full-duration movie"
+        )
     }
 }

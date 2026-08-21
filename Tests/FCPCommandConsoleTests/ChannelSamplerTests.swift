@@ -31,8 +31,8 @@ final class ChannelSamplerTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(sampler.sample(track, at: 2)), 6, accuracy: 1e-9)
     }
 
-    /// Final Cut holds a parameter flat before its first keyframe — the reason
-    /// the living still fade emits two keyframes rather than three.
+    /// Final Cut holds a parameter flat before its first keyframe. Native
+    /// effects still rely on this rule even though Living Still v2 is rendered.
     func testSamplingHoldsFlatOutsideTheTrack() {
         let track = [
             NativeFCPXMLKeyframe(time: .seconds(2), value: "1"),
@@ -138,10 +138,10 @@ final class ChannelSamplerTests: XCTestCase {
 
     // MARK: - Preview and export read one construction
 
-    /// The property that makes the preview worth trusting: it samples the same
-    /// channels the emitter puts in the document. If these ever diverge, a
-    /// preview could look right while the export is wrong.
-    func testEmitterChannelsMatchWhatTheDocumentContains() throws {
+    /// Living Still's scalar preview is deliberately identity-only. Its visible
+    /// construction is the exact checksum-bound movie that export connects
+    /// above the unchanged one-hour-origin still.
+    func testLivingStillUsesNeutralScalarChannelsAndThePreparedRenderedMovie() throws {
         let asset = LocalMediaAsset(
             itemID: "still",
             url: URL(fileURLWithPath: "/tmp/still.png"),
@@ -162,36 +162,76 @@ final class ChannelSamplerTests: XCTestCase {
         let registryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("registry/effects")
-        var plan = try DeterministicPlanner(registry: try EffectRegistry.load(from: registryRoot)).plan(
+        let plan = try DeterministicPlanner(registry: try EffectRegistry.load(from: registryRoot)).plan(
             request: "Make this a living still.",
             selection: selection,
             target: Target.confirmed(x: 0.5, y: 0.5)
         )
-        plan.effectID = .livingStill
 
         let emitter = LivingStillStandaloneEmitter()
-        let channels = try emitter.channels(plan: plan, media: [.primary: asset])
-        let document = try emitter.emitDocument(
+        let media: [LocalMediaRole: LocalMediaAsset] = [.primary: asset]
+        let channels = try emitter.channels(plan: plan, media: media)
+        XCTAssertTrue(channels.transform.isEmpty)
+        XCTAssertTrue(channels.opacity.isEmpty)
+        XCTAssertNil(channels.saturation)
+        XCTAssertNil(channels.overlay)
+        let preview = sampler.state(
+            transform: channels.transform,
+            opacity: channels.opacity,
+            atClipSeconds: 2,
+            origin: channels.origin
+        )
+        XCTAssertEqual(preview.offsetX, 0)
+        XCTAssertEqual(preview.offsetY, 0)
+        XCTAssertEqual(preview.scale, 1)
+        XCTAssertEqual(preview.opacity, 1)
+        XCTAssertThrowsError(try emitter.emitDocument(
             plan: plan,
-            media: [.primary: asset],
+            media: media,
             publishedMediaURLs: [.primary: URL(fileURLWithPath: "/tmp/out/still.png")],
             version: "1.14"
-        )
+        ))
 
-        // Every keyframe value the sampler would read must appear in the
-        // document verbatim.
-        for keyframe in channels.transform.scale {
-            XCTAssertTrue(
-                document.contains("value=\"\(keyframe.value)\""),
-                "scale keyframe \(keyframe.value) is previewed but not exported"
-            )
-        }
-        for keyframe in channels.opacity.amount {
-            XCTAssertTrue(
-                document.contains("value=\"\(keyframe.value)\""),
-                "opacity keyframe \(keyframe.value) is previewed but not exported"
-            )
-        }
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "fcpcc-living-still-channel-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let renderedURL = scratch.appendingPathComponent("living-still.mov")
+        try Data("sealed depth render".utf8).write(to: renderedURL)
+        let prepared = RenderedEffectAsset(
+            url: renderedURL,
+            sha256: try ContentHasher.sha256File(renderedURL),
+            constructionDigest: try RenderedConstructionIdentity.digest(plan: plan, media: media),
+            rendererRecipeDigest: String(repeating: "r", count: 64),
+            sourceSHA256: asset.sha256,
+            width: 1920,
+            height: 1080,
+            fps: 30,
+            frameCount: 120,
+            durationSeconds: 4,
+            videoFormat: .proRes422HQ10Bit,
+            videoOnly: true,
+            provenance: [
+                "model": "apple.coreml.depth-anything-v2-small-f16@cfef6f6f2a70783dedc0bfae40cecbc2052285d3",
+                "motionMethod": "coreml-continuous-depth-warp-v2"
+            ]
+        )
+        let document = try emitter.emitPreparedDocument(
+            plan: plan,
+            media: media,
+            publishedMediaURLs: [.primary: URL(fileURLWithPath: "/tmp/out/still.png")],
+            preparedAsset: prepared,
+            publishedPreparedURL: URL(fileURLWithPath: "/tmp/out/living-still.mov"),
+            version: "1.14"
+        )
+        XCTAssertTrue(document.contains(#"<video ref="r2" offset="0s" name="still" start="3600s" duration="4s">"#), document)
+        XCTAssertTrue(document.contains(#"<video ref="r3" lane="1" offset="0s" name="living-still.mov" start="0s" duration="4s"/>"#), document)
+        XCTAssertFalse(document.contains("adjust-transform"), document)
+        XCTAssertFalse(document.contains("adjust-blend"), document)
+        XCTAssertFalse(document.contains("Color Adjustments"), document)
+        XCTAssertFalse(document.contains(#"hasAudio="1""#), document)
         XCTAssertEqual(channels.origin, .still, "a still must preview against the 3600s origin")
         XCTAssertEqual(channels.frameHeight, 1080)
     }

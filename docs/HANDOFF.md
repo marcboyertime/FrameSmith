@@ -1,4 +1,10 @@
-# FCPCommandConsole Handoff (for Claude)
+# FrameSmith Handoff (for Claude)
+
+> **Historical checkpoint:** This 2026-08-04 handoff predates the production
+> rendered-effect path. Do not use its native Living Still/Old Television route
+> or its acquisition queue as current product truth. Start with `STATUS.md`,
+> `docs/POST_PHASE1_ROADMAP.md`, and
+> `docs/editorial-intelligence/IMPLEMENTATION_STATUS.md`.
 
 Date: 2026-08-04
 VISIBLE CHECKPOINT MARKER: latest handoff text is present in this file.
@@ -18,7 +24,7 @@ Current objective: finish Phase 1. **The section 5 import blocker is cleared.**
 - Build/test evidence: `swift build` passed; `swift test` passed **97 tests,
   0 failures**; `make test` core audit passed — measured at `6695230`, the last
   commit touching code. `749ab9e` and `4f5732b` are documentation only.
-- App bundle: `/Users/marcboyer/Applications/FCPCommandConsole.app`
+- App bundle: `/Users/marcboyer/Applications/FrameSmith.app`
   (reinstalled from the working tree, `codesign --verify --deep --strict`
   passed, bundle ID and bundled schema/registry resources verified)
 - Runtime root: `/Users/marcboyer/Movies/FCPCommandConsole`
@@ -123,7 +129,7 @@ capability decision.**
    This catches what re-hashing cannot: a retyped command, a moved target
    point, or a newly filled role slot leaves every hash intact.
 5. **Installer hardening** (`Scripts/install-app`). Refuses a symlinked
-   `~/Applications`, a symlinked or dangling `FCPCommandConsole.app` target
+   `~/Applications`, a symlinked or dangling `FrameSmith.app` target
    (previously a dangling link was written straight through), a non-directory
    target, and a symlinked `Contents/Info.plist`. Confirms staging stayed
    inside the parent, and verifies the installed bundle (identity, resources,
@@ -395,7 +401,7 @@ What is left cannot be done in code alone.
    - A screenshot is evidence of *what the UI did*, never of a semantic. It
      does not substitute for the returned XML and cannot admit a contract.
    - Automation is scoped to the isolated Final Cut copy and the reviewed
-     `FCPCommandConsole.app`. Nothing else on the machine is in scope.
+     `FrameSmith.app`. Nothing else on the machine is in scope.
 
    Where automation is *better* than a human: perceptual questions get
    **measured rather than judged**. "Does it look richer?" was answered by eye
@@ -449,10 +455,10 @@ Run these after code changes:
 - `swift test`
 - `sh -n Scripts/install-app`
 - `make install-app`
-- `codesign --verify --deep --strict /Users/marcboyer/Applications/FCPCommandConsole.app`
-- `plutil -extract CFBundleIdentifier raw /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Info.plist`
-- `test -f /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Resources/schemas/effect-plan.schema.json`
-- `test -f /Users/marcboyer/Applications/FCPCommandConsole.app/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json`
+- `codesign --verify --deep --strict /Users/marcboyer/Applications/FrameSmith.app`
+- `plutil -extract CFBundleIdentifier raw /Users/marcboyer/Applications/FrameSmith.app/Contents/Info.plist`
+- `test -f /Users/marcboyer/Applications/FrameSmith.app/Contents/Resources/schemas/effect-plan.schema.json`
+- `test -f /Users/marcboyer/Applications/FrameSmith.app/Contents/Resources/registry/effects/native.targeted_rotate_zoom.json`
 - `git diff --check`
 
 ## 10) Completion language (avoid overclaim)

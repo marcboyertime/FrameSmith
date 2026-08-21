@@ -252,7 +252,7 @@ final class RotationAndConnectedLayerTests: XCTestCase {
     func testProbeRequiredContractsMatchTheGate() {
         XCTAssertEqual(
             ManualFCPXMLSemanticsEvidence.requiredContracts(for: NativeEffectProbeKind.oldTelevision.effectID),
-            [.assetAdmission, .opacityKeyframes, .nativeColorAdjustment, .connectedOverlayLayers]
+            [.assetAdmission, .connectedRenderedMovieLayer]
         )
         XCTAssertEqual(
             ManualFCPXMLSemanticsEvidence.requiredContracts(for: NativeEffectProbeKind.targetedRotateZoom.effectID),

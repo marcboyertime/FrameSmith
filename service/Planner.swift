@@ -157,6 +157,10 @@ public struct DeterministicPlanner: Sendable {
                 parameters["durationSeconds"] = .number(4)
             }
         }
+        if definition.identifier == .oldTelevision,
+           let seconds = firstNumber(in: lower, pattern: #"([0-9]+(?:\.[0-9]+)?)\s*(?:seconds?|secs?|s)\b"#) {
+            parameters["durationSeconds"] = .number(min(30, max(0.1, seconds)))
+        }
     }
 
     private func firstNumber(in text: String, pattern: String) -> Double? {
@@ -266,19 +270,39 @@ public struct PlanValidator: Sendable {
         }
         switch plan.effectID {
         case .livingStill:
-            guard try number("pushInScaleEnd") >= number("pushInScaleStart") else { throw PlanValidationError.invalidParameter("push-in end scale must not be below start scale") }
-            guard try number("opacityEnd") <= number("opacityStart") else { throw PlanValidationError.invalidParameter("fade end opacity must not exceed start opacity") }
-            guard try number("fadeDurationSeconds") <= number("durationSeconds") else { throw PlanValidationError.invalidParameter("fade duration exceeds movement duration") }
-            try requireCanonical("easing"); try requireCanonical("colorEnrichment")
-            try requireCanonical("preserveOriginal"); try requireCanonical("nativeFallbackEnabled")
-            try requireCanonical("depthFlowStatus"); try requireCanonical("motionMethod")
+            _ = try number("durationSeconds")
+            _ = try number("motionStrength")
+            _ = try number("pushIn")
+            _ = try number("panX")
+            _ = try number("panY")
+            _ = try number("depthSmoothing")
+            try requireCanonical("outputLongEdge")
+            try requireCanonical("fps")
+            try requireCanonical("modelID")
+            try requireCanonical("motionMethod")
+            try requireCanonical("preserveOriginal")
         case .targetedRotateZoom:
             let delta = try number("rotationEndDegrees") - number("rotationStartDegrees")
             // Zero is deterministic clockwise for schema-v2 compatibility.
             let expected = delta > 0 ? "counterclockwise" : "clockwise"
             guard plan.parameters["direction"] == .string(expected) else { throw PlanValidationError.invalidParameter("direction must agree with signed rotation delta") }
             try requireCanonical("easing")
-        case .naturalDissolve, .oldTelevision:
+        case .oldTelevision:
+            _ = try number("durationSeconds")
+            _ = try number("intensity")
+            _ = try number("scanlineStrength")
+            _ = try number("noiseStrength")
+            _ = try number("syncInstability")
+            _ = try number("chromaSeparation")
+            _ = try number("bloomStrength")
+            _ = try number("vignetteStrength")
+            _ = try number("ghostingStrength")
+            _ = try number("flickerStrength")
+            try requireCanonical("outputLongEdge")
+            try requireCanonical("fps")
+            try requireCanonical("renderMethod")
+            try requireCanonical("preserveOriginal")
+        case .naturalDissolve:
             break
         }
     }

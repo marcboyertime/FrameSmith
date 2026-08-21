@@ -104,11 +104,11 @@ public enum FinalCutSemanticProfileStore {
     /// Final Cut Pro 12.3 (450152) — the only build any manual pass has been
     /// run against.
     ///
-    /// All six contracts are admitted as of 2026-08-05. That is a statement
+    /// All seven contracts are admitted as of 2026-08-08. That is a statement
     /// about *semantics being accepted on import*, not about the four workflows
-    /// being finished: editability has been established for the dissolve and the
-    /// living still only, and no contract admits a mapping from creative
-    /// language to parameter values.
+    /// being finished: editability is separate and exists only where an
+    /// individual record says so, the connected rendered-movie pass establishes
+    /// none, and no contract admits a mapping from creative language to values.
     public static let finalCut12_3_450152 = FinalCutSemanticProfile(
         finalCut: FinalCutVersionIdentity(shortVersion: "12.3", build: "450152"),
         records: [
@@ -183,6 +183,19 @@ public enum FinalCutSemanticProfileStore {
                     "Only the Overlay blend mode is observed. Other modes' indices are derivable from the menu ordering but a derived index that is wrong applies the wrong mode in a valid document.",
                     "Editability confirmed 2026-08-05 (docs/NATIVE_EFFECT_ADMISSION_PASS.md, returned a81da13f7b3a7f7acae819634b3dfb2781e6259abfe76de15a4571c72ea675bc). The overlay's opacity was edited 50% to 75% and returned as amount=0.75 with lane, offset, start, and mode all unchanged. The value stayed an ATTRIBUTE rather than being promoted to a param, so the static form survives an edit and is not merely an export artefact.",
                     "The blend mode dropdown was not changed, and the overlay was not moved or retimed. Editability of opacity does not extend to those."
+                ]
+            ),
+            AdmittedContractRecord(
+                contract: .connectedRenderedMovieLayer,
+                evidenceDocument: "docs/CONNECTED_RENDERED_MOVIE_ADMISSION_PASS.md",
+                returnedArtifactSHA256: "87c95fa47679788adbff8ac9854bdfa2b485c9acff0bc6c9abdcb573a2cb9bc7",
+                admittedOn: "2026-08-08",
+                limitations: [
+                    "Admitted only for the two FCPXML 1.14 parent contexts in the worksheet: a connected <video> over a movie <asset-clip> (primary returned SHA above) and over a still <video> (returned SHA 26eb90634a82dbbe7dfc1150a7288c25dc972c973ef1bfce5181ac9af8a377de). No other parent kind is observed.",
+                    "The connected resource was exactly video-only Apple ProRes 422 HQ (prores/HQ/apch/yuv422p10le), 1920x1080 at 30 fps, 120 frames and four seconds. Other codecs, profiles, pixel formats, audio-bearing renders, resolutions, frame rates and durations are unobserved.",
+                    "The only admitted placement is one enabled, default-opaque <video> child with no child intrinsics or blend adjustment, at lane=1, offset=0s, inherited/zero start and duration=4s covering the full parent. Other lanes, offsets, starts, durations, multiple connected layers, transforms, filters, opacity adjustments and blend modes are unobserved.",
+                    "The source spine returned unchanged in both admitted contexts: its original parent resource and timing remained, no visual or audio mutations were added, and the movie parent's source-audio metadata and dialogue role remained. This does not establish media-copy, relink or replacement behaviour.",
+                    "Editability is NOT established. Neither the connected movie nor either parent was moved, retimed, blended or edited; the passes establish only import-and-return acceptance and do not generalize to retiming, blend behaviour, parameter mapping, editability or visual quality."
                 ]
             )
         ]

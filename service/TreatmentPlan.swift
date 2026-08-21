@@ -255,7 +255,7 @@ public struct TreatmentPlan: Identifiable, Codable, Equatable, Sendable {
         case constructionSignature
     }
 
-    /// Set iteration is intentionally randomized by Swift.  Treatment options
+    /// Set iteration is intentionally randomized by Swift. Treatment options
     /// are persisted and signed as whole artifacts, so encode semantic
     /// dimensions in their stable wire order rather than accepting a
     /// process-dependent `Set` representation.
@@ -325,10 +325,9 @@ public struct TreatmentPlan: Identifiable, Codable, Equatable, Sendable {
     /// choice wastes the user's attention.
     public func differsMaterially(from other: TreatmentPlan) -> Bool {
         // Parameters describe a construction; they are not independent creative
-        // axes.  Counting changed keys used to present slider nudges as diverse
-        // choices.  Only the semantic dimensions declared on each treatment
-        // may establish variety, while the signature still proves the builds
-        // are actually distinct.
+        // axes. Counting changed keys would present slider nudges as diverse
+        // choices. Only declared semantic dimensions establish variety, while
+        // the signature proves the resulting builds are actually distinct.
         let semanticDifferences = dimensions.symmetricDifference(other.dimensions).count
         return constructionSignature != other.constructionSignature
             && semanticDifferences >= 2
@@ -453,13 +452,11 @@ public struct TreatmentAdmission: Sendable {
             )
         }
         if cardSnapshots.contains(where: { $0.card.id == "look.crt.old_television.v1" }) {
-            // The validated CRT card declares no connected overlay, and the
-            // current viewer has no shared-construction preview for one.
             guard channels.overlay == nil else {
                 throw TreatmentAdmissionError.safetyBlocked("CRT automatic admission refuses connected overlays because this card declares none and the current viewer cannot preview one")
             }
-            guard permitsAutomaticCRTBase(channels) else {
-                throw TreatmentAdmissionError.safetyBlocked("CRT automatic admission is limited to the measured 4s full→0.82→full base dip; repeated or stronger flicker requires remeasurement")
+            guard isBoundedCRTRender(treatment.effectPlan, channels: channels) else {
+                throw TreatmentAdmissionError.safetyBlocked("CRT automatic admission requires the bounded rendered path with no opacity dip and at most two-percent continuous luma modulation")
             }
         }
         let signature = TreatmentIdentity.constructionSignature(for: treatment.effectPlan)
@@ -471,16 +468,17 @@ public struct TreatmentAdmission: Sendable {
         return AdmittedTreatmentExecution(treatment: treatment, structure: currentStructure, media: media, admittedCapabilities: admittedCapabilities, constructionSignature: TreatmentIdentity.digest([signature, channelSnapshot.canonicalPayload]), channels: channelSnapshot, cards: cardSnapshots, contract: contract, registryEffectID: treatment.effectPlan.effectID.rawValue, registryDigest: registryDigest, emitterAvailable: true)
     }
 
-    func isBoundedCRTBase(_ channels: NativeFCPXMLEffectChannels) -> Bool {
-        let keyframes = channels.opacity.amount
-        guard keyframes.count == 3,
-              keyframes.map(\.value) == ["1", "0.82", "1"] else { return false }
-        let seconds = keyframes.map { $0.time.seconds - keyframes[0].time.seconds }
-        return seconds == [0, 0.5, 1] && channels.durationSeconds == 4
-    }
-
-    func permitsAutomaticCRTBase(_ channels: NativeFCPXMLEffectChannels) -> Bool {
-        channels.overlay == nil && isBoundedCRTBase(channels)
+    private func isBoundedCRTRender(_ plan: EffectPlan, channels: NativeFCPXMLEffectChannels) -> Bool {
+        guard plan.effectID == .oldTelevision,
+              plan.parameters["renderMethod"] == .string("ffmpeg-crt-v2"),
+              plan.parameters["preserveOriginal"] == .boolean(true),
+              let intensity = plan.parameters["intensity"]?.numberValue,
+              let flicker = plan.parameters["flickerStrength"]?.numberValue,
+              (0...1).contains(intensity), (0...1).contains(flicker),
+              0.020 * intensity * flicker <= 0.020,
+              channels.opacity.amount.isEmpty,
+              channels.opacity.staticAmount == nil else { return false }
+        return true
     }
 
 }

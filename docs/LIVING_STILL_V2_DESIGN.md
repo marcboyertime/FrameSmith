@@ -1,194 +1,158 @@
-# Living Still v2 — layered parallax
+# Living Still v2 — continuous depth render
 
-Status: **design, not implemented.** v1 stays as-is and keeps working.
+Status: **implemented and validated. The final ProRes 422 HQ/apch matrix passed
+all ten independent visual and stream checks.** The shared still-parent
+rendered-movie construction is separately admitted in Final Cut Pro 12.3
+(450152).
 
-## Why there is a v2 at all
+This document supersedes the earlier two-plane native-layer proposal. That
+proposal optimized for direct Final Cut editability before its subject matte
+had been inspected. The representative bakeoff found a hard silhouette and
+hair fringe on organic subjects, so the design now follows the repository's
+quality-first rule: use a continuous depth warp, retain the complete recipe,
+and expose honest FrameSmith regeneration instead of shipping a weaker native
+approximation.
 
-v1 does a push-in, a slight pan, a fade, and a saturation nudge. That is a Ken
-Burns move with a colour tweak. It is not what "living still" means to anyone
-who has seen the effect done well, and the repository has known that from the
-start:
+## Product decision
 
-- the registry's own aliases include `depthflow parallax`, `parallax`, and
-  `2.5d motion`;
-- `LivingStillMotionMethod` has exactly one case, `nativePushInPan`;
-- `LivingStillDepthFlowStatus` has exactly one case, `deferredUnavailable`.
+Living Still v2 is a locally rendered depth-aware camera move. It is not:
 
-So v1 is the **native fallback** of an effect whose real form was deferred.
-v2 is the effect.
+- the retired v1 scale/pan/color construction;
+- a binary foreground cutout or two-plane cardboard layer;
+- a native Final Cut transform;
+- an opacity fade; or
+- a separately computed preview.
 
-## What the technique actually is
+The source still remains unchanged on the Final Cut spine. One opaque,
+video-only ProRes 422 HQ treatment movie (`apch`, `yuv422p10le`) is connected
+above it for the admitted export profile. The app previews that exact SHA-256-
+identified file, and export copies that same file; export is not allowed to
+render a second version.
 
-From practitioner sources (see References), the effect is consistent across
-tools and has been for a decade:
+## Pinned depth dependency
 
-1. **Separate the image into depth layers.** Two is the working minimum —
-   foreground subject and background. Three or more for complex scenes.
-2. **Reconstruct what was behind the foreground.** Inpaint or clone the hole.
-   Pat David's note is the useful one: the fill *"doesn't have to be 100%
-   perfect… It only needs to look good just behind the edges of your foreground
-   subjects."*
-3. **Move the layers at different rates.** Background slower than foreground —
-   roughly 20–30% slower is the commonly cited starting point. The difference in
-   rate *is* the effect; everything else is staging.
-4. **Keep it subtle.** No source gives numbers here, which is itself
-   informative: it is judged by eye and iterated.
+| Field | Value |
+| --- | --- |
+| Provider | Apple |
+| Model | Depth Anything V2 Small, Core ML FP16 |
+| Identifier | `apple.coreml.depth-anything-v2-small-f16` |
+| Source revision | `cfef6f6f2a70783dedc0bfae40cecbc2052285d3` |
+| License | Apache-2.0 |
+| Runtime | local Core ML; source media is not uploaded |
+| Registry record | `registry/models/depth-anything-v2-small.json` |
 
-Note what this is *not*: it is not a filter, and it is not a single warped
-image. It is **several images moving independently**.
+Acquisition is explicit through `Scripts/acquire-depth-model`. The locator
+verifies the pinned source files before it trusts the compiled model cache.
+Missing files, unsafe filesystem entries, source-hash drift, invalid compiled
+metadata, or model-load failure all refuse the render.
 
-## The decision: layers, not a warped render
+## Construction
 
-There are two ways to build it, and they differ in the one dimension this
-project cares most about.
-
-| | **v2a — native layered** | **v2b — depth warp render** |
-| --- | --- | --- |
-| How | N cutout layers, each with its own transform keyframes | Per-pixel displacement driven by a depth map (DepthFlow) |
-| Output | FCPXML with connected layers | A baked movie file |
-| Motion editable in Final Cut | **yes — every layer, every keyframe** | no |
-| Quality ceiling | banding at layer boundaries | smooth, continuous |
-| Dependencies | Apple Vision (on device) | Python, PyTorch, DepthFlow (**AGPL-3.0**) |
-
-**v2 is v2a.** The product vision is the tiebreaker, not quality:
-
-> FrameSmith converts ordinary creative language into **transparent, adjustable**
-> professional editing operations.
-
-v2b produces a prettier result the user cannot touch. If the background drifts
-too much, there is nothing to drag — the only recourse is to regenerate and hope.
-v2a produces a slightly cruder result in which the user can select the
-background layer in Final Cut and change its keyframes directly, which is the
-entire point of the tool.
-
-This also matches the roadmap's compositing preference order: native FCPXML
-first, baked render last.
-
-v2b is not rejected forever. It belongs in the Final Phase as an optional
-higher-fidelity path, behind the rule that generative or baked processing is
-never used where an editable conventional operation will do.
-
-## Pipeline
-
-```
-still
-  │
-  ├─► Vision: VNGenerateForegroundInstanceMaskRequest      (on device, macOS 14+)
-  │      └─► subject mask
-  │
-  ├─► foreground layer   = source × mask            → PNG with alpha
-  ├─► background layer   = source, hole filled      → PNG
-  │
-  └─► FCPXML
-         spine:     background   scale 1.06, pans  X units
-         lane 1:    foreground   scale 1.10, pans ~1.4× X units
-         + existing v1 channels: fade, colour
+```text
+admitted still + exact SHA-256
+        |
+        v
+pinned Apple Core ML model
+        |
+        +-- one FP16 relative-depth inference
+        |
+        v
+deterministic edge-preserving depth processing
+        |
+        +-- one continuous field reused across every frame
+        |
+        v
+restrained overscanned camera path + depth-aware warp
+        |
+        v
+content-addressed, video-only ProRes 422 HQ movie
+        |
+        +-- preview reads this exact movie
+        +-- export copies this exact movie
+        v
+lane-1 connected visual above unchanged still spine
 ```
 
-Every layer is a `<video>` with its own `<adjust-transform>`. The **differential
-rate** between the spine and lane 1 is the parallax.
+The project-export profile is exactly 1920×1080, four seconds at 30 fps: 120
+frames from one depth inference. The renderer does not call the model once per frame. It
+keeps the admitted FP16 field alive, smooths it once, records raw and processed
+depth digests, and reuses the field for the complete render.
 
-### Why Apple Vision rather than a depth model
+The content address binds the source identity, model revision and source-file
+hashes, compiled model identity, raw and processed depth-field identities,
+renderer version, camera recipe, codec, and pixel format. A verified artifact
+already present at that address is reused. A different or corrupt occupant is
+never overwritten or silently accepted.
 
-`VNGenerateForegroundInstanceMaskRequest` is available on this machine
-(confirmed macOS 26.3, revision 1). It is on-device, needs no Python, no model
-download, and carries no licence obligations — unlike `DepthFlow` (AGPL-3.0) or
-SAM2 weights.
+## Live controls
 
-It returns a **subject mask**, not a depth map. That is a real limitation: it
-gives foreground-versus-background, not a continuous depth field, so it supports
-two layers well and three only by heuristic. For the effect described — *"make
-objects float around subtly, add some depth"* — two well-separated layers with
-correct differential motion delivers most of the perceived result.
+| Control | Admitted range | Default |
+| --- | ---: | ---: |
+| duration | 0.1–30 s | 4 s |
+| depth motion | 0–1 | 0.90 |
+| camera push | 0–0.12 frame fraction | 0.030 |
+| horizontal drift | -0.04–0.04 width fraction | 0.012 |
+| vertical drift | -0.04–0.04 height fraction | -0.006 |
+| depth smoothing | 0–1 | 0.35 |
 
-A true depth model would allow N bands and is the natural upgrade. It should be
-evaluated in Phase D alongside the other segmentation options, not bolted on
-here.
+The model ID, method, 30 fps standalone profile, fixed 1920-pixel maximum
+long-edge ceiling, and source-preservation rule are invariants. Editing a live
+control creates a new recipe and therefore a new prepared artifact; it does not
+mutate pixels in place inside Final Cut. Controls outside the exact four-second,
+1920×1080 project profile may be previewed, but project export refuses arbitrary
+duration or aspect until separately admitted.
 
-### The hole behind the foreground
+The 0.90 depth-motion/0.030 push defaults were selected from a controlled
+candidate comparison. Direct visual review selected them as the strongest
+artifact-free candidate while reducing the global push from the earlier 4.5
+percent recipe. The final HQ matrix reproduced the candidate and passed its
+complete ten-case gate.
 
-Three options, cheapest first:
+## Quality boundaries
 
-1. **Do nothing.** With small movements the foreground largely covers its own
-   hole. Visible only at large offsets.
-2. **Edge-extend / blur-fill.** Dilate the background under the mask edge.
-   Cheap, and matches "only needs to look good just behind the edges".
-3. **Real inpainting.** Best result, most work.
+The renderer bounds depth displacement, derives overscan from the complete
+camera path, clamps extreme relative depth, and verifies the encoded movie
+before publication. The visual vetoes remain:
 
-Start at 2. It is a few Core Image operations and avoids the obvious tearing
-that 1 produces on anything but the gentlest move.
+- haloing, duplicated edge strips, or exposed borders;
+- rubber-sheet faces, hands, text, or architecture;
+- depth inversion;
+- orientation, aspect, gamma, or color drift; and
+- unstable temporal sampling.
 
-## What this changes about the claims
+The evidence state is recorded in `docs/LIVING_STILL_V2_BAKEOFF.md`. Ten
+representative sources produced the accepted four-second, 30 fps, ProRes 422 HQ
+matrix under
+`/Users/marcboyer/Movies/FCPCommandConsole/exports/bakeoff/v2-production-hq/living-still-v2`.
+All ten passed independent visual, stream, border, and temporal review. The
+result is professional and restrained rather than dramatic 3D; global push/pan
+remains important, and highly uniform/low-contrast content reads subtly.
 
-v2 is **not** a drop-in for v1, and the differences are exactly the kind this
-project tracks.
+## Final Cut boundary
 
-### Pixel classification changes
+The hardened still-parent probe returned from Final Cut Pro 12.3 with FCPXML
+SHA-256:
 
-v1 is `noBakedPixels` / `sourceMediaPreserved` — the still goes into the project
-untouched. v2 **generates new image files** (the cutouts). That is a different
-representation and must be recorded as one, not quietly folded in. The source
-media is still never modified, but the project no longer references it directly.
+`26eb90634a82dbbe7dfc1150a7288c25dc972c973ef1bfce5181ac9af8a377de`
 
-### It needs new Final Cut evidence
+That admits the scoped 1920×1080, 30 fps, 120-frame, four-second, video-only
+ProRes 422 HQ connected rendered-movie construction over a still for FCPXML
+1.14 and the current semantic profile. The tested parent source was a
+1920×1080 still with no intrinsic timing or audio; its spine video and connected
+treatment were both four seconds. The construction probe and final HQ visual
+matrix are separate evidence classes; both now pass within their recorded
+scopes. The probe does not make rendered pixels natively editable or establish
+compatibility with future Final Cut versions.
 
-`connectedOverlayLayers` is admitted, but its record says:
+## Rejected alternative
 
-> Only lane 1 was exercised. Lanes below the spine, and **more than one
-> connected layer at once**, are unobserved.
+Apple Vision foreground masks remain useful for subject selection and
+crisp-edged graphics. They were rejected as Living Still's default compositor
+because the inspected portrait matte removed flyaway hair and carried a visible
+edge fringe. A two-plane construction would turn that limitation into a moving
+seam. Continuous depth avoids the binary seam structurally, and the production
+bakeoff then tested the different risks introduced by a depth warp.
 
-Two layers means spine + lane 1, which *is* covered. Three or more means lane 2
-and up, which is **not**. So:
-
-- a two-layer v2 can be built on admitted contracts;
-- a three-layer v2 needs a multi-lane capture and admission pass first.
-
-Build two layers. Do not skip to three because it seems like the same thing.
-
-### Alpha has never been tested
-
-Every admitted construction so far uses opaque media. A PNG with an alpha
-channel imported as a connected layer is unobserved — Final Cut may or may not
-honour it without an explicit blend or alpha-handling attribute.
-
-**This needs a capture before an emitter.** It is exactly the shape of thing
-that imports cleanly and looks wrong.
-
-## Build order
-
-1. **Capture: alpha in a connected layer.** Import a PNG with transparency as a
-   connected clip by hand and read what Final Cut writes. Cheapest unknown, and
-   everything else depends on it.
-2. **Subject mask extraction.** Vision request → mask → foreground PNG with
-   alpha, background PNG with edge-extended fill. Verify by eye on real photos,
-   including ones with no clear subject (the request returns nothing — that is a
-   refusal path, not a crash).
-3. **Two-layer emitter.** Spine background + lane 1 foreground, differential
-   transforms, reusing `NativeFCPXMLConnectedLayer`.
-4. **Admission pass.** Generated two-layer parallax imported by hand, returned
-   and compared.
-5. **Editability pass.** Move a background keyframe in Final Cut, confirm it
-   takes. This is the claim the whole design rests on — if the layers are not
-   independently editable, v2a's advantage over v2b evaporates.
-6. **Preview.** The channel sampler already handles one layer; extend to
-   composite N.
-
-## What v2 must not become
-
-- **A filter.** If it stops being separable layers, it has become v2b with extra
-  steps.
-- **Automatic depth guessing presented as certain.** When Vision finds no
-  subject, say so and offer v1 — do not invent a foreground.
-- **Three layers on two layers' evidence.** See above.
-
-## References
-
-- [Pat David — 2.5D Parallax Animated Photo Tutorial](https://patdavid.net/2014/02/25d-parallax-animated-photo-tutorial/)
-  — layer separation, inpainting the clean plate, and the "good enough just
-  behind the edges" standard.
-- [Waxy — Turning Photos into 2.5D Parallax Animations with Machine Learning](https://waxy.org/2019/11/turning-photos-into-2-5d-parallax-animations-with-machine-learning/)
-  — the depth-map lineage of the effect.
-- [Pond5 — Create a 2.5D Parallax Effect in Photoshop](https://blog.pond5.com/16853-create-2-5d-parallax-effect-images-photoshop-cc/)
-  — the standard foreground/background split.
-- [Dream Jacob — 2.5D Parallax in DaVinci Resolve](https://dreamjacob.com/how-to-create-stunning-2-5d-parallax-animations-in-davinci-resolve/)
-  — the NLE-native version; notable for giving no numbers, only "subtle".
+The earlier native v1 route is historical evidence only. In particular,
+`motion.opacity.fade.v1` remains `reference_only`; it is not a Living Still v2
+backend or fallback.

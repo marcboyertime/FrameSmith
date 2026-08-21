@@ -1,4 +1,4 @@
-.PHONY: build test doctor overlay-smoke fixtures install-app launch-app clean-runtime
+.PHONY: build test doctor overlay-smoke fixtures acquire-depth-model install-app launch-app clean-runtime
 
 build:
 	swift build
@@ -15,6 +15,9 @@ overlay-smoke:
 
 fixtures:
 	scripts/generate-fixtures
+
+acquire-depth-model:
+	Scripts/acquire-depth-model
 
 install-app:
 	Scripts/install-app

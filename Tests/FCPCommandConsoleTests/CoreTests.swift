@@ -107,7 +107,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(try registry.definition(for: .targetedRotateZoom).representation.rawValue, "fcpxml_native")
         XCTAssertEqual(try registry.definition(for: .oldTelevision).representation.rawValue, "layered_media")
         XCTAssertEqual(try registry.definition(for: .naturalDissolve).representation.rawValue, "fcpxml_native")
-        XCTAssertEqual(try registry.definition(for: .livingStill).representation.rawValue, "fcpxml_native")
+        XCTAssertEqual(try registry.definition(for: .livingStill).representation.rawValue, "layered_media")
         XCTAssertEqual(registry.resolve("VHS"), .oldTelevision)
         XCTAssertEqual(registry.resolve("crossfade"), .naturalDissolve)
         XCTAssertEqual(registry.resolve("parallax"), .livingStill)
@@ -133,24 +133,62 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(oldTV.effectID, .oldTelevision)
         XCTAssertEqual(oldTV.confidence, 0.98, accuracy: 0.0001)
         XCTAssertTrue(oldTV.ambiguities.isEmpty)
-        XCTAssertEqual(oldTV.parameters["saturation"]?.numberValue, 25)
-        XCTAssertTrue(oldTV.generatedAssets.isEmpty)
+        XCTAssertEqual(oldTV.parameters["profile"], .string("broadcast-mono"))
+        XCTAssertEqual(oldTV.parameters["intensity"]?.numberValue, 0.68)
+        XCTAssertEqual(oldTV.generatedAssets, [
+            GeneratedAssetDefinition(
+                kind: "crt-treatment-movie",
+                format: "prores-422-10bit",
+                alpha: false,
+                deterministic: true
+            )
+        ])
+
+        let timedOldTV = try planner.plan(
+            request: "Use an old television look for 6.5 seconds.",
+            selection: selection()
+        )
+        XCTAssertEqual(timedOldTV.parameters["durationSeconds"]?.numberValue, 6.5)
 
         let dissolve = try planner.plan(request: "Make this clip dissolve naturally into the next clip.", selection: selection(.twoAdjacentClips, clips: ["clip-a", "clip-b"]))
         XCTAssertEqual(dissolve.effectID, .naturalDissolve)
         XCTAssertEqual(dissolve.confidence, 0.98, accuracy: 0.0001)
         XCTAssertTrue(dissolve.ambiguities.isEmpty)
         XCTAssertEqual(dissolve.selectionToken.sourceIdentities.map(\.itemID), ["clip-a", "clip-b"])
+    }
 
-        let living = try planner.plan(request: "Make this still image feel gently alive for four seconds, then fade quickly to black.", selection: selection())
+    func testLivingStillWorkflowPlansTheExactPinnedDepthRenderContract() throws {
+        let planner = DeterministicPlanner(registry: try registry())
+        let living = try planner.plan(request: "Make this a living still for four seconds.", selection: selection())
         XCTAssertEqual(living.effectID, .livingStill)
         XCTAssertEqual(living.confidence, 0.98, accuracy: 0.0001)
         XCTAssertTrue(living.ambiguities.isEmpty)
+        XCTAssertEqual(living.representation, .layeredMedia)
         XCTAssertEqual(living.parameters["durationSeconds"]?.numberValue, 4)
+        XCTAssertEqual(living.parameters["motionStrength"]?.numberValue, 0.9)
+        XCTAssertEqual(living.parameters["pushIn"]?.numberValue, 0.03)
+        XCTAssertEqual(living.parameters["depthSmoothing"]?.numberValue, 0.35)
+        XCTAssertEqual(living.parameters["fps"], .integer(30))
+        XCTAssertEqual(
+            living.parameters["modelID"],
+            .string("apple.coreml.depth-anything-v2-small-f16@cfef6f6f2a70783dedc0bfae40cecbc2052285d3")
+        )
+        XCTAssertEqual(living.parameters["motionMethod"], .string("coreml-continuous-depth-warp-v2"))
         XCTAssertEqual(living.parameters["preserveOriginal"], .boolean(true))
-        let enriched = try planner.plan(request: "Make this still image feel gently alive for four seconds, slightly enrich the colors, then fade quickly to black.", selection: selection())
-        XCTAssertEqual(enriched.effectID, .livingStill)
-        XCTAssertTrue(enriched.ambiguities.isEmpty)
+        XCTAssertEqual(living.generatedAssets, [
+            GeneratedAssetDefinition(
+                kind: "depth-warp-treatment-movie",
+                format: "prores-422-10bit",
+                alpha: false,
+                deterministic: false
+            )
+        ])
+        XCTAssertEqual(living.previewStrategy, "checksum-bound-rendered-movie")
+        XCTAssertEqual(living.fallback, "refuse-if-depth-render-unavailable")
+        XCTAssertTrue(Set(living.parameters.keys).isDisjoint(with: [
+            "pushInScaleStart", "pushInScaleEnd", "colorEnrichment",
+            "opacityStart", "opacityEnd", "fadeDurationSeconds"
+        ]))
     }
 
     func testUnsupportedReadOnlyParametersRemainCanonicalDuringPlanning() throws {
@@ -165,7 +203,8 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(dissolve.parameters["easing"], dissolveEasing)
 
         let television = try planner.plan(request: "old television scanline", selection: selection())
-        XCTAssertEqual(television.parameters["overlayOpacity"], .number(0.35))
+        XCTAssertEqual(television.parameters["outputLongEdge"], .integer(1920))
+        XCTAssertEqual(television.parameters["renderMethod"], .string("ffmpeg-crt-v2"))
         XCTAssertFalse(television.parameters.keys.contains("scanline"))
     }
 
@@ -182,7 +221,7 @@ final class CoreTests: XCTestCase {
         XCTAssertThrowsError(try validator.validate(forgedDissolve))
 
         var forgedTelevision = try planner.plan(request: "old television", selection: selection())
-        forgedTelevision.parameters["overlayOpacity"] = .number(0.7)
+        forgedTelevision.parameters["outputLongEdge"] = .integer(1280)
         XCTAssertThrowsError(try validator.validate(forgedTelevision))
 
         let targeted = try planner.plan(

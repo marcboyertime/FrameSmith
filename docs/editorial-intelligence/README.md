@@ -12,6 +12,17 @@ professional post-production knowledge and a concrete architecture for turning
 that knowledge into better effects, previews, recommendations, and quality
 checks.
 
+Current implementation note (2026-08-08): Living Still v2 and Old Television
+v2 are validated rendered treatments. Both preserve the source spine, connect
+one video-only ProRes 422 HQ treatment movie, and share that exact checksum-
+bound file between preview and export. The production review covers 10
+representative sources through both effects (20 accepted four-second HQ
+movies), while separate Final Cut
+12.3 returns admit the still- and movie-parent connected rendered-movie
+construction. `motion.opacity.fade.v1` remains reference-only and is not a
+fallback for either v2 effect. See `BAKEOFF_AND_COVERAGE.md` for the bounded
+evidence.
+
 It is deliberately **not** an automatic story editor. The user remains the
 director and picture editor: the user chooses the clips, their order, and their
 place in the sequence. FrameSmith is the elite craftsperson that performs the
@@ -98,10 +109,12 @@ derived technique card.
 
 ## Recommended sequencing
 
-The current verified architectural prerequisite is truthful end-to-end parameter
-control: enabled controls must change the validated plan, shared preview
-construction, and export. Do not put a broad recommendation system on top of
-controls or emitters that do nothing.
+The verified architectural prerequisite is truthful end-to-end parameter
+control: enabled controls must change the validated plan and the exact shared
+preview/export construction. For rendered effects, that means regenerating a
+new retained recipe and prepared movie, not presenting baked pixels as native
+Final Cut controls. Do not put a broad recommendation system on top of controls
+or emitters that do nothing.
 
 Once that prerequisite is complete, integrate this pack as the foundation for:
 

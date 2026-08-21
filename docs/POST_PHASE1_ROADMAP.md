@@ -1,16 +1,15 @@
 # FrameSmith — post-Phase-1 roadmap
 
 Status: **Phase 1 complete.** All four effects have production emitter-backed
-new-project FCPXML export. The visual viewer is narrower: it samples
-Living Still and Targeted Rotate + Zoom single-media transform, opacity, and
-color channels, not Natural Dissolve's two-clip transition or Old Television's
-connected-overlay descriptor. The 2026-08-07 real import covered the earlier
-one-second (30-frame) Natural Dissolve and Old Television base constructions;
-the current canonical 12-frame dissolve route and Old Television's optional
-admitted-still overlay path have construction-test evidence only, not a
-fresh real-Final-Cut import (or, for the overlay, perceptual) exercise. Future
-work remains quality-first: Living Still v2, rendered/ML/generative options, and
-professional expansion are possible only with fresh evidence.
+new-project FCPXML export. Living Still v2 and Old Television v2 now use one
+shared rendered-effect contract: preview reads the exact checksum-bound
+video-only ProRes 422 HQ movie that export copies into a connected lane above
+the unchanged source. A 10-source production matrix produced 20 accepted four-
+second HQ movies and passed bounded visual review. Hardened Final Cut 12.3 round
+trips passed for the connected rendered-movie layer over both still and movie parents. The
+canonical 12-frame Natural Dissolve route remains construction-tested and still
+needs a fresh real-Final-Cut import. Future work remains quality-first and must
+retain the same evidence split between pixels, construction, and deployment.
 
 The repository is still named `FCPCommandConsole`. **FrameSmith** is the product
 name used throughout this document; renaming is a Phase A chore, not a
@@ -179,22 +178,20 @@ never word its output as though it had.
 
 The app and standalone export dispatch the same plan-driven construction
 descriptors for Living Still, Targeted Rotate + Zoom, Natural Dissolve, and Old
-Television. The visual viewer renders only Living Still and Targeted Rotate +
-Zoom single-media transform/opacity/color channels; Natural Dissolve and Old
-Television descriptors remain export constructions. Natural Dissolve and Old
-Television were generalized from their probe builders; catalog availability no
-longer depends on a hidden fallback path.
+Television. Native effects share one channel construction. Living Still v2 and
+Old Television v2 share one sealed prepared movie between preview and export;
+export is not allowed to render a second copy. Natural Dissolve remains a two-
+clip export construction rather than a single-media visual-viewer claim.
 
 ### A4. Shared effect construction descriptors — ✅ **done for all four emitters**
 
 All four effects use registered shared construction descriptors for export.
-The current visual viewer samples only single-media transform, opacity, and
-color channels; it does not render Natural Dissolve's two-clip transition
-descriptor or Old Television's connected-overlay descriptor. Preview remains
-effect-scoped: visual-viewer absence is not inferred from merely having source
-media or JSON parameters, and it does not mean an emitter is absent. Old
-Television's optional admitted-still overlay remains construction-tested but lacks
-fresh real-Final-Cut and perceptual evidence.
+Rendered effects pass a verified `RenderedEffectAsset` containing the exact
+source, recipe, construction, timing, media, and movie identities. Preview
+opens its file; export checksum-verifies and copies it. Living Still v2 and Old
+Television v2 both passed the 10-case visual matrix, while the common connected
+rendered-movie FCPXML layer passed still- and movie-parent Final Cut 12.3 return
+verification.
 
 Preview strategy is per-primitive (it is one of the seven contract fields) and
 will not be uniform. Expect three tiers:
@@ -207,9 +204,9 @@ will not be uniform. Expect three tiers:
 A preview that silently misrepresents the result is worse than no preview.
 Tier 3 must be visually distinct from tiers 1 and 2.
 
-**Colour needs a before/after toggle, not a rendered frame.** During the living
-still playback check the motion and the fade were immediately visible, but the
-colour change was not confirmable by eye — a Saturation of 25 on that image sat
+**Colour needs a before/after toggle, not only a rendered frame.** During the
+historical native v1 playback check, the motion and fade were immediately
+visible, but the colour change was not confirmable by eye — a Saturation of 25 on that image sat
 below the threshold where a human watching full-motion playback could tell it
 had applied. If the user cannot tell whether an operation happened, a preview
 that just shows the result has failed at its only job. Every colour primitive
@@ -270,11 +267,12 @@ need their own capture/evidence rather than inheriting this admission.
 **Compositing** — `opacity`, `blend mode`, `connected layers`
 
 Opacity keyframes and connected overlay layers are admitted in the current
-scoped evidence. Old Television has a native FCPXML base emitter and optional
-admitted-still overlay, but blend-mode breadth remains unproven, its presented
-registry parameters remain read-only, and its optional overlay path still needs
-a fresh real-Final-Cut and perceptual exercise. Those limitations are evidence boundaries, not an
-unavailability claim.
+scoped evidence. The newer connected rendered-movie layer is admitted over both
+a still and a movie parent in Final Cut 12.3. Old Television v2 uses this movie
+layer for a sustained typed CRT render; it no longer uses the retired native
+base/optional-still recipe. Blend-mode breadth and arbitrary layer stacking
+remain unproven. `motion.opacity.fade.v1` is a separate reference-only card, not
+a fallback for either rendered v2 effect.
 
 **Color** — `exposure`, `contrast`, `saturation`, `temperature`, `tint`,
 `monochrome`, `vignette`
@@ -416,8 +414,10 @@ got.**
 This used to be a strict preference order with native FCPXML always winning and
 a baked render as "last resort". That rule cost real quality: the living still
 v2 design chose layered parallax over a depth-warp specifically because the
-former stays editable, even though the latter looks considerably better. That
-is the wrong trade to make on the user's behalf.
+former stays editable. The representative matte review then exposed a hard
+silhouette and hair fringe; the continuous depth candidate won the production
+bakeoff and now ships as retained-recipe rendered output. That is the concrete
+case for refusing the old trade on the user's behalf.
 
 The tiers still exist, but as a **description of what you produced**, not a
 ranking you must climb:
@@ -616,22 +616,21 @@ implementation truth, not a prohibition on beginning future work:
 
 | Item | Status |
 | --- | --- |
-| Living Still | ✅ production emitter, shared preview/export channels, parameter-truth inspector |
+| Living Still v2 | ✅ pinned local Core ML depth render at 0.90 depth motion/0.030 push; one inference reused across 120 default frames; 10-case ProRes 422 HQ visual/stream pass; exact prepared-movie preview/export parity; still-parent Final Cut 12.3 return |
 | Targeted Rotate + Zoom | ✅ production emitter, confirmed-target transform/rotation path |
 | Rotation semantics | ✅ admitted in the current Final Cut 12.3 (450152) scoped profile |
-| Connected overlay semantics | ✅ admitted in the current Final Cut 12.3 (450152) scoped profile |
+| Connected rendered-movie semantics | ✅ admitted over still and movie parents in the current Final Cut 12.3 (450152) scoped profile |
 | Standalone export route | ✅ validated registry/media/emitter route, new-project-only package publication |
 | Natural Dissolve | ✅ production emitter, shared export construction descriptor, and construction-tested canonical read-only 12-frame route; 2026-08-07 real-import evidence covers the earlier 30-frame construction, so a fresh 12-frame import remains open; visual viewer does not render its two-clip transition descriptor |
-| Old Television | ✅ native FCPXML base emitter with optional admitted-still connected overlay, no generated FFmpeg/static/scanline assets, and real-import admission of its base construction on 2026-08-07; visual viewer does not render its connected-overlay descriptor; optional overlay path still needs fresh real-Final-Cut and perceptual evidence |
+| Old Television v2 | ✅ sustained content-addressed CRT movie with scanlines/noise/tube geometry/chroma/ghosting/bloom/jitter/vignette/≤2% micro-flicker; 10-case visual pass; exact prepared-movie parity; still- and movie-parent Final Cut 12.3 returns |
 
 The next work is not to relitigate Phase 1 or productionize an already-shipped
-emitter. First exercise Old Television's optional admitted-still overlay path in a
-fresh real-Final-Cut and bounded perceptual pass. Then decide whether to acquire
-a depth model for Living Still v2: all ten classes are measured, the Vision
-two-plane candidate is demoted, and the leading continuous-warp candidate is
-untested pending that decision. Existing evidence remains version-scoped and
-construction-scoped; it does not substitute for visual-quality evaluation or
-broad compatibility claims.
+emitter. Keep Living Still's head-only 0.033–0.100 second startup hold as an
+explicit temporal regression metric; obtain a fresh real-Final-Cut import for the
+canonical 12-frame dissolve; then widen effect stacking, calibrated color,
+masking/tracking, typography, and audio with their own scoped evidence. Existing
+evidence remains version-, construction-, and media-scoped; it does not
+substitute for expert/population perceptual evaluation or broad compatibility.
 
 ---
 

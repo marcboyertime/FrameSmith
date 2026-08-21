@@ -84,7 +84,11 @@ final class PlannerHelperTests: XCTestCase {
     func testWirePreservesNumericZeroAndOneWithoutCoercingBooleans() throws {
         let token = selection(.singleClip, clips: ["clip-a"])
         let response = PlannerHelperEngine(resources: try resources()).handle(
-            data: request("old tv", selection: token)
+            data: request(
+                "targeted rotate and zoom clockwise for 2 seconds by 12 degrees",
+                selection: token,
+                target: .confirmed(x: 0.5, y: 0.5)
+            )
         )
         let wire = try PlannerHelperWireCodec.encode(response)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: wire) as? [String: Any])
@@ -95,16 +99,16 @@ final class PlannerHelperTests: XCTestCase {
         let editable = try XCTUnwrap(plan["editable_properties"] as? [[String: Any]])
 
         let zeroCost = try XCTUnwrap(cost["usd"] as? NSNumber)
-        let overlayStartOne = try XCTUnwrap(parameters["overlayStartSeconds"] as? NSNumber)
+        let scaleStartOne = try XCTUnwrap(parameters["scaleStart"] as? NSNumber)
         let startFrameZero = try XCTUnwrap(selection["start_frame"] as? NSNumber)
         let paid = try XCTUnwrap(cost["paid"] as? NSNumber)
 
-        XCTAssertTrue(editable.isEmpty)
-        for number in [zeroCost, overlayStartOne, startFrameZero] {
+        XCTAssertEqual(editable.count, 12)
+        for number in [zeroCost, scaleStartOne, startFrameZero] {
             XCTAssertNotEqual(CFGetTypeID(number), CFBooleanGetTypeID())
         }
         XCTAssertEqual(zeroCost.doubleValue, 0)
-        XCTAssertEqual(overlayStartOne.doubleValue, 1)
+        XCTAssertEqual(scaleStartOne.doubleValue, 1)
         XCTAssertEqual(startFrameZero.intValue, 0)
         XCTAssertEqual(CFGetTypeID(paid), CFBooleanGetTypeID())
         XCTAssertFalse(paid.boolValue)

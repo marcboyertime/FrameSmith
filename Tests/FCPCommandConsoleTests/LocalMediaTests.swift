@@ -31,10 +31,89 @@ final class LocalMediaTests: XCTestCase {
         XCTAssertNil(admitted.durationSeconds)
         XCTAssertNil(admitted.frameRate)
         XCTAssertFalse(admitted.hasAudio)
+        XCTAssertEqual(admitted.stillOrientation, .up)
+        XCTAssertNil(admitted.moviePreferredTransform)
+        XCTAssertNil(admitted.videoTrackCount)
+        XCTAssertNil(admitted.videoScanMode)
+        XCTAssertNil(admitted.videoCadence)
+        XCTAssertNil(admitted.audioStreams)
         XCTAssertEqual(admitted.canonicalPath, still.path)
         XCTAssertEqual(admitted.sha256, ContentHasher.sha256(before))
         XCTAssertEqual(try Data(contentsOf: still), before)
         XCTAssertEqual(admitted.sourceIdentity.canonicalPath, still.path)
+    }
+
+    func testAdmissionCapturesStillOrientationFromTheHashedImageBytes() async throws {
+        let rotated = root.appendingPathComponent("rotated.png")
+        try writePNG(to: rotated, orientation: .right)
+        let bytes = try Data(contentsOf: rotated)
+
+        let admitted = try await LocalMediaAdmission().admit(rotated)
+
+        XCTAssertEqual(admitted.dimensions, LocalMediaDimensions(width: 3, height: 2))
+        XCTAssertEqual(admitted.stillOrientation, .right)
+        XCTAssertEqual(admitted.sha256, ContentHasher.sha256(bytes))
+        XCTAssertEqual(try Data(contentsOf: rotated), bytes)
+    }
+
+    func testAdmissionRejectsMultiImageContainersAsTimingFreeStills() async throws {
+        let multipage = root.appendingPathComponent("multipage.tiff")
+        try writeMultiImageTIFF(to: multipage)
+
+        await assertAdmission(multipage, equals: .unsupportedMedia(multipage))
+    }
+
+    func testPlanInputStalenessIncludesTypedMediaContextNotOnlyPathAndHash() throws {
+        let base = LocalMediaAsset(
+            itemID: "same",
+            url: still,
+            kind: .still,
+            dimensions: LocalMediaDimensions(width: 1920, height: 1080),
+            durationSeconds: nil,
+            frameRate: nil,
+            hasAudio: false,
+            stillOrientation: .up,
+            moviePreferredTransform: nil,
+            videoTrackCount: nil,
+            videoScanMode: nil,
+            videoCadence: nil,
+            audioStreams: nil,
+            canonicalPath: still.path,
+            sha256: String(repeating: "a", count: 64)
+        )
+        let rotated = LocalMediaAsset(
+            itemID: base.itemID,
+            url: base.url,
+            kind: base.kind,
+            dimensions: base.dimensions,
+            durationSeconds: base.durationSeconds,
+            frameRate: base.frameRate,
+            hasAudio: base.hasAudio,
+            stillOrientation: .right,
+            moviePreferredTransform: nil,
+            videoTrackCount: nil,
+            videoScanMode: nil,
+            videoCadence: nil,
+            audioStreams: nil,
+            canonicalPath: base.canonicalPath,
+            sha256: base.sha256
+        )
+        let planned = LocalMediaPlanInputs(
+            request: "Make this a living still.",
+            target: nil,
+            primary: base,
+            outgoing: nil,
+            incoming: nil
+        )
+        let current = LocalMediaPlanInputs(
+            request: "Make this a living still.",
+            target: nil,
+            primary: rotated,
+            outgoing: nil,
+            incoming: nil
+        )
+
+        XCTAssertEqual(planned.drift(against: current), .sourceChanged(.primary))
     }
 
     func testAdmissionRejectsSymlinkDirectoryFIFOUnsupportedAndFinalCutLibraryPaths() async throws {
@@ -167,7 +246,10 @@ final class LocalMediaTests: XCTestCase {
         }
     }
 
-    private func writePNG(to url: URL) throws {
+    private func writePNG(
+        to url: URL,
+        orientation: LocalMediaStillOrientation? = nil
+    ) throws {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
         let context = try XCTUnwrap(CGContext(data: nil, width: 3, height: 2, bitsPerComponent: 8, bytesPerRow: 12, space: colorSpace, bitmapInfo: bitmapInfo))
@@ -175,6 +257,34 @@ final class LocalMediaTests: XCTestCase {
         context.fill(CGRect(x: 0, y: 0, width: 3, height: 2))
         let image = try XCTUnwrap(context.makeImage())
         let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
+        let properties: CFDictionary? = orientation.map {
+            [kCGImagePropertyOrientation: NSNumber(value: $0.rawValue)] as CFDictionary
+        }
+        CGImageDestinationAddImage(destination, image, properties)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+    }
+
+    private func writeMultiImageTIFF(to url: URL) throws {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let context = try XCTUnwrap(CGContext(
+            data: nil,
+            width: 3,
+            height: 2,
+            bitsPerComponent: 8,
+            bytesPerRow: 12,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(red: 0.7, green: 0.2, blue: 0.3, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 3, height: 2))
+        let image = try XCTUnwrap(context.makeImage())
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(
+            url as CFURL,
+            UTType.tiff.identifier as CFString,
+            2,
+            nil
+        ))
+        CGImageDestinationAddImage(destination, image, nil)
         CGImageDestinationAddImage(destination, image, nil)
         XCTAssertTrue(CGImageDestinationFinalize(destination))
     }

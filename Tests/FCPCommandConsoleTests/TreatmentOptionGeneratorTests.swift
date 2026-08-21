@@ -413,82 +413,66 @@ final class TreatmentOptionGeneratorTests: XCTestCase {
         XCTAssertEqual(crt.evaluate(in: .init(media: [.primary: assets[0]], target: nil)).executableDecision, .allowedAutomatically)
     }
 
-    func testCRTAutomaticGateIsBoundedToTheSingleMeasuredBaseDip() throws {
+    func testCRTAutomaticGateUsesTypedMicroFlickerWithoutAnOpacityFade() throws {
         let asset = still("crt", digest: "c")
         let plan = try XCTUnwrap(try basePlans(for: [asset])[.oldTelevision])
         XCTAssertEqual(plan.parameters["durationSeconds"]?.numberValue, 4)
-        XCTAssertEqual(plan.parameters["flickerFloor"], .number(0.82))
+        XCTAssertEqual(plan.parameters["flickerStrength"], .number(0.12))
+        XCTAssertEqual(plan.parameters["renderMethod"], .string("ffmpeg-crt-v2"))
+        XCTAssertEqual(plan.parameters["preserveOriginal"], .boolean(true))
+        XCTAssertEqual(plan.generatedAssets, [
+            GeneratedAssetDefinition(
+                kind: "crt-treatment-movie",
+                format: "prores-422-10bit",
+                alpha: false,
+                deterministic: true
+            )
+        ])
         let channels = try OldTelevisionStandaloneEmitter().channels(plan: plan, media: [.primary: asset])
-        XCTAssertEqual(channels.opacity.amount.count, 3)
-        XCTAssertEqual(channels.opacity.amount.map(\.value), ["1", "0.82", "1"])
-        XCTAssertEqual(channels.opacity.amount.map { $0.time.seconds }, [3600, 3600.5, 3601])
+        XCTAssertTrue(channels.opacity.isEmpty)
+        XCTAssertNil(channels.saturation)
+        XCTAssertNil(channels.overlay)
+        XCTAssertEqual(channels.durationSeconds, 4)
         let card = try XCTUnwrap(try catalog().card(id: "look.crt.old_television.v1"))
-        XCTAssertTrue(card.riskGates.allSatisfy { $0.level == .low && $0.decision == .allowedAutomatically && $0.basis.contains("full→0.82→full") })
-        XCTAssertTrue(card.safetyGates.allSatisfy { $0.basis.contains("repeated or stronger flicker is refused") })
-        let overlay = NativeFCPXMLOverlayDescriptor(startFrameWithinParent: 0, durationFrames: 120, opacity: 1, blendMode: .overlay)
-        let connected = NativeFCPXMLEffectChannels(transform: channels.transform, opacity: channels.opacity, saturation: channels.saturation, durationSeconds: channels.durationSeconds, origin: channels.origin, frameWidth: channels.frameWidth, frameHeight: channels.frameHeight, overlay: overlay)
-        let admission = TreatmentAdmission(lock: lock([asset]), catalog: try catalog(), admittedCapabilities: capabilities, registry: try registry())
-        XCTAssertFalse(admission.permitsAutomaticCRTBase(connected))
-
-        let overlayAsset = still("overlay", digest: "o")
-        let crtOnly = EditorialKnowledgeCatalog(cards: [card])
-        let locked = EditorialStructureLock.establish(orderedMedia: [asset], clipDurationFrames: [120], frameRate: 30)
-        let treatment = try XCTUnwrap(TreatmentOptionGenerator(catalog: crtOnly, admittedCapabilities: capabilities).generate(
-            lock: locked,
-            media: [.primary: asset, .overlay: overlayAsset],
-            intent: intent("old television", intensity: .restrained),
-            basePlans: [.oldTelevision: plan]
-        ).options.first)
-        XCTAssertThrowsError(try TreatmentAdmission(lock: locked, catalog: crtOnly, admittedCapabilities: capabilities, registry: try registry()).admit(
-            treatment,
-            currentStructure: locked,
-            media: [.primary: asset, .overlay: overlayAsset],
-            impactEvidence: []
-        )) { error in
-            guard case TreatmentAdmissionError.safetyBlocked(let reason) = error else {
-                return XCTFail("expected CRT overlay safety refusal, got \(error)")
-            }
-            XCTAssertTrue(reason.contains("connected overlays"), reason)
-        }
+        XCTAssertTrue(card.riskGates.allSatisfy {
+            $0.level == .low && $0.decision == .allowedAutomatically &&
+                $0.basis.contains("two percent") && $0.basis.contains("no full-frame opacity event")
+        })
+        XCTAssertTrue(card.safetyGates.allSatisfy {
+            $0.basis.contains("no opacity channel") && $0.basis.contains("two-percent ceiling")
+        })
     }
 
-    func testAdmissionRefusesAConstructionThatChangesDirectorLockedDuration() throws {
+    func testValidatedRenderedCRTIsOfferedAfterVisualAndFinalCutAdmission() throws {
         let asset = still("duration", digest: "d")
-        let locked = EditorialStructureLock.establish(orderedMedia: [asset], clipDurationFrames: [90], frameRate: 30)
+        let locked = EditorialStructureLock.establish(orderedMedia: [asset], clipDurationFrames: [120], frameRate: 30)
         let set = try generator().generate(
             lock: locked,
             media: [.primary: asset],
             intent: intent("old television texture", intensity: .bold),
             basePlans: try basePlans(for: [asset])
         )
-        let crt = try XCTUnwrap(set.options.first { $0.techniqueCardIDs == ["look.crt.old_television.v1"] })
-        XCTAssertThrowsError(
-            try TreatmentAdmission(
-                lock: locked,
-                catalog: try catalog(),
-                admittedCapabilities: capabilities,
-                registry: try registry(),
-                treatmentContractValidator: try TreatmentPlanContractValidator.discover()
-            ).admit(crt, currentStructure: locked, media: [.primary: asset], impactEvidence: [])
-        ) { error in
-            guard case .effectPlanRejected(let detail) = error as? TreatmentAdmissionError else {
-                return XCTFail("wrong error: \(error)")
-            }
-            XCTAssertTrue(detail.contains("director-locked rational duration"), detail)
-        }
+        let option = try XCTUnwrap(set.options.first { $0.techniqueCardIDs == ["look.crt.old_television.v1"] })
+        XCTAssertEqual(option.effectPlan.effectID, .oldTelevision)
+        XCTAssertEqual(option.previewFidelity, .sharedConstruction)
     }
 
-    func testSemanticDiversityDoesNotPadParameterVariants() throws {
+    func testRemovingCRTDoesNotPadTheRemainingExecutableOptions() throws {
         let asset = still("safe", digest: "a")
         let cards = try catalog().cards.filter { $0.id != "look.crt.old_television.v1" }
         let set = TreatmentOptionGenerator(catalog: .init(cards: cards), admittedCapabilities: capabilities).generate(
             lock: lock([asset]), media: [.primary: asset], intent: intent("quiet cinematic", intensity: .present), basePlans: try basePlans(for: [asset])
         )
+        XCTAssertFalse(set.options.isEmpty)
         XCTAssertLessThanOrEqual(set.options.count, 3)
+        if set.options.count < 3 {
+            XCTAssertNotNil(set.shortfallExplanation)
+            XCTAssertTrue(set.shortfallExplanation?.contains("rather than 3") == true, set.shortfallExplanation ?? "")
+        }
         XCTAssertTrue(set.options.allSatisfy { $0.techniqueCardIDs != ["look.crt.old_television.v1"] && (3...6).contains($0.changes.count) })
         for i in set.options.indices {
             for j in set.options.indices where j > i {
-                XCTAssertGreaterThanOrEqual(set.options[i].actualConstructionDifferenceCount(from: set.options[j]), 2)
+                XCTAssertTrue(set.options[i].differsMaterially(from: set.options[j]))
             }
         }
     }

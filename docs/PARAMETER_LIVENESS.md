@@ -1,36 +1,94 @@
 # FrameSmith parameter liveness
 
-Registry metadata is the source of truth for presentation and liveness. It is decoded by `ParameterDefinition` and checked during registry load, then remains registry-owned: `PlanValidator`, `LocalMediaPlanRevisionService`, and the inspector consult it to decide which controls are supported. It is not copied into an `EffectPlan`, which carries the plan's parameter values and execution semantics. Shared emitter channels consume validated values for FCPXML construction; the current visual viewer renders only Living Still and Targeted Rotate + Zoom single-media transform, opacity, and color channels, not two-clip transition or connected-overlay descriptors. Missing metadata fails closed as unsupported/read-only.
+Registry metadata is the source of truth for presentation and liveness. It is
+decoded during registry load and consulted by plan validation, revision, the
+inspector, treatment admission, and effect construction. A parameter existing
+in JSON or source does not make it editable. Missing metadata fails closed as
+unsupported/read-only.
 
-Living Still is live for duration, start/end scale, pan X, pan Y, start/end opacity, and fade duration. Pan X is a width fraction converted to Final Cut percent-of-frame-height; pan Y is a height fraction and is sign-inverted for Final Cut's positive-up axis. The still-only emitter frame-quantizes at 30 fps, uses the 3600-second still origin, and keeps the final keyframe addressable. `preserveOriginal`, `nativeFallbackEnabled`, `depthFlowStatus`, and `motionMethod` are invariants. `easing` is unsupported/read-only because no emitted FCPXML easing representation is established. `colorEnrichment` is unsupported/read-only: the only admitted color construction is the singular captured Color Adjustments Saturation 25 adapter. Preview color is indicative only; no arbitrary color editing, calibration, or perceptual claim exists.
+## Living Still v2
 
-Targeted Rotate + Zoom is live for duration, start/end scale, and signed start/end rotation. Positive Final Cut rotation is counterclockwise; `direction` is derived compatibility metadata (zero is canonically clockwise), never a direct control. `easing` is unsupported/read-only. A confirmed normalized target is an execution input, not a parameter. Stills use the 3600-second origin, movies zero; a requested quantized movie duration beyond the admitted source duration is refused.
+Living Still v2 is a rendered effect. Its live controls are:
 
-Natural Dissolve has a production emitter and shared FCPXML construction
-descriptor,
-but its current registry presentation declares `durationFrames`, `easing`,
-`preserveAudio`, and `edgeBehavior` unsupported/read-only. There is no
-approximate or runtime-editable Natural Dissolve registry control. The
-canonical read-only `durationFrames=12` is validated with the complete registry
-plan and drives both the dissolve descriptor and emitted FCPXML. There is no
-direct `durationSeconds` production route or fallback. The emitter preserves
-the admitted centred, butt-joined construction and refuses insufficient handle
-rather than moving an edit point or shortening a requested transition; it does
-not establish a user-editable easing or audio mapping. The historical
-2026-08-07 real-Final-Cut import covered the earlier one-second (30-frame)
-dissolve geometry; the current canonical 12-frame route has automated
-construction evidence only and still needs a fresh Final Cut import.
+| Parameter | Range | Default |
+| --- | ---: | ---: |
+| `durationSeconds` | 0.1–30 s | 4 s |
+| `motionStrength` | 0–1 | 0.90 |
+| `pushIn` | 0–0.12 frame fraction | 0.030 |
+| `panX` | -0.04–0.04 width fraction | 0.012 |
+| `panY` | -0.04–0.04 height fraction | -0.006 |
+| `depthSmoothing` | 0–1 | 0.35 |
 
-Old Television has a native FCPXML base treatment and an optional admitted-still
-connected overlay. Its production registry contains only the nine construction
-values the standalone emitter consumes: duration, Saturation 25, three-keyframe
-flicker floor, optional-overlay opacity/start/duration, and fixed Overlay blend,
-bounded timing, and identity transform. Numeric values are unsupported/read-only
-and the fixed enum semantics are invariant/read-only; none is currently
-runtime-editable or approximate. Production construction requires the complete,
-validated registry plan and generates no FFmpeg, static-grain, or scanline
-assets. `OldTelevisionCompositionBuilder` and `SafeFFmpegOverlayAdapter` remain
-separate research/low-level code, not this production registry contract. The
-optional overlay has construction evidence only and lacks fresh real-Final-Cut
-and perceptual evidence. The current visual viewer does not render its
-connected-overlay descriptor.
+`outputLongEdge=1920` is a fixed invariant/read-only maximum long-edge ceiling,
+not a selectable export resolution. `fps=30`, the pinned model ID, continuous-
+depth method, and `preserveOriginal=true` are also invariant/read-only. A live
+revision creates a new content-addressed prepared movie. Preview and export
+then use that exact SHA-256-bound movie. There are no native scale/opacity/color
+keyframes and no fade parameter in Living Still v2.
+
+The admitted project-export profile is narrower than preview liveness: exactly
+1920×1080, 30 fps, 120 frames, four seconds, video-only ProRes 422 HQ (`apch`,
+`yuv422p10le`), FCPXML 1.14, and Final Cut 12.3 (450152). Other duration/aspect
+renders may be previewed but are refused for project export.
+
+The pinned model is Apple Core ML Depth Anything V2 Small FP16 at revision
+`cfef6f6f2a70783dedc0bfae40cecbc2052285d3` (Apache-2.0). Model or source
+identity drift refuses construction rather than exposing a degraded fallback.
+
+## Targeted Rotate + Zoom
+
+Targeted Rotate + Zoom remains live for duration, start/end scale, and signed
+start/end rotation. Positive Final Cut rotation is counterclockwise;
+`direction` is derived compatibility metadata, not a direct control. A confirmed
+normalized focal point is typed execution input rather than an invented
+parameter. Quantized movie duration beyond admitted source duration is refused.
+
+## Natural Dissolve
+
+Natural Dissolve has a production native emitter, but its canonical 12-frame
+duration and other construction values remain unsupported/read-only in the
+generic parameter editor. The emitter refuses insufficient handles rather than
+moving an edit point or shortening the transition. The current 12-frame route
+has construction evidence and still needs a fresh Final Cut import.
+
+## Old Television v2
+
+Old Television v2 is a rendered effect. Its live controls are:
+
+| Parameter | Range/default |
+| --- | --- |
+| `durationSeconds` | 0.1–30 s; default 4 s |
+| `profile` | `broadcast-mono` or `color-crt`; default `broadcast-mono` |
+| `intensity` | 0–1; default 0.68 |
+| `scanlineStrength` | 0–1; default 0.42 |
+| `noiseStrength` | 0–1; default 0.28 |
+| `syncInstability` | 0–1; default 0.22 |
+| `chromaSeparation` | 0–1; default 0.18 |
+| `bloomStrength` | 0–1; default 0.20 |
+| `vignetteStrength` | 0–1; default 0.34 |
+| `ghostingStrength` | 0–1; default 0.10 |
+| `flickerStrength` | 0–1; default 0.12 |
+| `seed` | 0–2147483647; default 7341 |
+
+`outputLongEdge=1920` is a fixed invariant/read-only maximum long-edge ceiling,
+not a selectable export resolution. `fps=30`, `renderMethod=ffmpeg-crt-v2`, and
+`preserveOriginal=true` are also invariant/read-only. Every request is typed
+and bounded; raw FFmpeg filter arguments are never a user-editable surface. The
+renderer produces a content-addressed, video-only ProRes 422 HQ movie. It has no
+opacity channel or fade event, and its continuous luma modulation is capped at
+two percent.
+
+Project export uses the same exact admitted profile as Living Still: 1920×1080,
+30 fps, 120 frames, four seconds, video-only ProRes 422 HQ (`apch`,
+`yuv422p10le`), FCPXML 1.14, and Final Cut 12.3 (450152). Other duration/aspect
+renders remain preview-only and are refused for project export.
+
+Rendered controls are FrameSmith-regenerable, not native Final Cut effect
+parameters. The source clip remains on the spine; a movie source keeps its
+audio below the connected visual treatment.
+
+## Standalone opacity fade
+
+`motion.opacity.fade.v1` remains `reference_only`. Its former Living Still v1
+association is retired, `implemented=false`, and it is not used as a fallback
+for Living Still v2 or Old Television v2.

@@ -54,6 +54,11 @@ public enum FCPXMLSemanticContract: String, Codable, CaseIterable, Hashable, Sen
     case opacityKeyframes = "opacity_keyframes"
     case nativeColorAdjustment = "native_color_adjustment"
     case connectedOverlayLayers = "connected_overlay_layers"
+    /// One full-duration, opaque, video-only movie connected above an
+    /// unchanged source clip. This is intentionally separate from the prior
+    /// connected-still admission; DTD validity cannot promote still evidence
+    /// into a movie-semantic claim.
+    case connectedRenderedMovieLayer = "connected_rendered_movie_layer"
 }
 
 /// The explicitly admitted subset of FCPXML semantics. An empty profile is the
@@ -74,9 +79,9 @@ public struct ManualFCPXMLSemanticsEvidence: Codable, Equatable, Sendable {
         case .targetedRotateZoom:
             return [.assetAdmission, .transformKeyframes]
         case .livingStill:
-            return [.assetAdmission, .transformKeyframes, .opacityKeyframes, .nativeColorAdjustment]
+            return [.assetAdmission, .connectedRenderedMovieLayer]
         case .oldTelevision:
-            return [.assetAdmission, .opacityKeyframes, .nativeColorAdjustment, .connectedOverlayLayers]
+            return [.assetAdmission, .connectedRenderedMovieLayer]
         }
     }
 
@@ -155,31 +160,74 @@ public struct VerifiedFinalCutSelectionEvidence: Equatable, Sendable {
 /// *our* inputs rather than about Final Cut's state, which is why standalone
 /// export can require it without ever inspecting a timeline.
 public struct AdmittedLocalMediaEvidence: Equatable, Sendable {
-    private struct Admitted: Hashable, Sendable {
+    private struct Admitted: Equatable, Sendable {
+        let itemID: String
         let canonicalPath: String
         let sha256: String
+        let context: LocalMediaContextFacts
     }
 
-    private let admitted: Set<Admitted>
+    private let admitted: [Admitted]
 
     internal init?(admittedAssets: [LocalMediaAsset]) {
         guard !admittedAssets.isEmpty else { return nil }
-        var seen: Set<Admitted> = []
+        var seen: [Admitted] = []
         for asset in admittedAssets {
-            guard !asset.canonicalPath.isEmpty, !asset.sha256.isEmpty else { return nil }
-            seen.insert(Admitted(canonicalPath: asset.canonicalPath, sha256: asset.sha256))
+            guard let binding = Self.binding(for: asset) else { return nil }
+            if let sameIdentity = seen.first(where: {
+                $0.itemID == binding.itemID
+                    && $0.canonicalPath == binding.canonicalPath
+                    && $0.sha256 == binding.sha256
+            }) {
+                guard sameIdentity == binding else { return nil }
+            } else {
+                seen.append(binding)
+            }
         }
-        admitted = seen
+        admitted = seen.sorted {
+            ($0.itemID, $0.canonicalPath, $0.sha256)
+                < ($1.itemID, $1.canonicalPath, $1.sha256)
+        }
     }
 
-    /// True when every identity the token carries was admitted, matched on both
-    /// canonical path and digest. Matching on either alone would let a file
-    /// swapped after admission, or an identical file at an unvetted path, pass.
+    /// True when every identity the token carries was admitted. This is the
+    /// plan-level check; the export boundary separately checks the complete
+    /// typed asset context supplied for every role.
     fileprivate func covers(_ token: SelectionToken) -> Bool {
         guard !token.sourceIdentities.isEmpty else { return false }
-        return token.sourceIdentities.allSatisfy {
-            admitted.contains(Admitted(canonicalPath: $0.canonicalPath, sha256: $0.sha256))
+        return token.sourceIdentities.allSatisfy { identity in
+            admitted.contains {
+                $0.itemID == identity.itemID
+                    && $0.canonicalPath == identity.canonicalPath
+                    && $0.sha256 == identity.sha256
+            }
         }
+    }
+
+    /// Exact export-boundary binding. Public `LocalMediaAsset` constructors are
+    /// useful to non-export callers, but cannot use a real admission token to
+    /// substitute different orientation, transform, cadence, scan, or audio
+    /// facts for the same path and digest.
+    internal func covers(media: [LocalMediaRole: LocalMediaAsset]) -> Bool {
+        guard !media.isEmpty else { return false }
+        return media.values.allSatisfy { asset in
+            guard let binding = Self.binding(for: asset) else { return false }
+            return admitted.contains(binding)
+        }
+    }
+
+    private static func binding(for asset: LocalMediaAsset) -> Admitted? {
+        guard !asset.itemID.isEmpty,
+              !asset.canonicalPath.isEmpty,
+              !asset.sha256.isEmpty else {
+            return nil
+        }
+        return Admitted(
+            itemID: asset.itemID,
+            canonicalPath: asset.canonicalPath,
+            sha256: asset.sha256,
+            context: asset.contextFacts
+        )
     }
 }
 
@@ -213,7 +261,7 @@ public enum CapabilityGateError: Error, LocalizedError, Equatable, Sendable {
         case .standaloneExportRequiresLocalMediaOrigin(let origin):
             return "standalone_fcpxml_export generates a new project from admitted local media; \(origin.rawValue) is not that"
         case .standaloneExportMediaNotAdmitted:
-            return "standalone_fcpxml_export requires every plan source to be canonical admitted local media"
+            return "standalone_fcpxml_export requires every plan source identity to match canonical admitted local media"
         case .standaloneExportRejectsTimelineSelection:
             return "standalone_fcpxml_export cannot be issued against a Final Cut timeline selection because it does not modify an existing timeline"
         }
@@ -313,7 +361,7 @@ public struct CapabilityGate: Sendable {
                 return CapabilityDecision(capability: capability, allowed: false, reason: "Standalone export requires a local media selection, got \(plan.selectionToken.origin.rawValue)")
             }
             guard mediaEvidence.covers(plan.selectionToken) else {
-                return CapabilityDecision(capability: capability, allowed: false, reason: "Every plan source must be canonical admitted local media matched on path and digest")
+                return CapabilityDecision(capability: capability, allowed: false, reason: "Every plan source must be canonical admitted local media matched on item, path, and digest")
             }
             let missing = manualSemanticsEvidence.missingContracts(for: plan.effectID)
             guard missing.isEmpty else {

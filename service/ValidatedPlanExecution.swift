@@ -8,8 +8,7 @@ public struct ValidatedPlanExecution {
     /// Roles an effect may accept but does not require.
     public static func optionalRoles(for effectID: EffectID) -> Set<LocalMediaRole> {
         switch effectID {
-        case .oldTelevision: return [.overlay]
-        case .livingStill, .targetedRotateZoom, .naturalDissolve: return []
+        case .livingStill, .targetedRotateZoom, .naturalDissolve, .oldTelevision: return []
         }
     }
 
@@ -23,8 +22,7 @@ public struct ValidatedPlanExecution {
         default: throw PlanValidationError.invalidSelection("unsupported effect input count")
         }
         // Optional roles may be present or absent; required roles must match
-        // exactly. Old Television's overlay is optional because its emitter
-        // produces a valid base treatment without one.
+        // exactly.
         let optional = Self.optionalRoles(for: plan.effectID)
         let supplied = Set(media.keys)
         guard supplied.isSuperset(of: Set(required)), supplied.subtracting(Set(required)).isSubset(of: optional) else {
@@ -37,11 +35,6 @@ public struct ValidatedPlanExecution {
             guard media[role]?.sourceIdentity == plan.selectionToken.sourceIdentities[index] else {
                 throw PlanValidationError.invalidSelection("admitted \(role.rawValue) media does not match the plan source identity")
             }
-        }
-        // Optional media still has to be real: an overlay that is not an
-        // admitted still would otherwise reach the emitter unchecked.
-        if let overlay = media[.overlay], overlay.kind != .still {
-            throw PlanValidationError.invalidSelection("an overlay must be an admitted still")
         }
         // Unavailable effects are valid plans but cannot construct/export.
         if let emitter = catalog.emitter(for: plan.effectID) { _ = try emitter.channels(plan: plan, media: media) }

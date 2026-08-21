@@ -442,7 +442,7 @@ int main(void) {
                     @"typed preview plan was not read-only")) {
             return 1;
         }
-        if (require([transaction.nativeUndoActionName isEqualToString:@"FCPCommandConsole: Targeted Rotate + Zoom"], @"named native undo transaction changed")) {
+        if (require([transaction.nativeUndoActionName isEqualToString:@"FrameSmith: Targeted Rotate + Zoom"], @"named native undo transaction changed")) {
             return 1;
         }
         NSArray<FCPCCNativeTransformKeyframe *> *keyframes = planResult.plannedAfterState.keyframes;

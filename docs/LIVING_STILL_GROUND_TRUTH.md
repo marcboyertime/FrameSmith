@@ -1,5 +1,9 @@
 # Living still — ground-truth capture
 
+> Historical capture record. The native push/fade composition described below
+> was retired when Living Still v2 moved to its checksum-bound depth-rendered
+> connected-movie architecture. It is evidence history, not a current fallback.
+
 Section 6 item 2, fourth bullet: *living still movement/fade/color editability*.
 
 This pass is **not** an admission probe. It runs in the opposite direction:

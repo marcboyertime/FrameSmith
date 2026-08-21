@@ -1,10 +1,10 @@
 {
   "id": "motion.still.quiet_push.v1",
-  "version": 1,
+  "version": 2,
   "name": "Quiet push and drift",
   "domain": "motion",
   "status": "validated",
-  "summary": "A slow scale-up with a small lateral drift, held under the threshold where the move announces itself.",
+  "summary": "A restrained global camera push with a subtle depth-aware non-global component from one continuous inferred field, without a binary subject cutout, native transform approximation, or opacity fade.",
   "creativeJobs": [
     "give a still breath",
     "sustain a held beat",
@@ -23,18 +23,19 @@
   ],
   "refusalConditions": [
     "end scale would exceed the source resolution",
-    "subject sits at the frame edge and would be cropped by the push"
+    "subject sits at the frame edge and would be cropped by the push",
+    "the pinned depth model is missing or any recorded model/source digest has drifted",
+    "the content-addressed treatment movie fails its video-only ProRes verification"
   ],
   "prerequisiteRules": [{"kind":"media_kind","mediaKind":"still","role":"primary"},{"kind":"min_dimensions","role":"primary","minWidth":1280,"minHeight":720}], "refusalRules": [],
   "lockedStructureEffect": "none",
   "construction": {
     "preferredBackends": [
-      "native_fcpxml"
+      "baked_render"
     ],
     "requiredCapabilities": [
       "asset_admission",
-      "transform_keyframes",
-      "opacity_keyframes"
+      "connected_rendered_movie_layer"
     ],
     "requiredEffectID": "motion.living_still",
     "previewFidelity": "shared_construction"
@@ -45,98 +46,108 @@
       "type": "duration",
       "unit": "s",
       "range": [
-        1,
+        0.1,
         30
       ],
       "liveness": "live",
-      "default": 1
+      "default": 4
     },
     {
-      "key": "pushInScaleStart",
+      "key": "motionStrength",
       "type": "float",
       "range": [
-        1.0,
-        2.0
+        0.0,
+        1.0
       ],
       "liveness": "live",
-      "default": 1.0,
-      "unit": "normalized value"
+      "default": 0.9,
+      "unit": "normalized depth motion"
     },
     {
-      "key": "pushInScaleEnd",
+      "key": "pushIn",
       "type": "float",
       "range": [
-        1.0,
-        2.0
+        0.0,
+        0.12
       ],
       "liveness": "live",
-      "default": 1.0,
-      "unit": "normalized value"
+      "default": 0.03,
+      "unit": "frame fraction"
     },
     {
       "key": "panX",
       "type": "float",
       "unit": "width fraction",
       "range": [
-        -0.5,
-        0.5
+        -0.04,
+        0.04
       ],
       "liveness": "live",
-      "default": -0.5
+      "default": 0.012
     },
     {
       "key": "panY",
       "type": "float",
       "unit": "height fraction",
       "range": [
-        -0.5,
-        0.5
+        -0.04,
+        0.04
       ],
       "liveness": "live",
-      "default": -0.5
+      "default": -0.006
+    },
+    {
+      "key": "depthSmoothing",
+      "type": "float",
+      "unit": "normalized edge-preserving smooth",
+      "range": [
+        0.0,
+        1.0
+      ],
+      "liveness": "live",
+      "default": 0.35
     }
   ],
   "qualityChecks": [
-    "end scale stays within source resolution so the frame does not soften",
-    "motion reads as intentional rather than drifting",
-    "no edge of the source enters frame at any point",
-    "final keyframe lands on the last addressable frame"
+    "hair, shoulders, faces, text, and architecture remain free of halos or rubber-sheet bending",
+    "near and far regions move differentially without binary layer seams",
+    "overscan prevents black borders throughout the camera path",
+    "project-export movie is exactly 1920x1080, 30 fps, 120 frames, four seconds, ProRes 422 HQ apch/yuv422p10le, and video-only",
+    "the admitted Final Cut parent kind is the tested 1920x1080 timing-free, audio-free still resource with a four-second spine video",
+    "previewed and exported movie SHA-256 values match"
   ],
   "failureModes": [
-    "scaling past source resolution and softening the image",
-    "a move fast enough to read as a camera mistake",
-    "a keyframe emitted at the clip end boundary, which renders but cannot be selected or edited"
+    "depth inversion that makes the background move as foreground",
+    "edge tearing or duplicate strips at disocclusions",
+    "face, hand, typography, or architecture deformation",
+    "a move strong enough to advertise the effect"
   ],
-  "riskGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"Still dimensions and admitted transform channels are checked before construction."}], "safetyGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"The emitter channels are exact and revalidated at admission."}],
+  "riskGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"The renderer bounds displacement and derives overscan from the exact path; the final HQ/apch recipe passed all ten representative visual and stream checks."}], "safetyGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"One pinned FP16 depth inference is smoothed once and reused across the complete render; missing, unsafe, or hash-drifted model/source artifacts fail closed."}],
   "editability": [
-    "final_cut_native",
     "framesmith_regeneration"
   ],
   "expectedCost": {
-    "latency": "instant",
+    "latency": "seconds",
     "monetary": "free",
     "privacy": "local_only"
   },
   "provenance": [
     {
-      "sourceId": "APPLE-FCP-008",
-      "claim": "Final Cut animates video effect parameters with keyframes",
+      "sourceId": "docs/LIVING_STILL_V2_DESIGN.md",
+      "claim": "Living Still v2 uses the pinned Apple Core ML Depth Anything V2 Small FP16 model at revision cfef6f6f2a70783dedc0bfae40cecbc2052285d3 under Apache-2.0 and retains model, source, depth-field, recipe, runtime, and movie identities",
+      "sourceRole": "implementation_reference",
+      "confidence": "direct_evidence"
+    },
+    {
+      "sourceId": "docs/LIVING_STILL_V2_BAKEOFF.md",
+      "claim": "the final 0.90 depth-motion/0.030 push recipe reused one inference across all 120 frames and passed all ten ProRes 422 HQ visual, stream, border, and temporal checks with a restrained non-global depth component",
+      "sourceRole": "implementation_reference",
+      "confidence": "direct_evidence"
+    },
+    {
+      "sourceId": "docs/CONNECTED_RENDERED_MOVIE_ADMISSION_PASS.md",
+      "claim": "Final Cut 12.3 returned the exact FCPXML 1.14 construction over the tested 1920x1080 timing-free, audio-free still source, with four-second spine and connected treatment extents and one opaque video-only ProRes 422 HQ apch movie intact",
       "sourceRole": "technical_authority",
-      "confidence": "official_documentation"
-    },
-    {
-      "sourceId": "docs/LIVING_STILL_GROUND_TRUTH.md",
-      "claim": "position is percent of frame height, not pixels; keyframe times are absolute from a 3600s origin for stills",
-      "confidence": "direct_evidence"
-    },
-    {
-      "sourceId": "docs/LIVING_STILL_ADMISSION_PASS.md",
-      "claim": "the generated transform and opacity construction returns from Final Cut structurally identical",
-      "confidence": "direct_evidence"
-    },
-    {
-      "sourceId": "docs/LIVING_STILL_EDITABILITY_PASS.md",
-      "claim": "an imported transform keyframe is editable in place and recomputes correctly",
       "confidence": "direct_evidence"
     }
   ],
@@ -144,14 +155,14 @@
     "implemented": true,
     "visuallyVerified": true,
     "finalCutEvidence": [
-      "8a3ecd236cc9c87459ef425f04951bafa29a68c84be937c36041d0a59c8f2ab9",
-      "1f32d6da03ef531449c42aab2da9d7b0081ccb6e3c0c22e6d3cebf49fa9085c0"
+      "26eb90634a82dbbe7dfc1150a7288c25dc972c973ef1bfce5181ac9af8a377de"
     ],
     "verifiedOn": [
-      "living-still.png fixture",
-      "user-supplied dali.jpeg portrait"
+      "/Users/marcboyer/Movies/FCPCommandConsole/exports/bakeoff/v2-production-hq/living-still-v2: ten representative ProRes 422 HQ apch movies at motionStrength=0.90 and pushIn=0.030",
+      "/Users/marcboyer/Movies/FCPCommandConsole/exports/bakeoff/v2-production/review/final-hq-independent-audit-20260808: 10/10 final visual, stream, border, and temporal pass",
+      "Final Cut Pro 12.3 (450152): connected rendered movie over still, operation 564186C4-F931-466D-ABDF-16980F9C11F4"
     ],
-    "notes": "Playback confirmed in the isolated app 2026-08-05: push, drift, and fade all visible."
+    "notes": "Validated as a restrained, locally rendered, content-addressed Living Still treatment at motionStrength=0.90 and pushIn=0.030. All ten final movies decoded as video-only ProRes 422 HQ apch/yuv422p10le, 30 fps, 120 frames, and four seconds; direct review found sustained motion, genuine but professional/subtle non-global depth, and no exposed canvas, tear, crop, fade-only, or hole failure. Exact duplicate frames were head-only: 0.033 seconds in seven cases, 0.067 seconds in product and layered-depth, and 0.100 seconds in low-contrast, with no later repeats. Project export is intentionally restricted to 1920x1080 and this exact four-second profile; other duration/aspect renders are preview-only and refused for project export. Final Cut construction evidence is further bounded to the tested 1920x1080 timing-free, audio-free still source with a four-second spine video. This is FrameSmith-regenerable baked output, not a native Final Cut transform and not an opacity fade."
   },
   "notes": "The restraint is the technique. If the move is noticeable as a move, it is too strong.",
   "safety": [

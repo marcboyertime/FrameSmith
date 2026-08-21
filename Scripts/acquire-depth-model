@@ -1,0 +1,103 @@
+#!/bin/sh
+set -eu
+
+# Acquires the exact Apache-2.0 Core ML model admitted for Living Still v2.
+# Runtime model payloads stay outside git under ~/Movies/FCPCommandConsole.
+
+revision='cfef6f6f2a70783dedc0bfae40cecbc2052285d3'
+repository='apple/coreml-depth-anything-v2-small'
+runtime_root=${FRAMESMITH_RUNTIME_ROOT:-"$HOME/Movies/FCPCommandConsole"}
+model_parent="$runtime_root/models/apple-coreml-depth-anything-v2-small"
+target="$model_parent/$revision"
+package='DepthAnythingV2SmallF16.mlpackage'
+compiled='DepthAnythingV2SmallF16.mlmodelc'
+base="https://huggingface.co/$repository/resolve/$revision/$package"
+
+fail() { echo "$1" >&2; exit 1; }
+digest() { /usr/bin/shasum -a 256 "$1" | /usr/bin/awk '{print $1}'; }
+require_digest() {
+  actual=$(digest "$1")
+  [ "$actual" = "$2" ] || fail "Depth model integrity check failed for $1: expected $2, got $actual"
+}
+verify_package() {
+  root=$1
+  require_digest "$root/$package/Manifest.json" '2883ae290c48fe916dc5ececac03a7d847fa277165a49ef5652fa1d2b9cb55f7'
+  require_digest "$root/$package/Data/com.apple.CoreML/model.mlmodel" '44ac97a3efcfd52113183fb2862ff59cd0368e9ec2e30a90a54980dd11407042'
+  require_digest "$root/$package/Data/com.apple.CoreML/weights/weight.bin" 'fa60d9b6a155734f59029ebb882fd54e549bfaee3539c1a9cbd2cbbab64a0fed'
+}
+verify_compiled() {
+  root=$1
+  compiled_root="$root/$compiled"
+  [ -d "$compiled_root" ] && [ ! -L "$compiled_root" ] || fail "Compiled depth model is missing or unsafe: $compiled_root"
+
+  # These are the execution-bearing outputs produced from the pinned Apple
+  # package. Root coremldata.bin contains an unordered metadata map whose byte
+  # order can legitimately vary between identical compilations, so it is
+  # constrained by exact tree membership while model.mil, weights, metadata,
+  # and analytics are cryptographically pinned.
+  require_digest "$compiled_root/analytics/coremldata.bin" '4b93da6ca112ba10d56ad86dbee0a2f7be9b880677c24243ed4b5bd1508b87df'
+  require_digest "$compiled_root/metadata.json" 'd50abef453e7707c3f63c3466a74e64f8908c0b4a089bfbf211a342e21b08c12'
+  require_digest "$compiled_root/model.mil" '2d8bde451885ae514f30e48fe963a41b3db303334170bf580d431ead79d2a5f8'
+  require_digest "$compiled_root/weights/weight.bin" 'fa60d9b6a155734f59029ebb882fd54e549bfaee3539c1a9cbd2cbbab64a0fed'
+  [ -f "$compiled_root/coremldata.bin" ] && [ ! -L "$compiled_root/coremldata.bin" ] || fail "Compiled metadata payload is missing or unsafe: $compiled_root/coremldata.bin"
+  [ "$(/usr/bin/stat -f '%z' "$compiled_root/coremldata.bin")" = '830' ] || fail "Compiled metadata payload has an unexpected size: $compiled_root/coremldata.bin"
+
+  actual_files=$(/usr/bin/find "$compiled_root" -type f -print | /usr/bin/sed "s|^$compiled_root/||" | /usr/bin/sort)
+  expected_files=$(printf '%s\n' \
+    'analytics/coremldata.bin' \
+    'coremldata.bin' \
+    'metadata.json' \
+    'model.mil' \
+    'weights/weight.bin')
+  [ "$actual_files" = "$expected_files" ] || fail "Compiled depth model contains unexpected or missing files: $compiled_root"
+  unsafe_entry=$(/usr/bin/find "$compiled_root" ! -type d ! -type f -print -quit)
+  [ -z "$unsafe_entry" ] || fail "Compiled depth model contains an unsafe entry: $unsafe_entry"
+}
+
+case ${1:-} in
+  '') ;;
+  --verify-only) verify_only=1 ;;
+  *) fail "Usage: $0 [--verify-only]" ;;
+esac
+verify_only=${verify_only:-0}
+
+command -v curl >/dev/null 2>&1 || fail 'curl is required to acquire the depth model'
+command -v xcrun >/dev/null 2>&1 || fail 'Xcode command-line tools are required to compile the depth model'
+
+if [ -L "$runtime_root" ] || [ -L "$model_parent" ] || [ -L "$target" ]; then
+  fail "Refusing to acquire a model through a symlinked runtime path: $target"
+fi
+mkdir -p "$model_parent"
+
+if [ -d "$target" ]; then
+  verify_package "$target"
+  verify_compiled "$target"
+  echo "Depth model is already acquired and verified: $target/$compiled"
+  exit 0
+fi
+if [ -e "$target" ]; then
+  fail "Depth model target exists but is not a directory: $target"
+fi
+
+stage=$(mktemp -d "$model_parent/.depth-model-stage.XXXXXX")
+cleanup() { rm -rf "$stage"; }
+trap cleanup EXIT HUP INT TERM
+package_root="$stage/$package"
+mkdir -p "$package_root/Data/com.apple.CoreML/weights"
+
+curl -fL --retry 3 --output "$package_root/Manifest.json" "$base/Manifest.json"
+curl -fL --retry 3 --output "$package_root/Data/com.apple.CoreML/model.mlmodel" "$base/Data/com.apple.CoreML/model.mlmodel"
+curl -fL --retry 3 --output "$package_root/Data/com.apple.CoreML/weights/weight.bin" "$base/Data/com.apple.CoreML/weights/weight.bin"
+
+require_digest "$package_root/Manifest.json" '2883ae290c48fe916dc5ececac03a7d847fa277165a49ef5652fa1d2b9cb55f7'
+require_digest "$package_root/Data/com.apple.CoreML/model.mlmodel" '44ac97a3efcfd52113183fb2862ff59cd0368e9ec2e30a90a54980dd11407042'
+require_digest "$package_root/Data/com.apple.CoreML/weights/weight.bin" 'fa60d9b6a155734f59029ebb882fd54e549bfaee3539c1a9cbd2cbbab64a0fed'
+
+xcrun coremlcompiler compile "$package_root" "$stage" >/dev/null
+verify_package "$stage"
+verify_compiled "$stage"
+mv "$stage" "$target"
+trap - EXIT HUP INT TERM
+
+echo "Acquired and verified $repository@$revision"
+echo "Compiled model: $target/$compiled"

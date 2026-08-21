@@ -4965,7 +4965,7 @@ static NSString *FCPCCDerivedTimelineRevision(NSArray *primaryItems,
                   libraryInvariant:libraryInvariant];
     if (self != nil) {
         _request = request;
-        _nativeUndoActionName = @"FCPCommandConsole: Targeted Rotate + Zoom";
+        _nativeUndoActionName = @"FrameSmith: Targeted Rotate + Zoom";
     }
     return self;
 }
@@ -5505,7 +5505,7 @@ nativePixelPositionConversionVerified:NO
                                                     styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable)
                                                       backing:NSBackingStoreBuffered
                                                         defer:NO];
-    window.title = @"FCP Command Console";
+    window.title = @"FrameSmith";
     self = [super initWithWindow:window];
     if (self != nil) {
         _mutationController = [[FCPCCMutationController alloc] init];
@@ -5526,7 +5526,7 @@ nativePixelPositionConversionVerified:NO
 - (void)buildPanel {
     NSView *content = self.window.contentView;
     CGFloat width = content.bounds.size.width;
-    [content addSubview:[self label:@"FCP Command Console — isolated runtime shell" frame:NSMakeRect(20, 500, width - 40, 24) weight:NSFontWeightSemibold]];
+    [content addSubview:[self label:@"FrameSmith — isolated runtime shell" frame:NSMakeRect(20, 500, width - 40, 24) weight:NSFontWeightSemibold]];
 
     NSString *onboardingQueryCompatibility = FCPCCInstallOnboardingQueryCompatibility();
     self.containmentField = [self label:@"Copied app/runtime: not_yet_refreshed" frame:NSMakeRect(20, 462, width - 40, 30) weight:NSFontWeightRegular];
@@ -5648,13 +5648,13 @@ nativePixelPositionConversionVerified:NO
         return;
     }
 
-    if ([NSApp.mainMenu itemWithTitle:@"FCP Command Console"] != nil) {
+    if ([NSApp.mainMenu itemWithTitle:@"FrameSmith"] != nil) {
         return;
     }
 
-    NSMenuItem *rootItem = [[NSMenuItem alloc] initWithTitle:@"FCP Command Console" action:nil keyEquivalent:@""];
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"FCP Command Console"];
-    NSMenuItem *openItem = [[NSMenuItem alloc] initWithTitle:@"Open Command Console" action:@selector(showPanel:) keyEquivalent:@""];
+    NSMenuItem *rootItem = [[NSMenuItem alloc] initWithTitle:@"FrameSmith" action:nil keyEquivalent:@""];
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"FrameSmith"];
+    NSMenuItem *openItem = [[NSMenuItem alloc] initWithTitle:@"Open FrameSmith" action:@selector(showPanel:) keyEquivalent:@""];
     openItem.target = self.panelController;
     [menu addItem:openItem];
     rootItem.submenu = menu;

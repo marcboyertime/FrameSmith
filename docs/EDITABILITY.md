@@ -1,5 +1,14 @@
 # Editability contract
 
+> **Current-path notice (2026-08-08):** The registry mapping and disabled-
+> export statements below describe the original standalone-planner checkpoint.
+> Living Still v2 and Old Television v2 now use `baked_render` with one shared,
+> checksum-bound connected treatment movie. Their controls are regenerable in
+> FrameSmith, not native editable Final Cut effect parameters. See `STATUS.md`,
+> `docs/PARAMETER_LIVENESS.md`, and
+> `docs/CONNECTED_RENDERED_MOVIE_ADMISSION_PASS.md` for the current bounded
+> contract.
+
 Schema 2.0 uses these canonical representation classes:
 
 | Representation | Meaning in a plan | Verified Final Cut editability? |

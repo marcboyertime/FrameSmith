@@ -96,6 +96,31 @@ Never surface an attractive but nonfunctional treatment as though it were ready.
 Unsupported ideas may appear separately as “not available yet,” not among the
 up-to-three primary Surprise Me options.
 
+## Current rendered-effect decisions
+
+Two quality decisions use the shared rendered-movie construction. Old
+Television v2 and Living Still v2 are both admitted and validated:
+
+| Effect | Selected construction | Why | Honest editability |
+| --- | --- | --- | --- |
+| Living Still v2 | one continuous Core ML depth inference reused across a content-addressed video-only ProRes 422 HQ movie; selected defaults are 0.90 depth motion and 0.030 push | avoids the binary seam and hair-fringe ceiling observed in the Vision two-plane candidate; the selected recipe was the strongest artifact-free candidate and passed all ten final HQ checks | regenerate from the retained FrameSmith recipe; not a native transform and not a fade |
+| Old Television v2 | sustained typed CRT render with scanlines, temporal noise, tube geometry/overscan, chroma shift, ghosting, bloom, jitter/tracking, vignette, and at-most-two-percent micro-flicker | the earlier native dip/color recipe did not deliver a continuous CRT treatment | regenerate from the retained FrameSmith recipe; not a native base recipe and not a fade |
+
+Both preview and export consume one checksum-bound prepared movie. A missing
+model/tool, changed source or recipe identity, hash drift, failed video-only
+ProRes verification, or revoked Final Cut semantic contract refuses the option;
+none of those conditions authorize a native or fade approximation.
+
+Project export is additionally bounded to Final Cut 12.3 (450152), FCPXML 1.14,
+1920×1080, 30 fps, 120 frames, four seconds, ProRes 422 HQ (`apch`,
+`yuv422p10le`), and video-only. Arbitrary duration/aspect renders remain
+preview-only and are refused for project export.
+
+The evidence is deliberately split. The 10-case, 20-movie production bakeoff
+establishes representative visual behavior for each effect. The still- and
+movie-parent Final Cut 12.3 returned artifacts establish the connected rendered-
+movie layer construction. Neither evidence class substitutes for the other.
+
 ## Ranking
 
 Rank candidates with a transparent multi-factor score. Do not pretend subjective
@@ -134,6 +159,7 @@ When the ideal treatment cannot be executed:
 
 1. preserve editorial structure;
 2. state the limiting evidence/capability;
-3. choose the strongest admitted fallback;
+3. choose the strongest admitted fallback only when it is the same requested
+   creative job rather than a superficially convenient fade or native move;
 4. explain the visual compromise in one sentence;
 5. never fake support with a disconnected preview.

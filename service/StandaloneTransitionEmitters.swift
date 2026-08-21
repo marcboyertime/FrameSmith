@@ -258,35 +258,37 @@ public struct NaturalDissolveStandaloneEmitter: StandaloneEffectEmitter {
 
 // MARK: - Old television
 
-/// Generalizes the admitted connected-overlay construction to plan values.
-///
-/// The base clip carries an animated opacity flicker and a Color Adjustments
-/// filter; a connected `<video>` hangs above it in a blend mode. Every piece is
-/// a construction Final Cut has already returned intact.
-///
-/// The overlay's `offset` is **parent-relative**, which is the finding most
-/// likely to ship a silent defect: a timeline-relative offset is valid FCPXML
-/// that imports without complaint and misplaces every overlay attached to
-/// anything but the first clip.
-public struct OldTelevisionStandaloneEmitter: StandaloneEffectEmitter {
+/// Produces one professional CRT movie and seals that exact movie to preview
+/// and export. The admitted source stays untouched underneath it, including
+/// its original audio; the generated layer is opaque and video-only.
+public struct OldTelevisionStandaloneEmitter: StandaloneRenderedEffectEmitter {
     public let effectID: EffectID = .oldTelevision
     public init() {}
 
     private struct Settings {
         let rate = NativeFCPXMLFrameRate.thirty
         let durationFrames: Int
-        let flickerFloor: Double
-        let overlayOpacity: Double
-        let overlayStartFrame: Int
-        let overlayDurationFrames: Int
-        let saturation: Double
+        let profile: OldTelevisionProfile
+        let intensity: Double
+        let scanlineStrength: Double
+        let noiseStrength: Double
+        let syncInstability: Double
+        let chromaSeparation: Double
+        let bloomStrength: Double
+        let vignetteStrength: Double
+        let ghostingStrength: Double
+        let flickerStrength: Double
+        let seed: Int
+        let outputLongEdge: Int
     }
 
     private func settings(plan: EffectPlan) throws -> Settings {
         let requiredKeys: Set<String> = [
-            "durationSeconds", "saturation", "flickerFloor", "overlayOpacity",
-            "overlayStartSeconds", "overlayDurationSeconds", "blendMode",
-            "overlayTiming", "overlayTransform"
+            "durationSeconds", "profile", "intensity", "scanlineStrength",
+            "noiseStrength", "syncInstability", "chromaSeparation",
+            "bloomStrength", "vignetteStrength", "ghostingStrength",
+            "flickerStrength", "seed", "outputLongEdge", "fps",
+            "renderMethod", "preserveOriginal"
         ]
         guard Set(plan.parameters.keys) == requiredKeys else {
             throw StandaloneExportError.invalidRecipe("Old Television parameters must exactly match the production registry")
@@ -299,31 +301,44 @@ public struct OldTelevisionStandaloneEmitter: StandaloneEffectEmitter {
             }
             return value
         }
-        func fixed(_ key: String, equals expected: String) throws {
-            guard plan.parameters[key] == .string(expected) else {
-                throw StandaloneExportError.invalidRecipe("Old Television \(key) must be \(expected)")
+        func integer(_ key: String, minimum: Int, maximum: Int) throws -> Int {
+            guard let raw = plan.parameters[key]?.numberValue,
+                  raw.isFinite, raw.rounded() == raw,
+                  raw >= Double(minimum), raw <= Double(maximum) else {
+                throw StandaloneExportError.invalidRecipe("Old Television \(key) must be an integer in \(minimum)...\(maximum)")
             }
+            return Int(raw)
         }
         let rate = NativeFCPXMLFrameRate.thirty
         let duration = rate.frames(seconds: try number("durationSeconds", minimum: 0.1, maximum: 30))
-        let overlayStart = rate.frames(seconds: try number("overlayStartSeconds", minimum: 0, maximum: 30))
-        let overlayDuration = rate.frames(seconds: try number("overlayDurationSeconds", minimum: 0.1, maximum: 30))
-        guard duration > 0, overlayDuration > 0, overlayStart + overlayDuration <= duration else {
-            throw StandaloneCompositionError.overlayOutlivesParent(
-                overlayEndFrame: overlayStart + overlayDuration,
-                parentFrames: duration
-            )
+        guard duration > 0 else {
+            throw StandaloneExportError.invalidRecipe("Old Television duration contains no frames")
         }
-        try fixed("blendMode", equals: "overlay")
-        try fixed("overlayTiming", equals: "bounded-range")
-        try fixed("overlayTransform", equals: "identity")
+        let profile: OldTelevisionProfile
+        switch plan.parameters["profile"]?.stringValue {
+        case "broadcast-mono": profile = .broadcastMono
+        case "color-crt": profile = .colorCRT
+        default: throw StandaloneExportError.invalidRecipe("Old Television profile is unsupported")
+        }
+        guard plan.parameters["fps"] == .integer(30),
+              plan.parameters["renderMethod"] == .string("ffmpeg-crt-v2"),
+              plan.parameters["preserveOriginal"] == .boolean(true) else {
+            throw StandaloneExportError.invalidRecipe("Old Television renderer invariants drifted")
+        }
         return Settings(
             durationFrames: duration,
-            flickerFloor: try number("flickerFloor", minimum: 0, maximum: 1),
-            overlayOpacity: try number("overlayOpacity", minimum: 0, maximum: 1),
-            overlayStartFrame: overlayStart,
-            overlayDurationFrames: overlayDuration,
-            saturation: try number("saturation", minimum: 0, maximum: 100)
+            profile: profile,
+            intensity: try number("intensity", minimum: 0, maximum: 1),
+            scanlineStrength: try number("scanlineStrength", minimum: 0, maximum: 1),
+            noiseStrength: try number("noiseStrength", minimum: 0, maximum: 1),
+            syncInstability: try number("syncInstability", minimum: 0, maximum: 1),
+            chromaSeparation: try number("chromaSeparation", minimum: 0, maximum: 1),
+            bloomStrength: try number("bloomStrength", minimum: 0, maximum: 1),
+            vignetteStrength: try number("vignetteStrength", minimum: 0, maximum: 1),
+            ghostingStrength: try number("ghostingStrength", minimum: 0, maximum: 1),
+            flickerStrength: try number("flickerStrength", minimum: 0, maximum: 1),
+            seed: try integer("seed", minimum: 0, maximum: Int(Int32.max)),
+            outputLongEdge: try integer("outputLongEdge", minimum: 640, maximum: 3840)
         )
     }
 
@@ -337,31 +352,13 @@ public struct OldTelevisionStandaloneEmitter: StandaloneEffectEmitter {
 
         return NativeFCPXMLEffectChannels(
             transform: NativeFCPXMLTransformChannel(),
-            opacity: flicker(settings: settings, origin: origin),
-            saturation: settings.saturation,
+            opacity: NativeFCPXMLOpacityChannel(),
+            saturation: nil,
             durationSeconds: Double(settings.durationFrames) / Double(settings.rate.framesPerSecond),
             origin: origin,
             frameWidth: base.dimensions.width,
-            frameHeight: base.dimensions.height,
-            overlay: media[.overlay] == nil ? nil : NativeFCPXMLOverlayDescriptor(
-                startFrameWithinParent: settings.overlayStartFrame,
-                durationFrames: settings.overlayDurationFrames,
-                opacity: settings.overlayOpacity,
-                blendMode: .overlay
-            )
+            frameHeight: base.dimensions.height
         )
-    }
-
-    /// Three keyframes: full, dip, full. The animated param form, which is what
-    /// Final Cut writes for a value that moves.
-    private func flicker(settings: Settings, origin: NativeFCPXMLTimingOrigin) -> NativeFCPXMLOpacityChannel {
-        let rate = settings.rate
-        let mid = max(1, settings.durationFrames / 8)
-        return NativeFCPXMLOpacityChannel(amount: [
-            NativeFCPXMLKeyframe(time: origin.keyframeTime(frame: 0, rate: rate), value: NativeFCPXMLNumber.string(1)),
-            NativeFCPXMLKeyframe(time: origin.keyframeTime(frame: mid, rate: rate), value: NativeFCPXMLNumber.string(settings.flickerFloor)),
-            NativeFCPXMLKeyframe(time: origin.keyframeTime(frame: mid * 2, rate: rate), value: NativeFCPXMLNumber.string(1))
-        ])
     }
 
     public func emitDocument(
@@ -370,88 +367,90 @@ public struct OldTelevisionStandaloneEmitter: StandaloneEffectEmitter {
         publishedMediaURLs: [LocalMediaRole: URL],
         version: String
     ) throws -> String {
-        guard let base = media[.primary], let baseURL = publishedMediaURLs[.primary] else {
-            throw StandaloneExportError.missingMedia(.primary)
-        }
+        throw StandaloneExportError.invalidRecipe("Old Television requires its checksum-bound prepared render")
+    }
+
+    public func prepareRenderedAsset(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset],
+        outputRoot: URL
+    ) throws -> RenderedEffectAsset {
+        guard let base = media[.primary] else { throw StandaloneExportError.missingMedia(.primary) }
         let settings = try settings(plan: plan)
-        let built = try channels(plan: plan, media: media)
-        let rate = settings.rate
-        let duration = rate.time(frames: settings.durationFrames)
-
-        var resources: [NativeFCPXMLNode] = []
-        // The DTD orders %intrinsic-params-video; before %video_filter_item;,
-        // and the movie resource type keeps them as separate arguments so a
-        // caller cannot accidentally interleave them.
-        var intrinsics: [NativeFCPXMLNode] = []
-        if let node = built.opacity.node { intrinsics.append(node) }
-        let filters = [NativeFCPXMLColorAdjustments.filterNode(ref: "r5", saturation: settings.saturation)]
-
-        var connectedLayers: [NativeFCPXMLConnectedLayer] = []
-        if let overlayAsset = media[.overlay], let overlayURL = publishedMediaURLs[.overlay] {
-            let overlayResources = NativeFCPXMLStillResources(
-                sequenceFormatID: "r1", assetID: "r3", stillFormatID: "r4",
-                name: overlayAsset.itemID, mediaURL: overlayURL,
-                width: overlayAsset.dimensions.width, height: overlayAsset.dimensions.height, frameRate: rate
-            )
-            resources.append(contentsOf: [overlayResources.assetNode, overlayResources.stillFormatNode])
-            connectedLayers.append(NativeFCPXMLConnectedLayer(
-                ref: "r3",
-                lane: 1,
-                offsetWithinParent: rate.time(frames: settings.overlayStartFrame),
-                name: overlayAsset.itemID,
-                start: NativeFCPXMLStillTiming.sourceStart,
-                duration: rate.time(frames: settings.overlayDurationFrames),
-                blend: .composite(opacity: settings.overlayOpacity, mode: .overlay)
-            ))
+        if base.kind == .movie, let sourceSeconds = base.durationSeconds,
+           settings.rate.frames(seconds: sourceSeconds) < settings.durationFrames {
+            throw StandaloneExportError.sourceDurationExceeded
         }
-
-        let name = StandaloneFCPXMLExportBuilder.projectName(for: plan)
-        let spineChild: NativeFCPXMLNode
-        var allResources: [NativeFCPXMLNode]
-
-        switch base.kind {
-        case .movie:
-            let baseResources = NativeFCPXMLMovieResources(
-                formatID: "r1", assetID: "r2", name: base.itemID, mediaURL: baseURL,
-                sourceDuration: rate.time(frames: base.durationSeconds.map { rate.frames(seconds: $0) } ?? settings.durationFrames),
-                hasAudio: base.hasAudio
-            )
-            spineChild = baseResources.assetClipNode(
-                offset: .zero,
-                duration: duration,
-                intrinsics: intrinsics,
-                connectedLayers: connectedLayers,
-                filters: filters
-            )
-            allResources = [baseResources.formatNode, baseResources.assetNode]
-        case .still:
-            let baseResources = NativeFCPXMLStillResources(
-                sequenceFormatID: "r1", assetID: "r2", stillFormatID: "r6",
-                name: base.itemID, mediaURL: baseURL,
-                width: base.dimensions.width, height: base.dimensions.height, frameRate: rate
-            )
-            // The still resource takes one ordered array, so the intrinsic /
-            // connected / filter ordering is assembled by hand here to match
-            // what the connected-layer capture returned.
-            spineChild = baseResources.videoNode(
-                offset: .zero,
-                duration: duration,
-                children: intrinsics + connectedLayers.map(\.node) + filters
-            )
-            allResources = baseResources.resourceNodes
+        let geometry = try RenderedOutputGeometry(
+            source: base.dimensions,
+            maximumLongEdge: settings.outputLongEdge
+        )
+        let request = OldTelevisionRenderRequest(
+            sourceURL: URL(fileURLWithPath: base.canonicalPath),
+            sourceSHA256: base.sha256,
+            sourceKind: base.kind == .still ? .still : .movie,
+            targetWidth: geometry.width,
+            targetHeight: geometry.height,
+            duration: OldTelevisionRational(Int64(settings.durationFrames), Int64(settings.rate.framesPerSecond)),
+            frameRate: OldTelevisionRational(Int64(settings.rate.framesPerSecond)),
+            profile: settings.profile,
+            intensity: settings.intensity,
+            scanlines: settings.scanlineStrength,
+            noise: settings.noiseStrength,
+            syncInstability: settings.syncInstability,
+            chromaticSeparation: settings.chromaSeparation,
+            bloom: settings.bloomStrength,
+            vignette: settings.vignetteStrength,
+            ghosting: settings.ghostingStrength,
+            flicker: settings.flickerStrength,
+            seed: settings.seed
+        )
+        let artifact: OldTelevisionRenderArtifact
+        do {
+            artifact = try OldTelevisionRenderAdapter().render(request, in: outputRoot)
+        } catch {
+            throw StandaloneExportError.invalidRecipe(error.localizedDescription)
         }
+        return RenderedEffectAsset(
+            url: artifact.url,
+            sha256: artifact.sha256,
+            constructionDigest: try RenderedConstructionIdentity.digest(plan: plan, media: media),
+            rendererRecipeDigest: artifact.recipeDigest,
+            sourceSHA256: base.sha256,
+            width: artifact.width,
+            height: artifact.height,
+            fps: Int(artifact.frameRate.doubleValue.rounded()),
+            frameCount: artifact.frameCount,
+            durationSeconds: artifact.duration.doubleValue,
+            codec: artifact.codec,
+            pixelFormat: artifact.pixelFormat,
+            videoOnly: artifact.videoOnly,
+            provenance: [
+                "renderer": OldTelevisionRenderAdapter.rendererVersion,
+                "codecProfile": artifact.codecProfile,
+                "profile": settings.profile.rawValue,
+                "renderMethod": "ffmpeg-crt-v2"
+            ]
+        )
+    }
 
-        allResources.append(contentsOf: resources)
-        allResources.append(NativeFCPXMLColorAdjustments.effectNode(id: "r5"))
-
-        return NativeFCPXMLDocument(
-            version: version,
-            resources: allResources,
-            eventName: name,
-            projectName: name,
-            sequenceFormatID: "r1",
-            sequenceDuration: duration,
-            spineChildren: [spineChild]
-        ).xmlString
+    public func emitPreparedDocument(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset],
+        publishedMediaURLs: [LocalMediaRole: URL],
+        preparedAsset: RenderedEffectAsset,
+        publishedPreparedURL: URL,
+        version: String
+    ) throws -> String {
+        let settings = try settings(plan: plan)
+        return try RenderedOverlayFCPXML.document(
+            plan: plan,
+            media: media,
+            publishedMediaURLs: publishedMediaURLs,
+            preparedAsset: preparedAsset,
+            publishedPreparedURL: publishedPreparedURL,
+            durationFrames: settings.durationFrames,
+            version: version
+        )
     }
 }

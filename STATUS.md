@@ -1,150 +1,205 @@
 # FrameSmith status
 
-## Editorial Intelligence Foundation — 2026-08-07
+## Current checkpoint — 2026-08-21
 
-The director-control contract is a **tested runtime invariant**, not prose.
-`EditorialStructureLock` captures ordered media identity, timeline placement,
-duration, source in-point, retiming, sync, protected regions, and
-narration/music digests; 19 adversarial tests assert that reordering, omitting,
-duplicating, substituting, retiming, slipping sync, or moving an edit point is
-refused. Validation compares fields rather than only a fingerprint, because a
-hash says *that* something changed and a director deserves to know *what*.
+FrameSmith is the product name. Internal repository, package, bundle, and
+legacy command identifiers remain stable for compatibility.
 
-Fifteen provenance-bearing technique cards: **5 validated, 10 reference_only**.
-Validated means this repository built the construction and a returned FCPXML
-admitted it — never that a source described the technique.
+The director-control contract remains a tested runtime invariant. FrameSmith
+may change treatment pixels and parameters, but it may not replace, omit,
+duplicate, reorder, retime, slip, or move the user's media and edit points.
+Rendered effects preserve that boundary by keeping the admitted source on the
+spine and adding one full-duration video-only visual above it.
 
-Surprise Me ships for one scenario end to end: a single admitted still with a
-confirmed focal target returns up to three materially different treatments,
-each carrying the same editorial-structure fingerprint. The current deterministic
-confirmed-target probe returns two (Opacity fade and Old television / CRT) and
-an honest shortfall explanation instead of padding with a near-duplicate.
-Coverage, diversity reasoning, manual verification, and limitations are recorded in
-`docs/editorial-intelligence/BAKEOFF_AND_COVERAGE.md`.
+The strict technique catalog contains **15 provenance-bearing cards: 4
+validated and 11 reference-only**. `motion.opacity.fade.v1` is deliberately
+reference-only after retirement of the v1 Living Still opacity route. A card is
+validated only when its implementation, representative visual review, and
+construction evidence are all present.
 
-All four effects now have production emitters. The 2026-08-07 real-Final-Cut
-import evidence covers the earlier one-second (30-frame) Natural Dissolve
-construction and the Old Television native base construction. The current registry
-plan uses canonical read-only `durationFrames=12`; its channels and FCPXML are
-construction-tested, but that exact route has not had a fresh real-Final-Cut
-import. Old Television has an optional admitted-still overlay plan role and
-native connected-overlay construction. That implementation and its FCPXML
-construction are tested, but the optional overlay path has not yet had a fresh
-real-Final-Cut or perceptual exercise.
+## Production effects
 
-**Not claimed:** no creative-language-to-parameter mapping exists; colour is
-indicative only; no audio, typography, masking, or tracking; no fresh real-
-Final-Cut import has covered the current 12-frame Natural Dissolve route or Old
-Television's changed overlay path; and no frame-by-frame comparative
-image-quality bakeoff has been run.
+| Effect | Production construction | Current evidence boundary |
+| --- | --- | --- |
+| Living Still v2 | one continuous Core ML depth field, rendered to a content-addressed video-only ProRes 422 HQ movie and connected above the unchanged still | 10-case visual bakeoff; exact shared preview/export movie; still-parent Final Cut 12.3 returned round trip |
+| Targeted Rotate + Zoom | admitted native transform/rotation construction with a confirmed normalized target | existing native Phase 1 evidence |
+| Natural Dissolve | canonical read-only 12-frame native transition | construction-tested; the current 12-frame route still needs a fresh Final Cut import |
+| Old Television v2 | sustained typed CRT render, content-addressed as a video-only ProRes 422 HQ movie and connected above the unchanged still or movie | 10-case visual bakeoff; exact shared preview/export movie; still- and movie-parent Final Cut 12.3 returned round trips |
 
-## Current implementation checkpoint
+Living Still v2 and Old Television v2 are FrameSmith-regenerable baked
+treatments. They are not native Final Cut parameter approximations and neither
+uses an opacity fade.
 
-Phase 1 is complete at the current repository checkpoint. `swift test`
-reports **326 tests, 0 failures**; `make test` reports
-`core audit: registry=4 schema=json-ok strict-cards=valid treatment-contract=strict
-forbidden-patterns=0 cards=15 (reference_only=10 validated=5)`.
-`swift build -c release` also passes. The installed app was rebuilt/reinstalled
-and its code signature and resource parity were verified.
+## Living Still v2
 
-Installed-UI acceptance is **confirmed by hand** (2026-08-08) in the reviewed
-installed app. With `portrait-frame-subject.png`, Living Still and Targeted
-Rotate + Zoom controls changed live; the preview was scrubbed to `0.40s`;
-malformed and contradictory drafts were refused while the last live plan
-remained; and Reset all restored defaults. The UI generated standalone projects
-at `/Users/marcboyer/Movies/FCPCommandConsole/exports/standalone/7C81170C-842E-47F9-811B-12A8E1AB1CEA`
-and `/Users/marcboyer/Movies/FCPCommandConsole/exports/standalone/DC5430C9-46A4-4DD6-9BCE-D4659483DDF3`.
-Inspection of their FCPXML recorded Living Still scale `1.47`, vertical position
-`20`, and end opacity `0.2`, plus Targeted scale `1.69` and rotation `48`.
-Final Cut was not opened or modified for these two exports.
+Living Still v2 uses Apple's Core ML Depth Anything V2 Small FP16 model pinned
+to revision `cfef6f6f2a70783dedc0bfae40cecbc2052285d3` under Apache-2.0.
+Inference is local. The model locator descriptor-copies the hash-pinned source
+package into a private directory, compiles that immutable snapshot, seals and
+hashes the complete compiled tree, and verifies it before model load and after
+prediction. The adjacent acquisition-time compiled cache is never trusted for
+inference; missing, unsafe, changed, or path-swapped artifacts fail closed.
 
-Note for anyone reading an older copy of this file: it previously said "project
-policy forbids scripted UI control". That has not been true since 2026-08-05 —
-HANDOFF §7 constraint 3 permits GUI automation of the **isolated** Final Cut
-copy and of the reviewed app, and every Phase 1 admission and editability pass
-was driven that way.
+At the admitted default, one FP16 depth inference is reused across a four-second,
+30 fps render—120 frames. The continuous warp records source, model, raw and
+processed depth, recipe, runtime, codec, and movie identities. The output is a
+deterministic content-addressed, opaque video-only ProRes 422 HQ file. Preview opens
+that exact file and export checksum-verifies and copies it; export cannot render
+a second version.
 
-FrameSmith is the product name; existing repository, package, bundle, and
-command identifiers remain `FCPCommandConsole`.
+Live controls are duration, depth-motion strength, camera push, horizontal and
+vertical drift, and depth smoothing. The 1920-pixel maximum long-edge ceiling,
+model, method, source-preservation rule, and standalone frame-rate profile are
+invariants. Final Cut receives baked pixels; parameter revision means
+regeneration in FrameSmith.
 
-| Capability | Current state |
-| --- | --- |
-| Local SwiftUI workflow | Admits local stills/movies read-only, computes source identities, plans locally, and provides a revision inspector. |
-| New-project output | Standalone export creates a new Final Cut project package and never mutates an existing timeline. |
-| Production standalone emitters | All four effects export through shared construction descriptors. The visual viewer renders only Living Still and Targeted Rotate + Zoom single-media transform/opacity/color channels; it does not render Natural Dissolve transitions or Old Television connected overlays. |
-| Old Television overlay | The native base treatment may include an optional admitted-still connected overlay; it generates no FFmpeg/static/scanline assets, and the overlay path remains unevaluated by a fresh real-Final-Cut or perceptual pass. |
-| Editorial structure lock | Ordered media, timing, retiming, sync, and protected regions are machine-checked before planning, preview, and export. |
-| Technique cards | 15 provenance-bearing cards, 5 validated and 10 reference-only; only validated cards whose capabilities are admitted may be offered. |
-| Surprise Me | Up to three materially different treatments for one shipped scenario; never changes clips, order, timing, or sync. |
-| Parameter liveness | Registry metadata classifies every parameter as editable, approximate, invariant, or unsupported/read-only; unsupported controls are not made editable by omission. |
-| Inert local package | Copies admitted bytes and plan/provenance only; it is not FCPXML, an effect render, or an importability claim. |
+## Old Television v2
 
-## Parameter and export truth
+Old Television v2 is a sustained CRT signal treatment across the complete
+duration. Its typed renderer combines display-fixed scanlines, temporally
+coherent analog noise, tube curvature with overscan, bounded chroma shift,
+ghosting, phosphor bloom, micro-jitter and horizontal tracking disturbance,
+vignette, and continuous micro-flicker. The luma modulation ceiling is two
+percent and the rendered construction has no opacity channel, full-frame flash,
+or fade approximation.
 
-Plan revisions are prospective and atomic: every patch is type/bounds checked,
-semantically validated, schema checked, and verified against the admitted media
-before becoming a new operation identity. Reset and reset-all restore the
-recorded baseline without changing request, selection, inputs, or source
-identity.
+Live controls cover duration, CRT profile, overall intensity, component
+strengths, flicker, and deterministic texture seed. The 1920-pixel maximum
+long-edge ceiling, 30 fps, render method, and source preservation are
+invariants. The movie source keeps its original audio on the spine because the
+connected treatment itself is video-only.
 
-Living Still supports its declared duration, scale, pan, opacity, and fade
-controls. Targeted Rotate + Zoom supports declared duration, scale, and signed
-rotation with a confirmed normalized target. Movie duration overflow is refused
-both while planning and revising.
+## Production visual bakeoff
 
-Natural Dissolve and Old Television gained generalized emitters on 2026-08-07.
-The historical real-import evidence covers the earlier 30-frame dissolve and
-Old Television native base construction. The current canonical read-only 12-frame
-dissolve route is construction-tested only, pending a fresh real-Final-Cut
-import. The dissolve refuses rather than adapts when handle is insufficient:
-the requested duration is never shortened and the edit point is never moved to
-make an effect fit.
+The active artifact paths are:
 
-Old Television's optional overlay role accepts an admitted still and its native
-emitter is covered by the connected-overlay construction test. It generates no
-FFmpeg/static/scanline assets. That test and package/FCPXML evidence do not
-establish a new Final Cut import or perceptual result for the optional overlay.
+- Living Still:
+  `/Users/marcboyer/Movies/FCPCommandConsole/exports/bakeoff/v2-production-hq/living-still-v2`
+- Old Television:
+  `/Users/marcboyer/Movies/FCPCommandConsole/exports/bakeoff/v2-production/old-television-v2`
 
-Color and easing remain intentionally bounded. Living Still uses a captured
-Saturation 25 construction as an indicative adapter; no arbitrary color
-calibration, perceptual quality result, or general easing encoding is claimed.
-See [docs/PARAMETER_LIVENESS.md](docs/PARAMETER_LIVENESS.md).
+Together they contain **10 representative inputs × both effects = 20 accepted
+movies**, all four seconds, 30 fps, 120 frames, ProRes 422 HQ `apch`, 10-bit
+4:2:2 `yuv422p10le`, with no audio in the rendered treatment. The cases cover
+portrait hair, full-body thin limbs, an irregular organic subject,
+architecture, text, crisp product edges, landscape depth, low contrast,
+portrait orientation, and explicit layered depth. The aspect-preserving visual
+matrix includes preview-only geometries; project export remains restricted to
+the exact 1920×1080 profile below.
 
-## Final Cut evidence boundary
+The independent audit passed both effects across all ten cases:
 
-The admitted semantic profile is scoped to Final Cut Pro **12.3 (build
-450152)** and fails closed on version drift. It admits only the documented
-construction contracts, including the currently evidenced transform, rotation,
-opacity, native color-adjustment, cross-dissolve, and connected-overlay
-semantics. It does not prove every effect, arbitrary value mapping, visual
-quality, or compatibility with another Final Cut build.
+- Living Still retained motion in every quarter with genuine but restrained
+  non-global depth. In the layered-depth case, camera-removed horizontal span
+  reached 1.806 px at frame 60 and 3.426 px at frame 119; the camera-only
+  residual was 0.320576/255, or 12.0549 percent of start-to-end RGB MAE. The
+  counterfactual is diagnostic and accounts for Core Image's bottom-left/+Y-up
+  coordinates versus PNG/Pillow's top-left/+Y-down coordinates; it is not pure
+  depth amplitude because Pillow bicubic differs from Core Image and the
+  decoded codecs differ. The flat-component span is the stronger relative-
+  motion evidence. No black-frame, fade-only, crop, tear, or exposed-hole
+  failure was observed. Exact duplicate
+  frames were confined to the head: 0.033 seconds in seven cases, 0.067 seconds
+  in product and layered-depth, and 0.100 seconds in low-contrast; no later
+  duplicates were found. Low-contrast motion is intentionally subtle.
+- Old Television retained monochrome treatment and horizontal scanlines at
+  frames 0, 60, and 119, with 120 unique frames in every movie and stable
+  source-distance measurements across all four quarters. Text and product
+  details remained legible. Observed global luma range was approximately
+  1.43–3.49 levels out of 255 and did not dominate the sustained CRT texture.
 
-All outputs preserve the non-mutation boundary: no UI automation, AppleScript,
-Accessibility control, timeline selection inference, or modification of user
-libraries is part of **the shipped product**. (Development-time GUI automation
-of the isolated Final Cut copy is permitted and is how the evidence above was
-gathered; it is not a runtime capability of FrameSmith.) Source media and production libraries remain
-untouched. A passing package, DTD validation, or unit test is not by itself a
-broad perceptual or future-version acceptance claim.
+Evidence maps, contact sheets, crops, and metrics are under
+`v2-production/review/qa-v2`,
+`v2-production/review/final-independent-audit-20260808`, and
+`v2-production/review/final-hq-independent-audit-20260808`.
+This is representative visual verification at the recorded defaults, not an
+expert-preference study, population evidence, or proof of every legal setting.
+
+## Exact preview/export and Final Cut evidence
+
+Both rendered effects cross preview/export through one sealed artifact carrying
+its SHA-256, construction/recipe digests, source identity, geometry, timing,
+codec, pixel format, and video-only contract. A changed recipe or source mints a
+new construction identity. Missing or drifted bytes refuse export.
+
+Two hardened FCPXML 1.14 probes passed in the isolated Final Cut Pro **12.3
+(450152)** copy:
+
+| Parent context | Operation | Returned FCPXML SHA-256 |
+| --- | --- | --- |
+| still | `564186C4-F931-466D-ABDF-16980F9C11F4` | `26eb90634a82dbbe7dfc1150a7288c25dc972c973ef1bfce5181ac9af8a377de` |
+| movie | `3DF48DA4-DF68-4692-ACAA-4A6F73D9DEC4` | `87c95fa47679788adbff8ac9854bdfa2b485c9acff0bc6c9abdcb573a2cb9bc7` |
+
+The returns admit one opaque, full-duration, video-only ProRes 422 HQ movie
+(`apch`, `yuv422p10le`) as a lane-1 visual above the tested parent kinds. The
+admitted surface is exactly FCPXML 1.14, 1920×1080 progressive, 30 fps, 120
+frames, and four seconds. Arbitrary duration or aspect-ratio renders are
+preview-only and refused for project export. The still fixture used a
+1920×1080 unrotated, timing-free, audio-free source resource; its spine video
+and treatment were both four seconds. The movie fixture used a 1920×1080,
+identity-transform, progressive 30 fps CFR, eight-second source; its spine
+asset-clip and treatment were both four seconds, with source audio retained.
+Runtime admission binds that movie context to 240 decoded frames and the exact
+observed single untagged two-channel 48 kHz audio stream. Orientation,
+transform, scan, cadence, and audio-tuple drift now fail closed.
+The returns do not establish direct editability of rendered pixels, arbitrary
+layering, or another Final Cut version.
+
+## Installed app verification — 2026-08-21
+
+The release build is installed at
+`/Users/marcboyer/Applications/FrameSmith.app`. Its ad-hoc signature, bundle ID
+`com.marcboyer.FCPCommandConsole`, icon, 15 technique cards, registry, model
+manifest, and schemas were verified against this checkout. The complete Swift
+suite passed **379 tests with zero failures**, and the strict catalog audit
+passed with 4 validated and 11 reference-only cards.
+
+The installed app completed both rendered workflows against the admitted
+1920×1080 still fixture. Living Still produced and exported SHA-256
+`228c3671d5ac09d943392c466a6219d144de03ff6ceb9babfa98929dfa65856c`
+under operation `F1E67F22-C1B8-4C06-9A92-533289AB77B0`; Old Television
+produced and exported SHA-256
+`202570297d8a54c1c10006e7f5222929bf8ccd25e607f4e62585e031ce517b15`
+under operation `E67C7CCE-1BA5-4878-975B-CBF1F58172D5`. Both package movies
+are one video-only 1920×1080 ProRes 422 HQ `apch` stream at 30 fps, 120 decoded
+frames, and exactly four seconds, and both FCPXML documents validate against
+the installed 1.14 DTD.
+
+This live pass also exercises the AVFoundation `AVPlayerLayer` preview bridge
+that replaced the crashing private AVKit/SwiftUI representable. Living Still
+no longer aborts when its exact preview appears; rendered treatment movies loop
+for inspection and pause/detach during teardown. Screenshots are retained at
+`/Users/marcboyer/Movies/FCPCommandConsole/provenance/installed-framesmith-living-still-v2-20260821.jpg`
+and
+`/Users/marcboyer/Movies/FCPCommandConsole/provenance/installed-framesmith-old-television-v2-20260821.jpg`.
+
+## Output and runtime boundary
+
+FrameSmith generates a **new** Final Cut project package. It does not inspect or
+mutate an existing timeline, production library, or source file. An inert local
+plan package remains different from a standalone FCPXML export and is not an
+effect render or importability claim.
+
+The shipped product contains no UI automation, AppleScript, Accessibility
+control, timeline-selection inference, or production-library modification.
+Development-time automation of the isolated Final Cut copy is permitted and is
+how the returned evidence above was gathered.
 
 ## Remaining limitations and next work
 
-Natural Dissolve and Old Television are production emitters with bounded
-evidence. A fresh real-Final-Cut import of the canonical 12-frame Natural
-Dissolve route remains open. Old Television's optional admitted-still overlay
-has construction evidence only; fresh real-Final-Cut and perceptual exercise of
-that path also remain open.
+- Fresh Final Cut evidence remains open for the canonical 12-frame Natural
+  Dissolve route.
+- Living Still's head-only 0.033–0.100 second startup hold is bounded and
+  accepted for this pass, but should remain a temporal regression metric.
+- The rendered effects are regenerable from retained recipes; their pixels are
+  not natively editable inside Final Cut.
+- The 20-movie bakeoff establishes representative behavior, not expert or
+  population perceptual preference, medical safety certification, or every
+  source/control combination.
+- Re-run installed-app parity whenever the release binary or bundled resources
+  change; the current pass is bound to the 2026-08-21 release build above.
 
-The next work, in rough value order: exercise Old Television's optional overlay
-path in a fresh real-Final-Cut and perceptual pass; measure a
-creative-language-to-parameter mapping for colour so it stops being indicative
-only; run the representative-media bakeoff in
-`process.review.representative_bakeoff.v1` for comparative image quality; and
-widen Surprise Me beyond the single-still scenario. Effect stacking, history,
-masking, tracking, typography, and audio remain future work.
-
-Living Still v2 is now in evidence-gathering, not effect implementation. Its
-analysis pipeline and bakeoff harness measured all 10 classes; visual portrait
-evidence demoted the Vision two-plane candidate, while the continuous-warp
-candidate leads but remains untested pending a depth-model acquisition decision.
-No v2 render, Final Cut admission, or perceptual quality result is claimed.
+See `docs/LIVING_STILL_V2_DESIGN.md`,
+`docs/LIVING_STILL_V2_BAKEOFF.md`,
+`docs/editorial-intelligence/BAKEOFF_AND_COVERAGE.md`, and
+`docs/PARAMETER_LIVENESS.md` for the detailed boundaries.

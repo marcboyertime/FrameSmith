@@ -70,6 +70,67 @@ final class AppStandaloneIntegrationTests: XCTestCase {
         XCTAssertEqual(result.standaloneExportDecision.capability, .standaloneFCPXMLExport)
     }
 
+    func testPublicOrDecodedAssetCannotForgeAnAllowedStandaloneReadinessDecision() async throws {
+        let admitted = try await LocalMediaAdmission().admit(try writeStill(named: "still.png"))
+        let forged = LocalMediaAsset(
+            itemID: admitted.itemID,
+            url: admitted.url,
+            kind: admitted.kind,
+            dimensions: admitted.dimensions,
+            durationSeconds: admitted.durationSeconds,
+            frameRate: admitted.frameRate,
+            hasAudio: admitted.hasAudio,
+            stillOrientation: admitted.stillOrientation,
+            moviePreferredTransform: admitted.moviePreferredTransform,
+            videoTrackCount: admitted.videoTrackCount,
+            videoScanMode: admitted.videoScanMode,
+            videoCadence: admitted.videoCadence,
+            audioStreams: admitted.audioStreams,
+            canonicalPath: admitted.canonicalPath,
+            sha256: admitted.sha256
+        )
+        let decoded = try JSONDecoder().decode(
+            LocalMediaAsset.self,
+            from: JSONEncoder().encode(admitted)
+        )
+        let planningSession = try session(gate: admittedGate())
+        let genuinelyAdmittedPlan = try planningSession.plan(
+            request: livingStillRequest,
+            primary: admitted,
+            outgoing: nil,
+            incoming: nil,
+            target: .confirmed(x: 0.5, y: 0.5)
+        ).plan
+
+        for candidate in [forged, decoded] {
+            let result = try planningSession.plan(
+                request: livingStillRequest,
+                primary: candidate,
+                outgoing: nil,
+                incoming: nil,
+                target: .confirmed(x: 0.5, y: 0.5)
+            )
+            XCTAssertFalse(result.standaloneExportDecision.allowed)
+            XCTAssertTrue(
+                result.standaloneExportDecision.reason.contains("genuine local media admission evidence"),
+                result.standaloneExportDecision.reason
+            )
+            let adopted = try planningSession.adopt(
+                exactPlan: genuinelyAdmittedPlan,
+                request: livingStillRequest,
+                primary: candidate,
+                outgoing: nil,
+                incoming: nil,
+                target: .confirmed(x: 0.5, y: 0.5)
+            )
+            XCTAssertFalse(adopted.standaloneExportDecision.allowed)
+            XCTAssertTrue(
+                adopted.standaloneExportDecision.reason.contains("genuine local media admission evidence"),
+                adopted.standaloneExportDecision.reason
+            )
+        }
+    }
+
     /// The distinction the UI has to keep visible: generating a new project is
     /// available, modifying an existing timeline never is from local media.
     func testStandaloneIsAllowedWhileTimelineMutationStaysRefused() async throws {

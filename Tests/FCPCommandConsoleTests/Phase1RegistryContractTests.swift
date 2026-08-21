@@ -87,30 +87,48 @@ final class Phase1RegistryContractTests: XCTestCase {
         XCTAssertEqual(try parameter("durationSeconds", in: definition).description, "bounded keyframe duration")
     }
 
-    func testOldTelevisionPreservesNativeCanonicalConstruction() throws {
+    func testOldTelevisionDeclaresChecksumBoundRenderedCRTConstruction() throws {
         let definition = try definition(.oldTelevision, in: registry())
 
         XCTAssertEqual(definition.representation, .layeredMedia)
         XCTAssertEqual(definition.requiredSelection, .singleClip)
         XCTAssertEqual(definition.inputCount, 1)
-        XCTAssertEqual(definition.backend, .native)
-        XCTAssertEqual(definition.fallback, "native-old-television-base-without-optional-overlay")
-        XCTAssertTrue(definition.generatedAssets.isEmpty)
-        XCTAssertTrue(definition.editableProperties.isEmpty)
+        XCTAssertEqual(definition.backend, .ffmpeg)
+        XCTAssertEqual(definition.preview, "checksum-bound-rendered-movie")
+        XCTAssertEqual(definition.fallback, "refuse-if-crt-renderer-unavailable")
+        XCTAssertEqual(definition.generatedAssets, [
+            GeneratedAssetDefinition(
+                kind: "crt-treatment-movie",
+                format: "prores-422-10bit",
+                alpha: false,
+                deterministic: true
+            )
+        ])
+        XCTAssertEqual(Set(definition.editableProperties.map(\.name)), [
+            "durationSeconds", "profile", "intensity", "scanlineStrength",
+            "noiseStrength", "syncInstability", "chromaSeparation",
+            "bloomStrength", "vignetteStrength", "ghostingStrength",
+            "flickerStrength", "seed"
+        ])
         XCTAssertEqual(Set(definition.parameters.map(\.name)), [
-            "durationSeconds", "saturation", "flickerFloor", "overlayOpacity",
-            "overlayStartSeconds", "overlayDurationSeconds", "blendMode",
-            "overlayTiming", "overlayTransform"
+            "durationSeconds", "profile", "intensity", "scanlineStrength",
+            "noiseStrength", "syncInstability", "chromaSeparation",
+            "bloomStrength", "vignetteStrength", "ghostingStrength",
+            "flickerStrength", "seed", "outputLongEdge", "fps",
+            "renderMethod", "preserveOriginal"
         ])
         XCTAssertEqual(try parameter("durationSeconds", in: definition).defaultValue?.numberValue, 4)
-        XCTAssertEqual(try parameter("saturation", in: definition).defaultValue?.numberValue, 25)
-        XCTAssertEqual(try parameter("flickerFloor", in: definition).defaultValue?.numberValue, 0.82)
-        XCTAssertEqual(try parameter("overlayOpacity", in: definition).defaultValue?.numberValue, 0.35)
-        XCTAssertEqual(try parameter("overlayStartSeconds", in: definition).defaultValue?.numberValue, 1)
-        XCTAssertEqual(try parameter("overlayDurationSeconds", in: definition).defaultValue?.numberValue, 2)
-        XCTAssertEqual(try parameter("blendMode", in: definition).defaultValue, .string("overlay"))
-        XCTAssertEqual(try parameter("overlayTiming", in: definition).defaultValue, .string("bounded-range"))
-        XCTAssertEqual(try parameter("overlayTransform", in: definition).defaultValue, .string("identity"))
+        XCTAssertEqual(try parameter("profile", in: definition).defaultValue, .string("broadcast-mono"))
+        XCTAssertEqual(try parameter("intensity", in: definition).defaultValue?.numberValue, 0.68)
+        XCTAssertEqual(try parameter("flickerStrength", in: definition).defaultValue?.numberValue, 0.12)
+        XCTAssertEqual(try parameter("seed", in: definition).defaultValue, .integer(7341))
+        XCTAssertEqual(try parameter("outputLongEdge", in: definition).minimum, 1920)
+        XCTAssertEqual(try parameter("outputLongEdge", in: definition).maximum, 1920)
+        XCTAssertEqual(try parameter("fps", in: definition).defaultValue, .integer(30))
+        XCTAssertEqual(try parameter("renderMethod", in: definition).defaultValue, .string("ffmpeg-crt-v2"))
+        XCTAssertEqual(try parameter("preserveOriginal", in: definition).defaultValue, .boolean(true))
+        XCTAssertTrue(definition.verification.contains { $0.contains("no opacity fade") })
+        XCTAssertTrue(definition.verification.contains { $0.contains("same SHA-256-identified movie") })
     }
 
     func testNaturalDissolvePreservesNativeAdjacentClipAudioAndCanonicalDurationContract() throws {
@@ -128,39 +146,57 @@ final class Phase1RegistryContractTests: XCTestCase {
         XCTAssertEqual(try parameter("preserveAudio", in: definition).defaultValue, .boolean(true))
     }
 
-    func testLivingStillPreservesNativeFallbackMotionColorOpacityAndDeferredDepthFlow() throws {
+    func testLivingStillDeclaresPinnedChecksumBoundDepthRenderContract() throws {
         let definition = try definition(.livingStill, in: registry())
 
-        XCTAssertEqual(definition.representation, .fcpxmlNative)
+        XCTAssertEqual(definition.representation, .layeredMedia)
         XCTAssertEqual(definition.requiredSelection, .singleClip)
         XCTAssertEqual(definition.inputCount, 1)
-        XCTAssertEqual(definition.backend, .native)
-        XCTAssertTrue(definition.generatedAssets.isEmpty)
-        XCTAssertEqual(definition.fallback, "native-push-in-pan-color-enrichment-fade-to-black")
+        XCTAssertEqual(definition.backend, .local)
+        XCTAssertEqual(definition.preview, "checksum-bound-rendered-movie")
+        XCTAssertEqual(definition.fallback, "refuse-if-depth-render-unavailable")
+        XCTAssertEqual(definition.generatedAssets, [
+            GeneratedAssetDefinition(
+                kind: "depth-warp-treatment-movie",
+                format: "prores-422-10bit",
+                alpha: false,
+                deterministic: false
+            )
+        ])
 
+        XCTAssertEqual(Set(definition.parameters.map(\.name)), [
+            "durationSeconds", "motionStrength", "pushIn", "panX", "panY",
+            "depthSmoothing", "outputLongEdge", "fps", "modelID",
+            "motionMethod", "preserveOriginal"
+        ])
         XCTAssertEqual(try parameter("durationSeconds", in: definition).defaultValue?.numberValue, 4.0)
-        XCTAssertEqual(try parameter("motionMethod", in: definition).defaultValue, .string("native-push-in-pan"))
-        XCTAssertEqual(try parameter("depthFlowStatus", in: definition).defaultValue, .string("deferred-unavailable"))
-        XCTAssertEqual(try parameter("nativeFallbackEnabled", in: definition).defaultValue, .boolean(true))
+        XCTAssertEqual(try parameter("motionStrength", in: definition).defaultValue?.numberValue, 0.9)
+        XCTAssertEqual(try parameter("pushIn", in: definition).defaultValue?.numberValue, 0.03)
+        XCTAssertEqual(try parameter("panX", in: definition).defaultValue?.numberValue, 0.012)
+        XCTAssertEqual(try parameter("panY", in: definition).defaultValue?.numberValue, -0.006)
+        XCTAssertEqual(try parameter("depthSmoothing", in: definition).defaultValue?.numberValue, 0.35)
+        XCTAssertEqual(try parameter("outputLongEdge", in: definition).defaultValue, .integer(1920))
+        XCTAssertEqual(try parameter("outputLongEdge", in: definition).minimum, 1920)
+        XCTAssertEqual(try parameter("outputLongEdge", in: definition).maximum, 1920)
+        XCTAssertEqual(try parameter("fps", in: definition).defaultValue, .integer(30))
+        XCTAssertEqual(
+            try parameter("modelID", in: definition).defaultValue,
+            .string("apple.coreml.depth-anything-v2-small-f16@cfef6f6f2a70783dedc0bfae40cecbc2052285d3")
+        )
+        XCTAssertEqual(try parameter("motionMethod", in: definition).defaultValue, .string("coreml-continuous-depth-warp-v2"))
+        XCTAssertEqual(try parameter("preserveOriginal", in: definition).defaultValue, .boolean(true))
 
         let editableNames = Set(definition.editableProperties.map(\.name))
-        XCTAssertTrue(editableNames.isSuperset(of: [
-            "pushInScaleStart",
-            "pushInScaleEnd",
-            "panX",
-            "panY",
-            "colorEnrichment",
-            "opacityStart",
-            "opacityEnd",
-            "fadeDurationSeconds"
-        ]))
-        XCTAssertTrue(try editableProperty("pushInScaleStart", in: definition).keyframeable)
-        XCTAssertTrue(try editableProperty("pushInScaleEnd", in: definition).keyframeable)
-        XCTAssertTrue(try editableProperty("panX", in: definition).keyframeable)
-        XCTAssertTrue(try editableProperty("panY", in: definition).keyframeable)
-        XCTAssertTrue(try editableProperty("colorEnrichment", in: definition).keyframeable)
-        XCTAssertTrue(try editableProperty("opacityStart", in: definition).keyframeable)
-        XCTAssertTrue(try editableProperty("opacityEnd", in: definition).keyframeable)
-        XCTAssertFalse(try editableProperty("fadeDurationSeconds", in: definition).keyframeable)
+        XCTAssertEqual(editableNames, [
+            "durationSeconds", "motionStrength", "pushIn", "panX", "panY", "depthSmoothing"
+        ])
+        for name in editableNames {
+            XCTAssertFalse(try editableProperty(name, in: definition).keyframeable, name)
+        }
+        XCTAssertTrue(definition.verification.contains { $0.contains("unchanged spine source") })
+        XCTAssertTrue(definition.verification.contains { $0.contains("exact duration") })
+        XCTAssertTrue(definition.verification.contains { $0.contains("same SHA-256-identified movie") })
+        XCTAssertTrue(definition.verification.contains { $0.contains("model, depth field, recipe") })
+        XCTAssertTrue(definition.verification.contains { $0.contains("no fade") })
     }
 }

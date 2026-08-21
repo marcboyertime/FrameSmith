@@ -9,6 +9,10 @@ public struct EditorialTreatmentInputSnapshot: Equatable, Sendable {
     public let outgoing: SourceIdentity?
     public let incoming: SourceIdentity?
     public let overlay: SourceIdentity?
+    public let primaryContext: LocalMediaContextFacts?
+    public let outgoingContext: LocalMediaContextFacts?
+    public let incomingContext: LocalMediaContextFacts?
+    public let overlayContext: LocalMediaContextFacts?
     public let target: Target?
     public let durationFrames: Int?
     public let capabilityDigest: String
@@ -20,6 +24,8 @@ public struct EditorialTreatmentInputSnapshot: Equatable, Sendable {
         self.command = command
         primary = media[.primary]?.sourceIdentity; outgoing = media[.outgoing]?.sourceIdentity
         incoming = media[.incoming]?.sourceIdentity; overlay = media[.overlay]?.sourceIdentity
+        primaryContext = media[.primary]?.contextFacts; outgoingContext = media[.outgoing]?.contextFacts
+        incomingContext = media[.incoming]?.contextFacts; overlayContext = media[.overlay]?.contextFacts
         self.target = target; self.durationFrames = durationFrames
         capabilityDigest = TreatmentIdentity.digest(admittedCapabilities.sorted())
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -57,9 +63,8 @@ public struct EditorialTreatmentWorkflow {
         public var applied: AdmittedTreatmentExecution?
         public var comparisonIDs: [String] = []
         public var history: [AdmittedTreatmentExecution] = []
-        /// Candidates the generator considered but admission refused.  Keep
-        /// these alongside generator rejections so a short list is explained,
-        /// rather than silently discarding a duration-locked construction.
+        /// Candidates the generator considered but admission refused. Keep
+        /// these alongside generator rejections so a short list is explained.
         public var rejected: [RejectedCandidate] = []
         public var shortfallExplanation: String?
         public var invalidationReason: String?
@@ -100,8 +105,7 @@ public struct EditorialTreatmentWorkflow {
         basePlans: [EffectID: EffectPlan]
     ) throws -> [AdmittedTreatmentExecution] {
         // A new generation attempt must never leave an old authoritative
-        // option set usable.  The successful result replaces this cleared
-        // state in one assignment below; validation failures stay empty.
+        // option set usable. A successful result replaces this cleared state.
         state = State()
         guard let frames = durationFrames, frames > 0 else { throw EditorialTreatmentWorkflowError.durationRequired }
         guard let primary = media[.primary], primary.kind == .still else { throw EditorialTreatmentWorkflowError.unsupportedScope("add one admitted still as Primary") }
@@ -114,22 +118,13 @@ public struct EditorialTreatmentWorkflow {
         var admitted: [AdmittedTreatmentExecution] = []
         var rejected = set.rejected
         for option in set.options {
-            // A candidate may carry a fixed or unsupported duration (for
-            // example the measured 4-second CRT base) while another candidate
-            // exactly matches the director's lock. Admit each independently:
-            // one refusal is evidence for a shortfall, never a reason to
-            // discard a valid treatment set.
             do {
                 admitted.append(try admission.admit(option, currentStructure: lock, media: media, impactEvidence: []))
             } catch {
                 rejected.append(.init(name: option.name, reason: .techniqueUnavailable("admission refused: \(error.localizedDescription)")))
             }
         }
-        let shortfall = admissionShortfall(
-            count: admitted.count,
-            generatorExplanation: set.shortfallExplanation,
-            rejected: rejected
-        )
+        let shortfall = admissionShortfall(count: admitted.count, generatorExplanation: set.shortfallExplanation, rejected: rejected)
         var replacement = State()
         replacement.snapshot = current
         replacement.lock = lock
@@ -251,7 +246,11 @@ public struct EditorialTreatmentWorkflow {
     private func driftReason(_ old: EditorialTreatmentInputSnapshot, _ new: EditorialTreatmentInputSnapshot) -> String {
         if old.command != new.command { return "the command changed" }; if old.primary != new.primary { return "the primary source identity changed" }
         if old.outgoing != new.outgoing || old.incoming != new.incoming { return "the outgoing or incoming source changed" }
-        if old.overlay != new.overlay { return "the overlay source changed" }; if old.target != new.target { return "the focal target changed" }
+        if old.overlay != new.overlay { return "the overlay source changed" }
+        if old.primaryContext != new.primaryContext { return "the primary media context changed" }
+        if old.outgoingContext != new.outgoingContext || old.incomingContext != new.incomingContext { return "the outgoing or incoming media context changed" }
+        if old.overlayContext != new.overlayContext { return "the overlay media context changed" }
+        if old.target != new.target { return "the focal target changed" }
         if old.durationFrames != new.durationFrames { return "the explicit editorial duration changed" }
         if old.capabilityDigest != new.capabilityDigest { return "the installed Final Cut capability profile changed" }
         if old.catalogDigest != new.catalogDigest { return "the source catalog changed" }; if old.schemaDigest != new.schemaDigest { return "the treatment schema changed" }

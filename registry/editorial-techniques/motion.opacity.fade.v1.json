@@ -3,7 +3,7 @@
   "version": 1,
   "name": "Opacity fade",
   "domain": "motion",
-  "status": "validated",
+  "status": "reference_only",
   "summary": "An animated opacity ramp, most often a fade to black closing a held beat.",
   "creativeJobs": [
     "close a section",
@@ -23,14 +23,12 @@
   "lockedStructureEffect": "none",
   "construction": {
     "preferredBackends": [
-      "native_fcpxml"
+      "none"
     ],
     "requiredCapabilities": [
-      "asset_admission",
       "opacity_keyframes"
     ],
-    "requiredEffectID": "motion.living_still",
-    "previewFidelity": "shared_construction"
+    "previewFidelity": "none"
   },
   "parameters": [
     {
@@ -78,8 +76,7 @@
   ],
   "riskGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"Admitted opacity keyframes are shared by preview and emitter."}], "safetyGates": [{"category":"visual_quality","level":"low","decision":"allowed_automatically","basis":"Exact opacity channels are revalidated at admission."}],
   "editability": [
-    "final_cut_native",
-    "framesmith_regeneration"
+    "none"
   ],
   "expectedCost": {
     "latency": "instant",
@@ -100,15 +97,11 @@
     }
   ],
   "validation": {
-    "implemented": true,
-    "visuallyVerified": true,
-    "finalCutEvidence": [
-      "1f32d6da03ef531449c42aab2da9d7b0081ccb6e3c0c22e6d3cebf49fa9085c0"
-    ],
-    "verifiedOn": [
-      "living-still.png fixture"
-    ],
-    "notes": "Fade to black confirmed visible during playback in the isolated app."
+    "implemented": false,
+    "visuallyVerified": false,
+    "finalCutEvidence": [],
+    "verifiedOn": [],
+    "notes": "The former Living Still v1 opacity route was retired. This remains craft guidance until a dedicated fade effect owns the admitted native construction."
   },
   "refusalConditions": [
     "Do not apply when the stated prerequisite is not met."

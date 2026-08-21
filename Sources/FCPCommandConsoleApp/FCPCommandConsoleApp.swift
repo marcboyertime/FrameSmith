@@ -1,4 +1,4 @@
-import AVKit
+import AVFoundation
 import AppKit
 import Combine
 import FCPCommandConsoleCore
@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 @main
 struct FCPCommandConsoleApp: App {
     var body: some Scene {
-        WindowGroup("FCPCommandConsole") {
+        WindowGroup("FrameSmith") {
             ContentView()
                 // Opens tall enough to show the preview and its controls
                 // without scrolling on a normal display. The content scrolls
@@ -24,9 +24,9 @@ private final class AppModel: ObservableObject {
     @Published var primary: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted(); invalidateEditorialIfInputsDrifted() } }
     @Published var outgoing: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted(); invalidateEditorialIfInputsDrifted() } }
     @Published var incoming: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted(); invalidateEditorialIfInputsDrifted() } }
-    /// A texture composited above the primary clip. Optional, and not part of
-    /// the edit — so it is deliberately absent from the structure lock.
-    @Published var overlay: LocalMediaAsset? { didSet { invalidatePlanIfInputsDrifted(); invalidateEditorialIfInputsDrifted() } }
+    // Legacy role retained in the enum for package compatibility. Production
+    // treatments no longer accept an arbitrary overlay because their rendered
+    // pixels and provenance must be fully checksum-bound.
     @Published var target: Target? { didSet { invalidatePlanIfInputsDrifted(); invalidateEditorialIfInputsDrifted() } }
     @Published var result: LocalMediaPlanningResult?
     @Published var package: LocalPlanPackage?
@@ -37,6 +37,18 @@ private final class AppModel: ObservableObject {
     @Published var isCancellingPackage = false
     @Published var isExportingProject = false
     @Published var exportedProject: StandaloneFCPXMLExportBuilder.Package?
+    /// Durable packages that finished after their originating inputs were
+    /// invalidated. They remain real files on disk, but are never presented as
+    /// the project for the current plan.
+    @Published private(set) var staleExportedProjects: [StandaloneFCPXMLExportBuilder.Package] = []
+    /// Exact prepared movie used by both the player and project export for a
+    /// rendered treatment. A parameter or source change cancels and clears it.
+    @Published var renderedPreview: RenderedEffectAsset?
+    /// Exact Final Cut admission result for the prepared bytes. Preview may be
+    /// useful outside the empirically proven export envelope, but Create
+    /// Project stays visibly closed there.
+    @Published var renderedPreviewExportDecision: CapabilityDecision?
+    @Published var isRenderingPreview = false
     /// Channels for the current plan, sampled by the preview. Cleared with the
     /// plan so a stale preview can never outlive what produced it.
     @Published var previewChannels: NativeFCPXMLEffectChannels?
@@ -84,6 +96,9 @@ private final class AppModel: ObservableObject {
     private var admissionTasks: [LocalMediaRole: Task<AdmissionOutcome, Never>] = [:]
     private var admissionGeneration = LocalMediaOperationGeneration()
     private var packageTask: Task<PackageOutcome, Never>?
+    private var renderedPreviewTask: Task<RenderedPreviewOutcome, Never>?
+    private var projectExportTask: Task<ProjectExportOutcome, Never>?
+    private var projectExportGenerationState = ProjectExportGenerationState()
 
     /// What a plan made right now would be derived from.
     private var currentInputs: LocalMediaPlanInputs {
@@ -100,6 +115,7 @@ private final class AppModel: ObservableObject {
         package = nil
         exportedProject = nil
         previewChannels = nil
+        cancelRenderedPreview()
         noticeMessage = staleness.reason
         cancelPackage()
     }
@@ -116,11 +132,12 @@ private final class AppModel: ObservableObject {
         if let reason = checking.invalidateIfDrifted(&editorialState, current: current) {
             synchronizeEditorialMirrors()
             result = nil; previewChannels = nil; package = nil; exportedProject = nil
+            cancelRenderedPreview()
             noticeMessage = "Editorial treatment invalidated because \(reason)."
         }
     }
 
-    /// The workflow state is authoritative.  Keep every UI-facing mirror in
+    /// The workflow state is authoritative. Keep every UI-facing mirror in
     /// lockstep after any action that can re-admit or evict an artifact; a
     /// comparison failure must not leave an old option card or applied badge
     /// pointing at an execution the workflow has already cleared.
@@ -154,6 +171,18 @@ private final class AppModel: ObservableObject {
 
     private enum PackageOutcome: Sendable {
         case built(LocalPlanPackage)
+        case failed(String)
+        case cancelled
+    }
+
+    private enum RenderedPreviewOutcome: Sendable {
+        case rendered(RenderedEffectAsset, CapabilityDecision)
+        case failed(String)
+        case cancelled
+    }
+
+    private enum ProjectExportOutcome: Sendable {
+        case built(StandaloneFCPXMLExportBuilder.Package)
         case failed(String)
         case cancelled
     }
@@ -200,13 +229,14 @@ private final class AppModel: ObservableObject {
         case .primary: primary = nil
         case .outgoing: outgoing = nil
         case .incoming: incoming = nil
-        case .overlay: overlay = nil
+        case .overlay: break
         }
         target = nil
         result = nil
         package = nil
         errorMessage = nil
         noticeMessage = nil
+        cancelRenderedPreview()
     }
 
     func clearAll() {
@@ -222,6 +252,7 @@ private final class AppModel: ObservableObject {
         noticeMessage = nil
         command = ""
         editorialDurationFrames = ""
+        cancelRenderedPreview()
     }
 
     private func assign(_ media: LocalMediaAsset, to role: LocalMediaRole) {
@@ -229,7 +260,7 @@ private final class AppModel: ObservableObject {
         case .primary: primary = media
         case .outgoing: outgoing = media
         case .incoming: incoming = media
-        case .overlay: overlay = media
+        case .overlay: break
         }
     }
 
@@ -240,6 +271,7 @@ private final class AppModel: ObservableObject {
         package = nil
         exportedProject = nil
         previewChannels = nil
+        cancelRenderedPreview()
         do {
             let registryURL = try appResource(named: "registry/effects")
             let schemaURL = try appResource(named: "schemas/effect-plan.schema.json")
@@ -251,6 +283,7 @@ private final class AppModel: ObservableObject {
             let planned = try session.plan(request: command, primary: primary, outgoing: outgoing, incoming: incoming, target: target)
             result = planned
             previewChannels = effectChannels(for: planned)
+            prepareRenderedPreview(for: planned.plan)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -300,6 +333,7 @@ private final class AppModel: ObservableObject {
             admittedTreatmentOptions = editorialState.options; treatmentHistory = editorialState.history
             package = nil
             exportedProject = nil
+            prepareRenderedPreview(for: selected.0.treatment.effectPlan)
             noticeMessage = "Applied \(option.name) exactly as admitted. Your clips and timing are unchanged."
             isRefiningTreatment = false
         } catch {
@@ -318,9 +352,7 @@ private final class AppModel: ObservableObject {
         }
     }
 
-    /// Only structural roles enter the lock. An overlay is a texture on top of
-    /// a clip, not a clip in the edit, so including it would make swapping a
-    /// texture look like restructuring the cut.
+    /// Only director-owned source clips enter the structure lock.
     private func orderedMedia() -> [LocalMediaAsset] {
         [outgoing, primary, incoming].compactMap { $0 }
     }
@@ -330,7 +362,6 @@ private final class AppModel: ObservableObject {
         media[.primary] = primary
         media[.outgoing] = outgoing
         media[.incoming] = incoming
-        media[.overlay] = overlay
         return media
     }
 
@@ -359,6 +390,8 @@ private final class AppModel: ObservableObject {
                 request = "Make this a living still for \(Double(durationFrames) / 30.0) seconds."
             case .targetedRotateZoom:
                 request = "Use a targeted rotate and zoom for \(Double(durationFrames) / 30.0) seconds."
+            case .oldTelevision:
+                request = "Use an old television look for \(Double(durationFrames) / 30.0) seconds."
             default:
                 request = defaultRequest(for: effect)
             }
@@ -386,7 +419,9 @@ private final class AppModel: ObservableObject {
             let workflow = try editorialWorkflow(); let current = workflow.snapshot(command: command, media: currentMediaRoles(), target: target, durationFrames: positiveEditorialDurationFrames)
             guard editorialState.snapshot == current, let artifact = admittedTreatmentOptions[option.optionID] else { throw EditorialTreatmentWorkflowError.unknownOption(option.optionID) }
             let readmitted = try workflow.readmit(artifact, current: current, media: currentMediaRoles())
-            previewChannels = readmitted.channels.materializedChannels(); noticeMessage = "Previewing \(option.name) exactly as admitted; it has not been applied."
+            previewChannels = readmitted.channels.materializedChannels()
+            prepareRenderedPreview(for: readmitted.treatment.effectPlan)
+            noticeMessage = "Previewing \(option.name) exactly as admitted; it has not been applied."
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -420,6 +455,7 @@ private final class AppModel: ObservableObject {
             let restored = try workflow.restore(index, state: &editorialState, current: current, media: currentMediaRoles())
             let planned = try LocalMediaPlannerSession(registry: workflow.registry, schemaValidator: workflow.schemaValidator, capabilityGate: workflow.capabilityGate).adopt(exactPlan: restored.treatment.effectPlan, request: command, primary: primary, outgoing: outgoing, incoming: incoming, target: target)
             result = planned; previewChannels = restored.channels.materializedChannels(); appliedTreatment = restored.treatment; treatmentHistory = editorialState.history
+            prepareRenderedPreview(for: restored.treatment.effectPlan)
             package = nil; exportedProject = nil; noticeMessage = "Restored \(restored.treatment.name) after fresh admission."
         } catch { errorMessage = error.localizedDescription }
     }
@@ -444,9 +480,121 @@ private final class AppModel: ObservableObject {
         media[.primary] = primary
         media[.outgoing] = outgoing
         media[.incoming] = incoming
-        media[.overlay] = overlay
         guard let emitter = StandaloneEmitterCatalog().emitter(for: planned.plan.effectID) else { return nil }
         return try? emitter.channels(plan: planned.plan, media: media)
+    }
+
+    var currentPlanRequiresRenderedPreview: Bool {
+        guard let effectID = result?.plan.effectID,
+              let emitter = StandaloneEmitterCatalog().emitter(for: effectID) else { return false }
+        return emitter is any StandaloneRenderedEffectEmitter
+    }
+
+    /// A rendered option can be previewed before it is applied. Its bytes must
+    /// never enable export for a different current plan even if both effects
+    /// use the same rendered-movie architecture.
+    private var renderedPreviewMatchesCurrentPlan: Bool {
+        guard let plan = result?.plan, let renderedPreview,
+              let expected = try? RenderedConstructionIdentity.digest(
+                  plan: plan,
+                  media: currentMediaRoles()
+              ) else { return false }
+        return renderedPreview.constructionDigest == expected
+    }
+
+    var renderedProjectExportRefusal: String? {
+        guard currentPlanRequiresRenderedPreview else { return nil }
+        guard renderedPreview != nil else {
+            return isRenderingPreview
+                ? "Wait for the exact checksum-bound treatment render."
+                : "Prepare the exact treatment preview before creating the project."
+        }
+        guard renderedPreviewMatchesCurrentPlan else {
+            return "This render belongs to a preview-only option. Apply that option or restore the current plan's exact preview before creating a project."
+        }
+        guard let decision = renderedPreviewExportDecision else {
+            return "The rendered movie has not completed Final Cut export admission."
+        }
+        return decision.allowed ? nil : decision.reason
+    }
+
+    /// Starts the only render used by the app for this plan. The finished
+    /// artifact is immutable and checksum-bound; export receives it directly
+    /// and is forbidden from silently making a second version.
+    private func prepareRenderedPreview(for plan: EffectPlan) {
+        cancelRenderedPreview()
+        guard let emitter = StandaloneEmitterCatalog().emitter(for: plan.effectID) as? any StandaloneRenderedEffectEmitter else {
+            return
+        }
+        let media = currentMediaRoles()
+        let outputRoot = StandaloneFCPXMLExportBuilder.defaultRenderCacheRoot
+        let installed = installedFinalCut
+        let generation = projectExportGenerationState.beginRenderedPreview()
+        isRenderingPreview = true
+
+        let task = Task.detached(priority: .userInitiated) { () -> RenderedPreviewOutcome in
+            do {
+                let asset = try emitter.prepareRenderedAsset(plan: plan, media: media, outputRoot: outputRoot)
+                try asset.validate(plan: plan, media: media)
+                let exportDecision = ConnectedRenderedMovieExportAdmission.decision(
+                    plan: plan,
+                    media: media,
+                    preparedAsset: asset,
+                    installedFinalCut: installed
+                )
+                return Task.isCancelled ? .cancelled : .rendered(asset, exportDecision)
+            } catch is CancellationError {
+                return .cancelled
+            } catch {
+                return Task.isCancelled ? .cancelled : .failed(error.localizedDescription)
+            }
+        }
+        renderedPreviewTask = task
+        Task { [weak self] in
+            let outcome = await task.value
+            guard let self,
+                  self.projectExportGenerationState.completeRenderedPreview(generation: generation) else { return }
+            self.renderedPreviewTask = nil
+            self.isRenderingPreview = false
+            switch outcome {
+            case .rendered(let asset, let exportDecision):
+                self.renderedPreview = asset
+                self.renderedPreviewExportDecision = exportDecision
+                self.noticeMessage = exportDecision.allowed
+                    ? "Exact treatment ready · SHA-256 \(asset.sha256.prefix(12)). Preview and project export now share these bytes."
+                    : "Exact preview ready · SHA-256 \(asset.sha256.prefix(12)). Project export stays closed: \(exportDecision.reason)"
+            case .failed(let message):
+                self.renderedPreview = nil
+                self.renderedPreviewExportDecision = nil
+                self.errorMessage = message
+            case .cancelled:
+                self.renderedPreview = nil
+                self.renderedPreviewExportDecision = nil
+            }
+        }
+    }
+
+    private func cancelRenderedPreview() {
+        projectExportGenerationState.cancelForInputDrift()
+        invalidateProjectExport()
+        renderedPreviewTask?.cancel()
+        renderedPreviewTask = nil
+        renderedPreview = nil
+        renderedPreviewExportDecision = nil
+        isRenderingPreview = false
+    }
+
+    /// Input or plan drift invalidates the meaning of an in-flight export even
+    /// when its synchronous builder has already crossed the on-disk commit
+    /// point. Cancellation is requested, the current-result slot is cleared,
+    /// and the completion token decides whether any returned package is current
+    /// or merely a durable stale artifact.
+    private func invalidateProjectExport() {
+        projectExportGenerationState.invalidateProjectExport()
+        projectExportTask?.cancel()
+        projectExportTask = nil
+        isExportingProject = false
+        exportedProject = nil
     }
 
     /// Parameter controls call the same atomic revision path as other core
@@ -463,6 +611,7 @@ private final class AppModel: ObservableObject {
                 appliedTreatment = revised.0.treatment
                 treatmentHistory = editorialState.history
                 package = nil; exportedProject = nil; errorMessage = nil
+                prepareRenderedPreview(for: revised.0.treatment.effectPlan)
                 return
             }
             let registryURL = try appResource(named: "registry/effects")
@@ -477,6 +626,7 @@ private final class AppModel: ObservableObject {
             package = nil
             exportedProject = nil
             errorMessage = nil
+            prepareRenderedPreview(for: revised.plan)
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -545,7 +695,7 @@ private final class AppModel: ObservableObject {
             case .primary: asset = primary
             case .outgoing: asset = outgoing
             case .incoming: asset = incoming
-            case .overlay: asset = overlay
+            case .overlay: asset = nil
             }
             return asset.map { (role: role, url: $0.url) }
         }
@@ -563,50 +713,117 @@ private final class AppModel: ObservableObject {
                 editorialExecution = try workflow.readmit(applied, current: current, media: currentMediaRoles())
             } else { editorialExecution = nil }
         } catch { errorMessage = error.localizedDescription; return }
-        isExportingProject = true
-        errorMessage = nil
-        noticeMessage = nil
+        let exportPlan = editorialExecution?.treatment.effectPlan ?? result.plan
+        let preparedRenderedAsset = renderedPreview
+        if let emitter = StandaloneEmitterCatalog().emitter(for: exportPlan.effectID),
+           emitter is any StandaloneRenderedEffectEmitter {
+            guard preparedRenderedAsset != nil else {
+                errorMessage = isRenderingPreview
+                    ? "The exact treatment render is still being prepared."
+                    : "Prepare the exact treatment preview before creating the project."
+                return
+            }
+            if let refusal = renderedProjectExportRefusal {
+                errorMessage = refusal
+                return
+            }
+        }
         let plan = result.plan
         let gate = capabilityGate
         let installed = installedFinalCut
         guard let exportRegistry = try? EffectRegistry.load(from: appResource(named: "registry/effects")) else {
             errorMessage = "The bundled effect registry could not be validated."
-            isExportingProject = false
             return
         }
 
-        Task { [weak self] in
-            let outcome: Result<StandaloneFCPXMLExportBuilder.Package, Error> = await Task.detached(priority: .userInitiated) {
-                do {
-                    // Re-admit rather than reusing the assets held in memory.
-                    // Evidence attests that media went through the checked
-                    // path; if a file changed on disk since planning, the fresh
-                    // digest will not match the plan's source identity and the
-                    // gate refuses. Reusing the in-memory asset would export a
-                    // project describing bytes that are no longer there.
-                    let admitted = try await LocalMediaAdmission().admitAll(ordered.map(\.url))
-                    var media: [LocalMediaRole: LocalMediaAsset] = [:]
-                    for (index, entry) in ordered.enumerated() {
-                        media[entry.role] = admitted.assets[index]
-                    }
-                    let builder = StandaloneFCPXMLExportBuilder(gate: gate, registry: exportRegistry)
-                    if let editorialExecution {
-                        return .success(try builder.export(admitted: editorialExecution, mediaEvidence: admitted.evidence, installedFinalCut: installed))
-                    }
-                    return .success(try builder.export(plan: plan, media: media, mediaEvidence: admitted.evidence, installedFinalCut: installed))
-                } catch {
-                    return .failure(error)
+        isExportingProject = true
+        errorMessage = nil
+        noticeMessage = nil
+        let generation = projectExportGenerationState.beginProjectExport(currentNotice: noticeMessage)
+        let task = Task.detached(priority: .userInitiated) { () -> ProjectExportOutcome in
+            do {
+                // Re-admit rather than reusing the assets held in memory.
+                // Evidence attests that media went through the checked path;
+                // if a file changed on disk since planning, the fresh digest
+                // will not match the plan's source identity and the gate
+                // refuses. Reusing the in-memory asset would export a project
+                // describing bytes that are no longer there.
+                let admitted = try await LocalMediaAdmission().admitAll(ordered.map(\.url))
+                try Task.checkCancellation()
+                var media: [LocalMediaRole: LocalMediaAsset] = [:]
+                for (index, entry) in ordered.enumerated() {
+                    media[entry.role] = admitted.assets[index]
                 }
-            }.value
+                let builder = StandaloneFCPXMLExportBuilder(gate: gate, registry: exportRegistry)
+                let package: StandaloneFCPXMLExportBuilder.Package
+                if let editorialExecution {
+                    package = try builder.export(
+                        admitted: editorialExecution,
+                        mediaEvidence: admitted.evidence,
+                        preparedRenderedAsset: preparedRenderedAsset,
+                        installedFinalCut: installed
+                    )
+                } else {
+                    package = try builder.export(
+                        plan: plan,
+                        media: media,
+                        mediaEvidence: admitted.evidence,
+                        preparedRenderedAsset: preparedRenderedAsset,
+                        installedFinalCut: installed
+                    )
+                }
+                // The builder may have crossed its atomic rename before a
+                // cancellation arrived. Return that durable fact; the main
+                // actor's generation check will classify it as stale.
+                return .built(package)
+            } catch is CancellationError {
+                return .cancelled
+            } catch {
+                return Task.isCancelled ? .cancelled : .failed(error.localizedDescription)
+            }
+        }
+        projectExportTask = task
+        Task { [weak self] in
+            let outcome = await task.value
+            self?.finishProjectExport(outcome, generation: generation)
+        }
+    }
 
-            guard let self else { return }
-            self.isExportingProject = false
+    /// Publishes only the completion whose generation still owns current UI
+    /// state. A package returned by an invalidated generation is retained as a
+    /// stale on-disk artifact and can never masquerade as the current export.
+    private func finishProjectExport(_ outcome: ProjectExportOutcome, generation: UUID) {
+        let producedArtifact: Bool
+        if case .built = outcome { producedArtifact = true } else { producedArtifact = false }
+        let disposition = projectExportGenerationState.completeProjectExport(
+            generation: generation,
+            currentNotice: noticeMessage,
+            producedArtifact: producedArtifact
+        )
+
+        switch disposition {
+        case .stale(let retainArtifact, let evictOldestCount):
+            if retainArtifact, case .built(let package) = outcome {
+                staleExportedProjects.append(package)
+                if evictOldestCount > 0 {
+                    staleExportedProjects.removeFirst(min(evictOldestCount, staleExportedProjects.count))
+                }
+            }
+            return
+        case .current(let mayReplaceCurrentNotice):
+            projectExportTask = nil
+            isExportingProject = false
+
             switch outcome {
-            case .success(let package):
-                self.exportedProject = package
-                self.noticeMessage = "Generated a new Final Cut project at \(package.packageRoot.path). Import it by hand — nothing was modified."
-            case .failure(let error):
-                self.errorMessage = error.localizedDescription
+            case .built(let package):
+                exportedProject = package
+                if mayReplaceCurrentNotice {
+                    noticeMessage = "Generated a new Final Cut project at \(package.packageRoot.path). Import it by hand — nothing was modified."
+                }
+            case .failed(let message):
+                errorMessage = message
+            case .cancelled:
+                break
             }
         }
     }
@@ -656,7 +873,6 @@ private final class AppModel: ObservableObject {
 private struct ContentView: View {
     @StateObject private var model = AppModel()
     @State private var wantsSecondClip = false
-    @State private var wantsOverlay = false
 
     var body: some View {
         // Scrolls because the content is taller than the window at any
@@ -717,11 +933,6 @@ private struct ContentView: View {
                                   onOpen: { openPanel(for: .incoming) }, onDrop: { admit($0, as: .incoming) },
                                   onClear: { model.clear(.incoming); collapseIfEmpty() })
                 }
-                if showsOverlay {
-                    MediaSlotView(role: .overlay, media: model.overlay, loading: model.loadingRole == .overlay,
-                                  onOpen: { openPanel(for: .overlay) }, onDrop: { admit($0, as: .overlay) },
-                                  onClear: { model.clear(.overlay); collapseIfEmpty() })
-                }
             }
             HStack(spacing: 14) {
                 if !showsSecondClip {
@@ -729,21 +940,14 @@ private struct ContentView: View {
                         Label("Add clips for a transition", systemImage: "plus")
                     }.buttonStyle(.borderless).font(.caption)
                 }
-                if !showsOverlay {
-                    Button { wantsOverlay = true } label: {
-                        Label("Add an overlay texture", systemImage: "plus")
-                    }.buttonStyle(.borderless).font(.caption)
-                }
             }
         }
     }
 
     private var showsSecondClip: Bool { wantsSecondClip || model.outgoing != nil || model.incoming != nil }
-    private var showsOverlay: Bool { wantsOverlay || model.overlay != nil }
 
     private func collapseIfEmpty() {
         if model.outgoing == nil && model.incoming == nil { wantsSecondClip = false }
-        if model.overlay == nil { wantsOverlay = false }
     }
 
     private var content: some View {
@@ -815,9 +1019,14 @@ private struct ContentView: View {
                         Label(model.isExportingProject ? "Generating…" : "Create Project", systemImage: "film")
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!result.standaloneExportDecision.allowed || model.isExportingProject)
+                    .disabled(
+                        !result.standaloneExportDecision.allowed ||
+                        model.isExportingProject ||
+                        model.renderedProjectExportRefusal != nil
+                    )
                     .help(result.standaloneExportDecision.allowed
-                          ? "Writes a new Final Cut project you import by hand."
+                          ? (model.renderedProjectExportRefusal
+                             ?? "Writes a new Final Cut project you import by hand.")
                           : result.standaloneExportDecision.reason)
                 }
 
@@ -868,7 +1077,28 @@ private struct ContentView: View {
                     .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let channels = model.previewChannels, let media = model.primary {
+            if let rendered = model.renderedPreview {
+                RenderedTreatmentPreview(asset: rendered)
+                    .id(rendered.sha256)
+                if let refusal = model.renderedProjectExportRefusal {
+                    Label("Preview-only for this input: \(refusal)", systemImage: "film.badge.exclamationmark")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if model.isRenderingPreview {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Rendering the exact treatment preview…")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            } else if model.currentPlanRequiresRenderedPreview {
+                Label("The exact rendered preview is unavailable. Project export remains closed.", systemImage: "eye.slash")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else if let channels = model.previewChannels, let media = model.primary {
                 EffectPreview(media: media, channels: channels)
             } else if let channels = model.previewChannels, channels.transition != nil {
                 Label("This viewer does not render two-clip transition descriptors. The registered shared construction is used when export is allowed.", systemImage: "eye.slash")
@@ -895,6 +1125,16 @@ private struct ContentView: View {
             }
             if let project = model.exportedProject {
                 GeneratedProjectSummary(package: project)
+            }
+            if let stale = model.staleExportedProjects.last {
+                Label(
+                    "Stale export retained on disk (not the current plan): \(stale.packageRoot.path)",
+                    systemImage: "clock.badge.exclamationmark"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -1080,13 +1320,80 @@ private struct MediaSlotView: View {
     }
 }
 
+/// A small AVFoundation-backed player surface.
+///
+/// `AVKit.VideoPlayer` currently aborts while instantiating its private
+/// SwiftUI representable on the supported macOS 26.3 runtime. Keeping the
+/// player on an ordinary `AVPlayerLayer` avoids that framework crash while
+/// still playing the exact prepared bytes used by project export.
+private final class PlayerLayerView: NSView {
+    let playerLayer = AVPlayerLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer = playerLayer
+        playerLayer.videoGravity = .resizeAspect
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        playerLayer.frame = bounds
+    }
+}
+
+private struct PlayerLayerRepresentable: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> PlayerLayerView {
+        let view = PlayerLayerView(frame: .zero)
+        view.playerLayer.player = player
+        return view
+    }
+
+    func updateNSView(_ nsView: PlayerLayerView, context: Context) {
+        if nsView.playerLayer.player !== player {
+            nsView.playerLayer.player?.pause()
+            nsView.playerLayer.player = player
+        }
+    }
+
+    static func dismantleNSView(_ nsView: PlayerLayerView, coordinator: ()) {
+        nsView.playerLayer.player?.pause()
+        nsView.playerLayer.player = nil
+    }
+}
+
+private struct StableVideoPreview: View {
+    @State private var player: AVPlayer
+
+    init(url: URL) {
+        let player = AVPlayer(url: url)
+        // Source clips can contain audio. The preview is contextual, not an
+        // audio audition, and may coexist briefly with other SwiftUI views.
+        player.isMuted = true
+        _player = State(initialValue: player)
+    }
+
+    var body: some View {
+        PlayerLayerRepresentable(player: player)
+            .onAppear { player.play() }
+            .onDisappear { player.pause() }
+    }
+}
+
 private struct SourcePreview: View {
     let media: LocalMediaAsset
 
     var body: some View {
         switch media.kind {
         case .movie:
-            VideoPlayer(player: AVPlayer(url: media.url))
+            StableVideoPreview(url: media.url)
+                .id(media.itemID)
         case .still:
             if let image = NSImage(contentsOf: media.url) {
                 Image(nsImage: image).resizable().scaledToFit()
@@ -1198,6 +1505,61 @@ private struct GeneratedProjectSummary: View {
         .padding(10)
         .background(.quaternary)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// Plays the immutable treatment movie that project export will copy. This is
+/// intentionally not a reconstruction or a lightweight approximation.
+private struct RenderedTreatmentPreview: View {
+    let asset: RenderedEffectAsset
+    @State private var player: AVQueuePlayer
+    // Retaining the looper gives the four-second treatment a continuously
+    // inspectable preview without introducing transport controls that imply
+    // editable timing. Rendered treatment assets are verified video-only.
+    @State private var looper: AVPlayerLooper
+
+    init(asset: RenderedEffectAsset) {
+        self.asset = asset
+        let player = AVQueuePlayer()
+        let looper = AVPlayerLooper(
+            player: player,
+            templateItem: AVPlayerItem(url: asset.url)
+        )
+        _player = State(initialValue: player)
+        _looper = State(initialValue: looper)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PlayerLayerRepresentable(player: player)
+                .frame(height: 300)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            HStack(spacing: 8) {
+                Text("Exact rendered treatment")
+                    .font(.caption.bold())
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Color.green.opacity(0.18))
+                    .foregroundStyle(.green)
+                    .clipShape(Capsule())
+                Text("\(asset.width)×\(asset.height) · \(asset.fps) fps · \(asset.codec)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Reveal") {
+                    NSWorkspace.shared.activateFileViewerSelecting([asset.url])
+                }
+                .controlSize(.small)
+            }
+            Text("SHA-256 \(asset.sha256) · these exact bytes are copied into the Final Cut project package.")
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .lineLimit(2)
+        }
+        .onAppear { player.play() }
+        .onDisappear { player.pause() }
     }
 }
 

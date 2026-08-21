@@ -11,6 +11,7 @@ let package = Package(
         .executable(name: "fcpcommandconsole-planner-helper", targets: ["FCPCommandConsolePlannerHelper"]),
         .executable(name: "fcpcommandconsole-roundtrip-spike", targets: ["FCPCommandConsoleRoundTripSpike"]),
         .executable(name: "fcpcommandconsole-living-still-probe", targets: ["FCPCommandConsoleLivingStillProbe"]),
+        .executable(name: "fcpcommandconsole-connected-rendered-movie-probe", targets: ["FCPCommandConsoleConnectedRenderedMovieProbe"]),
         .executable(name: "fcpcommandconsole-native-effect-probe", targets: ["FCPCommandConsoleNativeEffectProbe"]),
         .executable(name: "fcpcommandconsole-standalone-export", targets: ["FCPCommandConsoleStandaloneExport"]),
         .executable(name: "fcpcommandconsole-bakeoff", targets: ["FCPCommandConsoleBakeoff"]),
@@ -46,6 +47,11 @@ let package = Package(
             name: "FCPCommandConsoleLivingStillProbe",
             dependencies: ["FCPCommandConsoleCore"],
             path: "Sources/FCPCommandConsoleLivingStillProbe"
+        ),
+        .executableTarget(
+            name: "FCPCommandConsoleConnectedRenderedMovieProbe",
+            dependencies: ["FCPCommandConsoleCore"],
+            path: "Sources/FCPCommandConsoleConnectedRenderedMovieProbe"
         ),
         .executableTarget(
             name: "FCPCommandConsoleNativeEffectProbe",

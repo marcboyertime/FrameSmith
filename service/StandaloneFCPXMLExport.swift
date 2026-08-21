@@ -147,9 +147,66 @@ public protocol StandaloneEffectEmitter: Sendable {
 
 // MARK: - Living still
 
-public struct LivingStillStandaloneEmitter: StandaloneEffectEmitter {
+public struct LivingStillStandaloneEmitter: StandaloneRenderedEffectEmitter {
     public let effectID: EffectID = .livingStill
     public init() {}
+
+    private struct Settings {
+        let rate = NativeFCPXMLFrameRate.thirty
+        let durationFrames: Int
+        let motionStrength: Double
+        let pushIn: Double
+        let panX: Double
+        let panY: Double
+        let depthSmoothing: Double
+        let outputLongEdge: Int
+    }
+
+    private func settings(plan: EffectPlan) throws -> Settings {
+        let requiredKeys: Set<String> = [
+            "durationSeconds", "motionStrength", "pushIn", "panX", "panY",
+            "depthSmoothing", "outputLongEdge", "fps", "modelID",
+            "motionMethod", "preserveOriginal"
+        ]
+        guard Set(plan.parameters.keys) == requiredKeys else {
+            throw StandaloneExportError.invalidRecipe("Living Still parameters must exactly match the production registry")
+        }
+        func number(_ key: String, minimum: Double, maximum: Double) throws -> Double {
+            guard let value = plan.parameters[key]?.numberValue,
+                  value.isFinite, (minimum...maximum).contains(value) else {
+                throw StandaloneExportError.invalidRecipe("Living Still \(key) must be a finite number in \(minimum)...\(maximum)")
+            }
+            return value
+        }
+        func integer(_ key: String, minimum: Int, maximum: Int) throws -> Int {
+            guard let value = plan.parameters[key]?.numberValue,
+                  value.isFinite, value.rounded() == value,
+                  value >= Double(minimum), value <= Double(maximum) else {
+                throw StandaloneExportError.invalidRecipe("Living Still \(key) must be an integer in \(minimum)...\(maximum)")
+            }
+            return Int(value)
+        }
+        guard plan.parameters["fps"] == .integer(30),
+              plan.parameters["modelID"] == .string("apple.coreml.depth-anything-v2-small-f16@cfef6f6f2a70783dedc0bfae40cecbc2052285d3"),
+              plan.parameters["motionMethod"] == .string("coreml-continuous-depth-warp-v2"),
+              plan.parameters["preserveOriginal"] == .boolean(true) else {
+            throw StandaloneExportError.invalidRecipe("Living Still renderer invariants drifted")
+        }
+        let rate = NativeFCPXMLFrameRate.thirty
+        let durationFrames = rate.frames(seconds: try number("durationSeconds", minimum: 0.1, maximum: 30))
+        guard durationFrames > 0 else {
+            throw StandaloneExportError.invalidRecipe("Living Still duration contains no frames")
+        }
+        return Settings(
+            durationFrames: durationFrames,
+            motionStrength: try number("motionStrength", minimum: 0, maximum: 1),
+            pushIn: try number("pushIn", minimum: 0, maximum: 0.12),
+            panX: try number("panX", minimum: -0.04, maximum: 0.04),
+            panY: try number("panY", minimum: -0.04, maximum: 0.04),
+            depthSmoothing: try number("depthSmoothing", minimum: 0, maximum: 1),
+            outputLongEdge: try integer("outputLongEdge", minimum: 640, maximum: 3840)
+        )
+    }
 
     public func channels(
         plan: EffectPlan,
@@ -157,43 +214,16 @@ public struct LivingStillStandaloneEmitter: StandaloneEffectEmitter {
     ) throws -> NativeFCPXMLEffectChannels {
         guard let asset = media[.primary] else { throw StandaloneExportError.missingMedia(.primary) }
         guard asset.kind == .still else { throw StandaloneExportError.wrongMediaKind("Living Still requires admitted still media") }
-        let rate = NativeFCPXMLFrameRate.thirty
-        let width = asset.dimensions.width
-        let height = asset.dimensions.height
-        let composition: LivingStillComposition
-        do { composition = try LivingStillCompositionBuilder.build(from: plan) }
-        catch { throw StandaloneExportError.invalidRecipe(error.localizedDescription) }
-        let durationFrames = max(1, rate.frames(seconds: composition.durationSeconds))
-        let fadeFrames = max(0, min(durationFrames, rate.frames(seconds: composition.fadeDurationSeconds)))
-        let final = durationFrames - 1
-        let start = composition.transformKeyframes[0]
-        let end = composition.transformKeyframes[1]
+        let settings = try settings(plan: plan)
 
         return NativeFCPXMLEffectChannels(
-            transform: .pushInAndPan(
-                startFrame: 0,
-                endFrame: final,
-                rate: rate,
-                panXFraction: end.panX,
-                panYFraction: end.panY,
-                scaleStart: start.scale,
-                scaleEnd: end.scale,
-                width: width,
-                height: height
-            ),
-            opacity: .fade(
-                fadeStartFrame: max(0, durationFrames - fadeFrames),
-                endFrame: final,
-                rate: rate,
-                startOpacity: composition.opacityKeyframes.first?.opacity ?? 1,
-                endOpacity: composition.opacityKeyframes.last?.opacity ?? 0
-            ),
-            // Captured one-point adapter: no arbitrary colorEnrichment mapping.
-            saturation: NativeFCPXMLColorAdjustments.capturedLivingStillSaturation,
-            durationSeconds: Double(durationFrames) / Double(rate.framesPerSecond),
+            transform: NativeFCPXMLTransformChannel(),
+            opacity: NativeFCPXMLOpacityChannel(),
+            saturation: nil,
+            durationSeconds: Double(settings.durationFrames) / Double(settings.rate.framesPerSecond),
             origin: .still,
-            frameWidth: width,
-            frameHeight: height
+            frameWidth: asset.dimensions.width,
+            frameHeight: asset.dimensions.height
         )
     }
 
@@ -203,46 +233,108 @@ public struct LivingStillStandaloneEmitter: StandaloneEffectEmitter {
         publishedMediaURLs: [LocalMediaRole: URL],
         version: String
     ) throws -> String {
-        guard let asset = media[.primary], let url = publishedMediaURLs[.primary] else {
-            throw StandaloneExportError.missingMedia(.primary)
-        }
-        let rate = NativeFCPXMLFrameRate.thirty
-        let width = asset.dimensions.width
-        let height = asset.dimensions.height
+        throw StandaloneExportError.invalidRecipe("Living Still requires its checksum-bound prepared depth render")
+    }
 
-        let resources = NativeFCPXMLStillResources(
-            sequenceFormatID: "r1",
-            assetID: "r2",
-            stillFormatID: "r3",
-            name: asset.itemID,
-            mediaURL: url,
-            width: width,
-            height: height,
-            frameRate: rate
+    public func prepareRenderedAsset(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset],
+        outputRoot: URL
+    ) throws -> RenderedEffectAsset {
+        guard let asset = media[.primary] else { throw StandaloneExportError.missingMedia(.primary) }
+        guard asset.kind == .still else { throw StandaloneExportError.wrongMediaKind("Living Still requires admitted still media") }
+        let settings = try settings(plan: plan)
+        let geometry = try RenderedOutputGeometry(
+            source: asset.dimensions,
+            maximumLongEdge: settings.outputLongEdge
         )
-        // Built from the shared construction, never re-derived here.
-        let built = try channels(plan: plan, media: media)
-        let transform = built.transform
-        let opacity = built.opacity
-        let colorFilter = NativeFCPXMLColorAdjustments.filterNode(ref: "r4", saturation: built.saturation ?? NativeFCPXMLColorAdjustments.capturedLivingStillSaturation)
+        let seed = UInt64(asset.sha256.prefix(16), radix: 16) ?? 0
+        let request = LivingStillDepthRenderRequest(
+            sourceURL: URL(fileURLWithPath: asset.canonicalPath),
+            sourceSHA256: asset.sha256,
+            targetWidth: geometry.width,
+            targetHeight: geometry.height,
+            durationSeconds: Double(settings.durationFrames) / Double(settings.rate.framesPerSecond),
+            fps: settings.rate.framesPerSecond,
+            motionStrength: settings.motionStrength,
+            pushIn: settings.pushIn,
+            panX: settings.panX,
+            panY: settings.panY,
+            depthSmoothing: settings.depthSmoothing,
+            seed: seed,
+            aspectPolicy: .aspectFitEdgeExtended
+        )
+        let artifact: LivingStillDepthRenderArtifact
+        do {
+            artifact = try LivingStillDepthRenderer().render(request, in: outputRoot)
+        } catch {
+            throw StandaloneExportError.invalidRecipe(error.localizedDescription)
+        }
+        guard artifact.codec == "prores",
+              artifact.codecProfile == "HQ",
+              artifact.codecFourCC == "apch",
+              artifact.pixelFormat == "yuv422p10le",
+              artifact.videoOnly else {
+            throw StandaloneExportError.admittedArtifactMismatch(
+                "Living Still renderer did not produce verified video-only ProRes 422 HQ (prores/HQ/apch/yuv422p10le)"
+            )
+        }
+        let modelHashes = artifact.model.sourceFileHashes
+            .map { "\($0.relativePath)=\($0.sha256)" }
+            .sorted()
+            .joined(separator: ";")
+        return RenderedEffectAsset(
+            url: artifact.movieURL,
+            sha256: artifact.movieSHA256,
+            constructionDigest: try RenderedConstructionIdentity.digest(plan: plan, media: media),
+            rendererRecipeDigest: artifact.recipeDigest,
+            sourceSHA256: artifact.sourceSHA256,
+            width: artifact.width,
+            height: artifact.height,
+            fps: artifact.fps,
+            frameCount: artifact.frameCount,
+            durationSeconds: artifact.durationSeconds,
+            videoFormat: .proRes422HQ10Bit,
+            videoOnly: artifact.videoOnly,
+            provenance: [
+                "renderer": LivingStillDepthRenderRequest.currentDeterministicVersion,
+                "model": "\(artifact.model.identifier)@\(artifact.model.sourceRevision)",
+                "modelSource": artifact.model.sourceURL.absoluteString,
+                "modelSourceHashes": modelHashes,
+                "compiledModelDigest": artifact.model.compiledArtifactDigest,
+                "depthFieldDigest": artifact.depthFieldDigest,
+                "rawDepthFieldDigest": artifact.rawDepthFieldDigest,
+                "runtime": "\(artifact.runtime.operatingSystem);\(artifact.runtime.architecture);\(artifact.runtime.coreMLComputeUnits)",
+                "aspectPolicy": artifact.aspectPolicy.rawValue,
+                "codec": artifact.codec,
+                "codecProfile": artifact.codecProfile,
+                "codecFourCC": artifact.codecFourCC,
+                "pixelFormat": artifact.pixelFormat,
+                "overscanScale": String(artifact.overscanScale),
+                "maximumDepthDisplacementPixels": String(artifact.maximumDepthDisplacementPixels),
+                "motionMethod": "coreml-continuous-depth-warp-v2"
+            ]
+        )
+    }
 
-        var children: [NativeFCPXMLNode] = []
-        if let node = transform.node { children.append(node) }
-        if let node = opacity.node { children.append(node) }
-        children.append(colorFilter)
-
-        let duration = rate.time(frames: max(1, rate.frames(seconds: built.durationSeconds)))
-        let video = resources.videoNode(offset: .zero, duration: duration, children: children)
-        let name = StandaloneFCPXMLExportBuilder.projectName(for: plan)
-        return NativeFCPXMLDocument(
-            version: version,
-            resources: resources.resourceNodes + [NativeFCPXMLColorAdjustments.effectNode(id: "r4")],
-            eventName: name,
-            projectName: name,
-            sequenceFormatID: "r1",
-            sequenceDuration: duration,
-            spineChildren: [video]
-        ).xmlString
+    public func emitPreparedDocument(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset],
+        publishedMediaURLs: [LocalMediaRole: URL],
+        preparedAsset: RenderedEffectAsset,
+        publishedPreparedURL: URL,
+        version: String
+    ) throws -> String {
+        let settings = try settings(plan: plan)
+        return try RenderedOverlayFCPXML.document(
+            plan: plan,
+            media: media,
+            publishedMediaURLs: publishedMediaURLs,
+            preparedAsset: preparedAsset,
+            publishedPreparedURL: publishedPreparedURL,
+            durationFrames: settings.durationFrames,
+            version: version
+        )
     }
 }
 
@@ -386,15 +478,19 @@ public struct TargetedRotateZoomStandaloneEmitter: StandaloneEffectEmitter {
 /// and why `standaloneFCPXMLExport` refuses a Final Cut selection outright.
 ///
 /// Everything else the gate enforces still applies in full: schema v2, every
-/// source matched on path and digest, and the effect's semantic contracts
-/// admitted for the installed Final Cut build.
+/// source identity matched on item/path/digest, every supplied role matched to
+/// the exact typed context captured during admission, and the effect's semantic
+/// contracts admitted for the installed Final Cut build.
 public struct StandaloneFCPXMLExportBuilder: Sendable {
     public static let preferredFCPXMLVersion = "1.14"
     public static let defaultOutputRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Movies/FCPCommandConsole/exports/standalone", isDirectory: true)
+    public static let defaultRenderCacheRoot = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Movies/FCPCommandConsole/renders/prepared", isDirectory: true)
 
     public let gate: CapabilityGate
     public let outputRoot: URL
+    public let renderCacheRoot: URL
     public let fcpxmlVersion: String
     public let emitters: [EffectID: any StandaloneEffectEmitter]
     public let catalog: StandaloneEmitterCatalog
@@ -404,12 +500,14 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
     public init(
         gate: CapabilityGate,
         outputRoot: URL = StandaloneFCPXMLExportBuilder.defaultOutputRoot,
+        renderCacheRoot: URL = StandaloneFCPXMLExportBuilder.defaultRenderCacheRoot,
         fcpxmlVersion: String = StandaloneFCPXMLExportBuilder.preferredFCPXMLVersion,
         emitters: [any StandaloneEffectEmitter] = [LivingStillStandaloneEmitter(), TargetedRotateZoomStandaloneEmitter(), NaturalDissolveStandaloneEmitter(), OldTelevisionStandaloneEmitter()],
         registry: EffectRegistry? = nil
     ) {
         self.gate = gate
         self.outputRoot = outputRoot
+        self.renderCacheRoot = renderCacheRoot
         self.fcpxmlVersion = fcpxmlVersion
         self.catalog = StandaloneEmitterCatalog(emitters: emitters)
         self.emitters = catalog.emitters
@@ -434,6 +532,9 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         public let instructionsURL: URL
         public let provenanceURL: URL
         public let mediaSHA256: [String: String]
+        /// SHA of the exact treatment movie previewed and copied into the
+        /// package, when this is a rendered construction.
+        public let renderedAssetSHA256: String?
         public let fcpxmlVersion: String
         /// The exact Final Cut build whose profile authorised this export.
         public let admittedAgainst: FinalCutVersionIdentity?
@@ -443,6 +544,7 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         plan: EffectPlan,
         media: [LocalMediaRole: LocalMediaAsset],
         mediaEvidence: AdmittedLocalMediaEvidence,
+        preparedRenderedAsset: RenderedEffectAsset? = nil,
         installedFinalCut: FinalCutVersionIdentity? = InstalledFinalCutVersionReader().read(),
         generatedAt: Date = Date()
     ) throws -> Package {
@@ -466,6 +568,21 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
             try gate.require(plan, capability: .standaloneFCPXMLExport, mediaEvidence: mediaEvidence)
         } catch {
             throw StandaloneExportError.capabilityRefused(error.localizedDescription)
+        }
+        guard mediaEvidence.covers(media: media) else {
+            throw StandaloneExportError.capabilityRefused(
+                "standalone_fcpxml_export media roles do not match the exact typed context captured during local admission"
+            )
+        }
+
+        let renderedEmitter = emitter as? any StandaloneRenderedEffectEmitter
+        if renderedEmitter != nil {
+            try ConnectedRenderedMovieAdmissionScope.validateContext(
+                plan: plan,
+                media: media,
+                installedFinalCut: installedFinalCut,
+                fcpxmlVersion: fcpxmlVersion
+            )
         }
 
         // 2. An emitter must exist. A gate pass without one is a real gap, not
@@ -501,8 +618,49 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
                 publishedURLs[role] = packageRoot.appendingPathComponent("Media/\(filename)")
             }
 
-            let xml = try emitter.emitDocument(
-                plan: plan, media: media, publishedMediaURLs: publishedURLs, version: fcpxmlVersion)
+            let prepared: RenderedEffectAsset?
+            let xml: String
+            if let renderedEmitter {
+                let asset = try preparedRenderedAsset ?? renderedEmitter.prepareRenderedAsset(
+                    plan: plan, media: media, outputRoot: renderCacheRoot)
+                try ConnectedRenderedMovieAdmissionScope.validatePreparedAsset(asset)
+                try asset.validate(plan: plan, media: media)
+
+                let generatedRoot = mediaRoot.appendingPathComponent("Generated", isDirectory: true)
+                try fileManager.createDirectory(at: generatedRoot, withIntermediateDirectories: false)
+                let destination = generatedRoot.appendingPathComponent(asset.url.lastPathComponent)
+                guard !fileManager.fileExists(atPath: destination.path) else {
+                    throw StandaloneExportError.admittedArtifactMismatch("generated treatment filename collides inside the package")
+                }
+                try fileManager.copyItem(at: asset.url, to: destination)
+                let copied = try ContentHasher.sha256File(destination)
+                guard copied == asset.sha256 else {
+                    throw StandaloneExportError.admittedArtifactMismatch("prepared treatment digest changed during package copy")
+                }
+                hashes["Generated/\(asset.url.lastPathComponent)"] = copied
+                let published = packageRoot.appendingPathComponent("Media/Generated/\(asset.url.lastPathComponent)")
+                // Seal the admitted XML shape at the final boundary as well as
+                // the media tuple. A caller-injected rendered emitter may
+                // prepare pixels, but cannot generalize the recorded lane,
+                // offset, start, duration, parent, or intrinsic semantics.
+                xml = try RenderedOverlayFCPXML.document(
+                    plan: plan,
+                    media: media,
+                    publishedMediaURLs: publishedURLs,
+                    preparedAsset: asset,
+                    publishedPreparedURL: published,
+                    durationFrames: ConnectedRenderedMovieAdmissionScope.frameCount,
+                    version: fcpxmlVersion
+                )
+                prepared = asset
+            } else {
+                guard preparedRenderedAsset == nil else {
+                    throw StandaloneExportError.admittedArtifactMismatch("a rendered asset was supplied for a native construction")
+                }
+                xml = try emitter.emitDocument(
+                    plan: plan, media: media, publishedMediaURLs: publishedURLs, version: fcpxmlVersion)
+                prepared = nil
+            }
             guard let data = xml.data(using: .utf8) else { throw StandaloneExportError.malformedGeneratedXML }
             let fcpxmlURL = stagingRoot.appendingPathComponent("FrameSmith.fcpxml")
             try data.write(to: fcpxmlURL, options: .atomic)
@@ -520,6 +678,7 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
                 admittedContracts: ManualFCPXMLSemanticsEvidence
                     .requiredContracts(for: plan.effectID).map(\.rawValue).sorted(),
                 mediaSHA256: hashes,
+                renderedAsset: prepared.map(RenderedEffectAssetProvenance.init),
                 claim: Self.claimStatement
             )
             let encoder = JSONEncoder()
@@ -541,6 +700,7 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
                 instructionsURL: packageRoot.appendingPathComponent("README.md"),
                 provenanceURL: packageRoot.appendingPathComponent("provenance.json"),
                 mediaSHA256: hashes,
+                renderedAssetSHA256: prepared?.sha256,
                 fcpxmlVersion: fcpxmlVersion,
                 admittedAgainst: installedFinalCut
             )
@@ -565,6 +725,7 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         public let admittedAgainstFinalCut: String?
         public let admittedContracts: [String]
         public let mediaSHA256: [String: String]
+        public let renderedAsset: RenderedEffectAssetProvenance?
         public let claim: String
     }
 
@@ -650,6 +811,7 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
     public func export(
         admitted execution: AdmittedTreatmentExecution,
         mediaEvidence: AdmittedLocalMediaEvidence,
+        preparedRenderedAsset: RenderedEffectAsset? = nil,
         installedFinalCut: FinalCutVersionIdentity? = InstalledFinalCutVersionReader().read(),
         generatedAt: Date = Date()
     ) throws -> Package {
@@ -658,6 +820,13 @@ public struct StandaloneFCPXMLExportBuilder: Sendable {
         let current = try emitter.channels(plan: execution.treatment.effectPlan, media: execution.media)
         guard execution.channels.matches(current) else { throw StandaloneExportError.admittedArtifactMismatch("channel digest \(AdmittedChannelSnapshot(channels: current).digest) does not match \(execution.channels.digest)") }
         guard execution.registryEffectID == execution.treatment.effectPlan.effectID.rawValue else { throw StandaloneExportError.admittedArtifactMismatch("registry effect identity drifted") }
-        return try export(plan: execution.treatment.effectPlan, media: execution.media, mediaEvidence: mediaEvidence, installedFinalCut: installedFinalCut, generatedAt: generatedAt)
+        return try export(
+            plan: execution.treatment.effectPlan,
+            media: execution.media,
+            mediaEvidence: mediaEvidence,
+            preparedRenderedAsset: preparedRenderedAsset,
+            installedFinalCut: installedFinalCut,
+            generatedAt: generatedAt
+        )
     }
 }

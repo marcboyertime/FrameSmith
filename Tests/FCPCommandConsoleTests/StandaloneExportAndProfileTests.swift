@@ -1,3 +1,4 @@
+import CoreAudio
 import XCTest
 @testable import FCPCommandConsoleCore
 
@@ -70,18 +71,219 @@ final class StandaloneExportAndProfileTests: XCTestCase {
         )
     }
 
+    private struct RenderedScopeFixture {
+        let root: URL
+        let plan: EffectPlan
+        let parent: LocalMediaAsset
+        let media: [LocalMediaRole: LocalMediaAsset]
+        let evidence: AdmittedLocalMediaEvidence
+        let renderedURL: URL
+    }
+
+    private func renderedScopeFixture() throws -> RenderedScopeFixture {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "framesmith-rendered-admission-\(UUID().uuidString)", isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+
+        let parentURL = root.appendingPathComponent("recorded-parent.mov")
+        try Data("exact admitted parent fixture".utf8).write(to: parentURL)
+        let parent = LocalMediaAsset(
+            itemID: "recorded-parent",
+            url: parentURL,
+            kind: .movie,
+            dimensions: LocalMediaDimensions(width: 1920, height: 1080),
+            durationSeconds: 8,
+            frameRate: 30,
+            hasAudio: true,
+            stillOrientation: nil,
+            moviePreferredTransform: .identity,
+            videoTrackCount: 1,
+            videoScanMode: .progressive,
+            videoCadence: .init(
+                classification: .constant,
+                decodedFrameCount: 240,
+                minimumFrameDurationSeconds: 1.0 / 30.0,
+                maximumFrameDurationSeconds: 1.0 / 30.0
+            ),
+            audioStreams: [.observedUntaggedTwoChannel48k],
+            canonicalPath: parentURL.path,
+            sha256: try ContentHasher.sha256File(parentURL)
+        )
+        let selection = SelectionToken(
+            selectionType: .singleClip,
+            origin: .localMedia,
+            clipIDs: [parent.itemID],
+            sourceIdentities: [parent.sourceIdentity],
+            revision: "rendered-scope"
+        )
+        let plan = try DeterministicPlanner(registry: registry()).plan(
+            request: "Make this old television.",
+            selection: selection
+        )
+        let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [parent]))
+        let renderedURL = root.appendingPathComponent("prepared-hq.mov")
+        try Data("sealed prepared HQ movie".utf8).write(to: renderedURL)
+        return RenderedScopeFixture(
+            root: root,
+            plan: plan,
+            parent: parent,
+            media: [.primary: parent],
+            evidence: evidence,
+            renderedURL: renderedURL
+        )
+    }
+
+    private func preparedAsset(
+        for fixture: RenderedScopeFixture,
+        plan: EffectPlan? = nil,
+        videoFormat: RenderedMovieVideoFormat = .proRes422HQ10Bit,
+        width: Int = 1920,
+        height: Int = 1080,
+        fps: Int = 30,
+        frameCount: Int = 120,
+        durationSeconds: Double = 4,
+        videoOnly: Bool = true
+    ) throws -> RenderedEffectAsset {
+        let scopedPlan = plan ?? fixture.plan
+        return RenderedEffectAsset(
+            url: fixture.renderedURL,
+            sha256: try ContentHasher.sha256File(fixture.renderedURL),
+            constructionDigest: try RenderedConstructionIdentity.digest(
+                plan: scopedPlan,
+                media: fixture.media
+            ),
+            rendererRecipeDigest: String(repeating: "r", count: 64),
+            sourceSHA256: fixture.parent.sha256,
+            width: width,
+            height: height,
+            fps: fps,
+            frameCount: frameCount,
+            durationSeconds: durationSeconds,
+            videoFormat: videoFormat,
+            videoOnly: videoOnly,
+            provenance: ["renderer": OldTelevisionRenderAdapter.rendererVersion]
+        )
+    }
+
+    private func scopeBuilder(
+        _ fixture: RenderedScopeFixture,
+        fcpxmlVersion: String = "1.14"
+    ) -> StandaloneFCPXMLExportBuilder {
+        StandaloneFCPXMLExportBuilder(
+            gate: admittedGate(),
+            outputRoot: fixture.root.appendingPathComponent("exports", isDirectory: true),
+            renderCacheRoot: fixture.root.appendingPathComponent("renders", isDirectory: true),
+            fcpxmlVersion: fcpxmlVersion,
+            registry: try? registry()
+        )
+    }
+
+    private func movieParent(
+        basedOn base: LocalMediaAsset,
+        preferredTransform: LocalMediaAffineTransform = .identity,
+        scanMode: LocalMediaVideoScanMode = .progressive,
+        cadence: LocalMediaVideoCadence = .init(
+            classification: .constant,
+            decodedFrameCount: 240,
+            minimumFrameDurationSeconds: 1.0 / 30.0,
+            maximumFrameDurationSeconds: 1.0 / 30.0
+        ),
+        audioStreams: [LocalMediaAudioStream] = [.observedUntaggedTwoChannel48k]
+    ) -> LocalMediaAsset {
+        LocalMediaAsset(
+            itemID: base.itemID,
+            url: base.url,
+            kind: .movie,
+            dimensions: LocalMediaDimensions(width: 1920, height: 1080),
+            durationSeconds: 8,
+            frameRate: 30,
+            hasAudio: !audioStreams.isEmpty,
+            stillOrientation: nil,
+            moviePreferredTransform: preferredTransform,
+            videoTrackCount: 1,
+            videoScanMode: scanMode,
+            videoCadence: cadence,
+            audioStreams: audioStreams,
+            canonicalPath: base.canonicalPath,
+            sha256: base.sha256
+        )
+    }
+
+    private func stillParent(
+        basedOn base: LocalMediaAsset,
+        orientation: LocalMediaStillOrientation = .up
+    ) -> LocalMediaAsset {
+        LocalMediaAsset(
+            itemID: base.itemID,
+            url: base.url,
+            kind: .still,
+            dimensions: LocalMediaDimensions(width: 1920, height: 1080),
+            durationSeconds: nil,
+            frameRate: nil,
+            hasAudio: false,
+            stillOrientation: orientation,
+            moviePreferredTransform: nil,
+            videoTrackCount: nil,
+            videoScanMode: nil,
+            videoCadence: nil,
+            audioStreams: nil,
+            canonicalPath: base.canonicalPath,
+            sha256: base.sha256
+        )
+    }
+
     // MARK: - Profile
 
     /// Pins the admitted set. Adding a contract here must be a deliberate edit
     /// that fails this test first, not a side effect of another change.
     ///
-    /// It did exactly that on 2026-08-05: the old television pass admitted
-    /// `connectedOverlayLayers` and this assertion failed until the pin was
-    /// updated alongside the evidence.
-    func testProfileAdmitsExactlyTheSixContractsWithRecordedEvidence() {
+    /// It did exactly that on 2026-08-05 for `connectedOverlayLayers`, then on
+    /// 2026-08-08 for the separately probed connected rendered-movie contract:
+    /// each new observation failed this pin until its evidence record landed.
+    func testProfileAdmitsExactlyTheSevenContractsWithRecordedEvidence() {
         let profile = FinalCutSemanticProfileStore.finalCut12_3_450152
         XCTAssertEqual(profile.finalCut, testedBuild)
         XCTAssertEqual(profile.admittedContracts, Set(FCPXMLSemanticContract.allCases))
+        XCTAssertEqual(profile.records.count, 7, "the build-scoped profile must not gain duplicate or implicit records")
+    }
+
+    /// The rendered-movie pass is deliberately narrower than the earlier
+    /// connected-still contract. Pin both returned contexts and the exclusions
+    /// that prevent a successful four-second probe becoming a general movie
+    /// compositing claim.
+    func testConnectedRenderedMovieAdmissionIsBoundedToItsTwoReturnedContexts() throws {
+        let record = try XCTUnwrap(
+            FinalCutSemanticProfileStore.finalCut12_3_450152.record(for: .connectedRenderedMovieLayer)
+        )
+        XCTAssertEqual(record.evidenceDocument, "docs/CONNECTED_RENDERED_MOVIE_ADMISSION_PASS.md")
+        XCTAssertEqual(
+            record.returnedArtifactSHA256,
+            "87c95fa47679788adbff8ac9854bdfa2b485c9acff0bc6c9abdcb573a2cb9bc7"
+        )
+        XCTAssertEqual(record.admittedOn, "2026-08-08")
+
+        let limitations = record.limitations.joined(separator: "\n")
+        let requiredBounds = [
+            "26eb90634a82dbbe7dfc1150a7288c25dc972c973ef1bfce5181ac9af8a377de",
+            "movie <asset-clip>",
+            "still <video>",
+            "video-only Apple ProRes 422 HQ",
+            "1920x1080 at 30 fps",
+            "lane=1",
+            "offset=0s",
+            "duration=4s",
+            "source-audio metadata",
+            "Other codecs",
+            "Other lanes",
+            "blend modes are unobserved",
+            "Editability is NOT established",
+            "do not generalize to retiming"
+        ]
+        for bound in requiredBounds {
+            XCTAssertTrue(limitations.contains(bound), "connected rendered-movie admission must retain bound: \(bound)")
+        }
     }
 
     /// Admission and editability are separate claims, so every contract must
@@ -207,6 +409,380 @@ final class StandaloneExportAndProfileTests: XCTestCase {
 
     // MARK: - Standalone export
 
+    func testRenderedBuilderRefusesWrongFCPXMLVersionOrFinalCutBuild() throws {
+        let fixture = try renderedScopeFixture()
+        let prepared = try preparedAsset(for: fixture)
+
+        XCTAssertThrowsError(try scopeBuilder(fixture, fcpxmlVersion: "1.13").export(
+            plan: fixture.plan,
+            media: fixture.media,
+            mediaEvidence: fixture.evidence,
+            preparedRenderedAsset: prepared,
+            installedFinalCut: testedBuild
+        )) { error in
+            guard case .capabilityRefused(let reason) = error as? StandaloneExportError else {
+                return XCTFail("expected FCPXML scope refusal, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("1.14"), reason)
+        }
+
+        XCTAssertThrowsError(try scopeBuilder(fixture).export(
+            plan: fixture.plan,
+            media: fixture.media,
+            mediaEvidence: fixture.evidence,
+            preparedRenderedAsset: prepared,
+            installedFinalCut: FinalCutVersionIdentity(shortVersion: "12.3", build: "450153")
+        )) { error in
+            guard case .capabilityRefused(let reason) = error as? StandaloneExportError else {
+                return XCTFail("expected Final Cut build scope refusal, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("450152"), reason)
+        }
+    }
+
+    func testRenderedScopeDoesNotChangeTheNativeBuilderPath() throws {
+        let fixture = try renderedScopeFixture()
+        let selection = SelectionToken(
+            selectionType: .singleClip,
+            origin: .localMedia,
+            clipIDs: [fixture.parent.itemID],
+            sourceIdentities: [fixture.parent.sourceIdentity],
+            revision: "native-scope-control"
+        )
+        let nativePlan = try DeterministicPlanner(registry: registry()).plan(
+            request: "Give this a slow clockwise rotation while zooming toward the point I select.",
+            selection: selection,
+            target: .confirmed(x: 0.5, y: 0.5)
+        )
+        let package = try scopeBuilder(fixture).export(
+            plan: nativePlan,
+            media: fixture.media,
+            mediaEvidence: fixture.evidence,
+            installedFinalCut: FinalCutVersionIdentity(shortVersion: "99.0", build: "unprofiled")
+        )
+        XCTAssertNil(package.renderedAssetSHA256)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: package.fcpxmlURL.path))
+    }
+
+    func testRenderedBuilderRefusesWrongCodecGeometryFrameRateFrameCountDurationOrAudio() throws {
+        let fixture = try renderedScopeFixture()
+        let cases: [(String, RenderedEffectAsset)] = try [
+            ("codec profile/fourCC", preparedAsset(for: fixture, videoFormat: .proRes422Standard10Bit)),
+            ("pixel format", preparedAsset(for: fixture, videoFormat: .unsupported(
+                codec: "prores", codecProfile: "HQ", codecFourCC: "apch", pixelFormat: "yuv420p"
+            ))),
+            ("geometry", preparedAsset(for: fixture, width: 1280)),
+            ("frame rate", preparedAsset(for: fixture, fps: 24)),
+            ("frame count", preparedAsset(for: fixture, frameCount: 119)),
+            ("duration", preparedAsset(for: fixture, durationSeconds: 5)),
+            ("audio", preparedAsset(for: fixture, videoOnly: false))
+        ]
+
+        for (dimension, prepared) in cases {
+            XCTAssertThrowsError(try scopeBuilder(fixture).export(
+                plan: fixture.plan,
+                media: fixture.media,
+                mediaEvidence: fixture.evidence,
+                preparedRenderedAsset: prepared,
+                installedFinalCut: testedBuild
+            ), dimension) { error in
+                guard case .admittedArtifactMismatch = error as? StandaloneExportError else {
+                    return XCTFail("\(dimension) should fail as an admitted artifact mismatch, got \(error)")
+                }
+            }
+        }
+    }
+
+    func testPublicRenderedAdmissionDecisionMatchesExactParentAndPreparedAssetScope() throws {
+        let fixture = try renderedScopeFixture()
+        let prepared = try preparedAsset(for: fixture)
+        let provenance = RenderedEffectAssetProvenance(asset: prepared)
+        XCTAssertEqual(provenance.codec, "prores")
+        XCTAssertEqual(provenance.codecProfile, "HQ")
+        XCTAssertEqual(provenance.codecFourCC, "apch")
+        XCTAssertEqual(provenance.pixelFormat, "yuv422p10le")
+        XCTAssertTrue(ConnectedRenderedMovieExportAdmission.decision(
+            plan: fixture.plan,
+            media: fixture.media,
+            preparedAsset: prepared,
+            installedFinalCut: testedBuild
+        ).allowed)
+
+        let invalidMovieParents = [
+            LocalMediaAsset(
+                itemID: fixture.parent.itemID, url: fixture.parent.url, kind: .movie,
+                dimensions: LocalMediaDimensions(width: 1280, height: 720),
+                durationSeconds: 8, frameRate: 30, hasAudio: true,
+                canonicalPath: fixture.parent.canonicalPath, sha256: fixture.parent.sha256
+            ),
+            LocalMediaAsset(
+                itemID: fixture.parent.itemID, url: fixture.parent.url, kind: .movie,
+                dimensions: fixture.parent.dimensions,
+                durationSeconds: 7.9, frameRate: 30, hasAudio: true,
+                canonicalPath: fixture.parent.canonicalPath, sha256: fixture.parent.sha256
+            ),
+            LocalMediaAsset(
+                itemID: fixture.parent.itemID, url: fixture.parent.url, kind: .movie,
+                dimensions: fixture.parent.dimensions,
+                durationSeconds: 8, frameRate: 29.97, hasAudio: true,
+                canonicalPath: fixture.parent.canonicalPath, sha256: fixture.parent.sha256
+            ),
+            LocalMediaAsset(
+                itemID: fixture.parent.itemID, url: fixture.parent.url, kind: .movie,
+                dimensions: fixture.parent.dimensions,
+                durationSeconds: 8, frameRate: 30, hasAudio: false,
+                canonicalPath: fixture.parent.canonicalPath, sha256: fixture.parent.sha256
+            )
+        ]
+        for parent in invalidMovieParents {
+            XCTAssertFalse(ConnectedRenderedMovieExportAdmission.decision(
+                plan: fixture.plan,
+                media: [.primary: parent],
+                preparedAsset: prepared,
+                installedFinalCut: testedBuild
+            ).allowed, "unobserved parent \(parent) must fail closed")
+        }
+    }
+
+    func testRenderedContextRefusesRotatedStillTransformInterlaceVFRCadenceAndAudioLayoutDrift() throws {
+        let fixture = try renderedScopeFixture()
+        let prepared = try preparedAsset(for: fixture)
+
+        let rotatedStill = stillParent(basedOn: fixture.parent, orientation: .right)
+        let livingSelection = SelectionToken(
+            selectionType: .singleClip,
+            origin: .localMedia,
+            clipIDs: [rotatedStill.itemID],
+            sourceIdentities: [rotatedStill.sourceIdentity],
+            revision: "rotated-still"
+        )
+        let livingPlan = try DeterministicPlanner(registry: registry()).plan(
+            request: "Make this a living still.",
+            selection: livingSelection
+        )
+        XCTAssertFalse(ConnectedRenderedMovieExportAdmission.decision(
+            plan: livingPlan,
+            media: [.primary: rotatedStill],
+            preparedAsset: prepared,
+            installedFinalCut: testedBuild
+        ).allowed, "Living Still must reject a 1920x1080 raw still whose orientation decodes as 1080x1920")
+
+        let rotatedMovie = movieParent(
+            basedOn: fixture.parent,
+            preferredTransform: .init(a: 0, b: 1, c: -1, d: 0, tx: 1080, ty: 0)
+        )
+        let interlaced = movieParent(basedOn: fixture.parent, scanMode: .interlaced)
+        let variableRate = movieParent(
+            basedOn: fixture.parent,
+            cadence: .init(
+                classification: .variable,
+                decodedFrameCount: 240,
+                minimumFrameDurationSeconds: 1.0 / 30.0,
+                maximumFrameDurationSeconds: 1.0 / 24.0
+            )
+        )
+        let taggedStereo = movieParent(
+            basedOn: fixture.parent,
+            audioStreams: [.stereo48k]
+        )
+        let mono = movieParent(
+            basedOn: fixture.parent,
+            audioStreams: [.init(
+                sampleRate: 48_000,
+                channelCount: 1,
+                channelLayout: .mono,
+                channelLayoutTag: UInt32(kAudioChannelLayoutTag_Mono)
+            )]
+        )
+        let wrongRate = movieParent(
+            basedOn: fixture.parent,
+            audioStreams: [.init(
+                sampleRate: 44_100,
+                channelCount: 2,
+                channelLayout: .unknown,
+                channelLayoutTag: nil
+            )]
+        )
+        let wrongRawLayoutTag = movieParent(
+            basedOn: fixture.parent,
+            audioStreams: [.init(
+                sampleRate: 48_000,
+                channelCount: 2,
+                channelLayout: .unknown,
+                channelLayoutTag: 0xFFFF_FFFE
+            )]
+        )
+
+        for (dimension, parent) in [
+            ("preferred transform", rotatedMovie),
+            ("interlaced scan", interlaced),
+            ("variable cadence", variableRate),
+            ("tagged stereo instead of the observed nil tag", taggedStereo),
+            ("mono layout", mono),
+            ("audio sample rate", wrongRate),
+            ("raw audio layout tag", wrongRawLayoutTag)
+        ] {
+            XCTAssertFalse(ConnectedRenderedMovieExportAdmission.decision(
+                plan: fixture.plan,
+                media: [.primary: parent],
+                preparedAsset: prepared,
+                installedFinalCut: testedBuild
+            ).allowed, "unobserved \(dimension) must fail closed")
+        }
+
+        XCTAssertNotEqual(
+            try RenderedConstructionIdentity.digest(plan: fixture.plan, media: fixture.media),
+            try RenderedConstructionIdentity.digest(
+                plan: fixture.plan,
+                media: [.primary: interlaced]
+            ),
+            "render identity must bind the media context as well as path and hash"
+        )
+    }
+
+    func testOpaqueEvidenceRejectsForgedTypedContextAtTheBuilderBoundary() throws {
+        let fixture = try renderedScopeFixture()
+        let prepared = try preparedAsset(for: fixture)
+
+        // The evidence was minted for an interlaced observation. A public
+        // constructor can reproduce its item/path/hash while claiming the exact
+        // progressive context, but that claim was never admitted.
+        let actuallyAdmitted = movieParent(
+            basedOn: fixture.parent,
+            scanMode: .interlaced
+        )
+        let evidence = try XCTUnwrap(
+            AdmittedLocalMediaEvidence(admittedAssets: [actuallyAdmitted])
+        )
+        let forgedExactContext = fixture.parent
+
+        XCTAssertTrue(evidence.covers(media: [.primary: actuallyAdmitted]))
+        XCTAssertFalse(evidence.covers(media: [.primary: forgedExactContext]))
+        XCTAssertNil(
+            AdmittedLocalMediaEvidence(
+                admittedAssets: [actuallyAdmitted, forgedExactContext]
+            ),
+            "one opaque token must not bind conflicting contexts to the same source identity"
+        )
+
+        XCTAssertThrowsError(try scopeBuilder(fixture).export(
+            plan: fixture.plan,
+            media: [.primary: forgedExactContext],
+            mediaEvidence: evidence,
+            preparedRenderedAsset: prepared,
+            installedFinalCut: testedBuild
+        )) { error in
+            guard case .capabilityRefused(let reason) = error as? StandaloneExportError else {
+                return XCTFail("expected exact-context evidence refusal, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("exact typed context"), reason)
+        }
+    }
+
+    func testRenderedContextRefusesUnobservedPlanTimingResolutionOpacityAndParentMultiplicity() throws {
+        let fixture = try renderedScopeFixture()
+        var wrongDuration = fixture.plan
+        wrongDuration.parameters["durationSeconds"] = .number(5)
+        var wrongFrameRate = fixture.plan
+        wrongFrameRate.parameters["fps"] = .integer(24)
+        var wrongResolution = fixture.plan
+        wrongResolution.parameters["outputLongEdge"] = .integer(1280)
+        var wrongPreservation = fixture.plan
+        wrongPreservation.parameters["preserveOriginal"] = .boolean(false)
+        var alphaCapable = fixture.plan
+        alphaCapable.generatedAssets[0].alpha = true
+
+        for (dimension, plan) in [
+            ("duration", wrongDuration),
+            ("frame rate", wrongFrameRate),
+            ("resolution", wrongResolution),
+            ("preservation", wrongPreservation),
+            ("alpha", alphaCapable)
+        ] {
+            XCTAssertThrowsError(try ConnectedRenderedMovieAdmissionScope.validateContext(
+                plan: plan,
+                media: fixture.media,
+                installedFinalCut: testedBuild,
+                fcpxmlVersion: "1.14"
+            ), dimension)
+        }
+
+        XCTAssertThrowsError(try ConnectedRenderedMovieAdmissionScope.validateContext(
+            plan: fixture.plan,
+            media: [.primary: fixture.parent, .incoming: fixture.parent],
+            installedFinalCut: testedBuild,
+            fcpxmlVersion: "1.14"
+        ), "only the single recorded parent is admitted")
+    }
+
+    func testOldTelevisionAcceptsBothRecordedParentContextsButLivingStillRemainsStillOnly() throws {
+        let fixture = try renderedScopeFixture()
+        let prepared = try preparedAsset(for: fixture)
+        let still = stillParent(basedOn: fixture.parent)
+        var stillPlan = fixture.plan
+        stillPlan.selectionToken.sourceIdentities = [still.sourceIdentity]
+        let stillMedia: [LocalMediaRole: LocalMediaAsset] = [.primary: still]
+        let stillPrepared = RenderedEffectAsset(
+            url: fixture.renderedURL,
+            sha256: try ContentHasher.sha256File(fixture.renderedURL),
+            constructionDigest: try RenderedConstructionIdentity.digest(plan: stillPlan, media: stillMedia),
+            rendererRecipeDigest: String(repeating: "r", count: 64),
+            sourceSHA256: still.sha256,
+            width: 1920,
+            height: 1080,
+            fps: 30,
+            frameCount: 120,
+            durationSeconds: 4,
+            videoFormat: .proRes422HQ10Bit,
+            videoOnly: true
+        )
+        XCTAssertTrue(ConnectedRenderedMovieExportAdmission.decision(
+            plan: stillPlan,
+            media: stillMedia,
+            preparedAsset: stillPrepared,
+            installedFinalCut: testedBuild
+        ).allowed)
+
+        var livingPlan = stillPlan
+        livingPlan.effectID = .livingStill
+        let livingDefinition = try registry().definition(for: .livingStill)
+        livingPlan.parameters = Dictionary(uniqueKeysWithValues: livingDefinition.parameters.compactMap {
+            parameter in parameter.defaultValue.map { (parameter.name, $0) }
+        })
+        livingPlan.representation = livingDefinition.representation
+        livingPlan.editableProperties = livingDefinition.editableProperties
+        livingPlan.generatedAssets = livingDefinition.generatedAssets
+        livingPlan.previewStrategy = livingDefinition.preview
+        livingPlan.verification = livingDefinition.verification
+        livingPlan.fallback = livingDefinition.fallback
+        let livingPrepared = RenderedEffectAsset(
+            url: fixture.renderedURL,
+            sha256: try ContentHasher.sha256File(fixture.renderedURL),
+            constructionDigest: try RenderedConstructionIdentity.digest(plan: livingPlan, media: stillMedia),
+            rendererRecipeDigest: String(repeating: "r", count: 64),
+            sourceSHA256: still.sha256,
+            width: 1920,
+            height: 1080,
+            fps: 30,
+            frameCount: 120,
+            durationSeconds: 4,
+            videoFormat: .proRes422HQ10Bit,
+            videoOnly: true
+        )
+        XCTAssertTrue(ConnectedRenderedMovieExportAdmission.decision(
+            plan: livingPlan,
+            media: stillMedia,
+            preparedAsset: livingPrepared,
+            installedFinalCut: testedBuild
+        ).allowed)
+        XCTAssertFalse(ConnectedRenderedMovieExportAdmission.decision(
+            plan: livingPlan,
+            media: fixture.media,
+            preparedAsset: prepared,
+            installedFinalCut: testedBuild
+        ).allowed, "Living Still must not inherit Old Television's admitted movie parent")
+    }
+
     func testStandaloneExportIsBlockedWithoutAdmittedMediaEvidence() throws {
         let plan = try localMediaPlan()
         let gate = admittedGate()
@@ -240,7 +816,7 @@ final class StandaloneExportAndProfileTests: XCTestCase {
         var plan = try localMediaPlan()
         plan.effectID = .oldTelevision
         let partial = CapabilityGate(manualSemanticsEvidence: ManualFCPXMLSemanticsEvidence(
-            admittedContracts: Set(FCPXMLSemanticContract.allCases).subtracting([.connectedOverlayLayers])
+            admittedContracts: Set(FCPXMLSemanticContract.allCases).subtracting([.connectedRenderedMovieLayer])
         ))
         let evidence = try admittedEvidence()
         XCTAssertFalse(partial.decision(for: plan, capability: .standaloneFCPXMLExport, mediaEvidence: evidence).allowed)
@@ -250,7 +826,7 @@ final class StandaloneExportAndProfileTests: XCTestCase {
                 .missingManualFCPXMLSemanticsEvidence(
                     capability: .standaloneFCPXMLExport,
                     effectID: .oldTelevision,
-                    missing: [.connectedOverlayLayers]
+                    missing: [.connectedRenderedMovieLayer]
                 )
             )
         }

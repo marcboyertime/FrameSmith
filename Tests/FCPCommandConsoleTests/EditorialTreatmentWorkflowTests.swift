@@ -6,6 +6,25 @@ final class EditorialTreatmentWorkflowTests: XCTestCase {
     private func asset(_ id: String = "still", digest: Character = "a") -> LocalMediaAsset {
         LocalMediaAsset(itemID: id, url: URL(fileURLWithPath: "/tmp/\(id).png"), kind: .still, dimensions: .init(width: 1920, height: 1080), durationSeconds: nil, frameRate: nil, hasAudio: false, canonicalPath: "/tmp/\(id).png", sha256: String(repeating: digest, count: 64))
     }
+    private func asset(_ base: LocalMediaAsset, orientation: LocalMediaStillOrientation) -> LocalMediaAsset {
+        LocalMediaAsset(
+            itemID: base.itemID,
+            url: base.url,
+            kind: .still,
+            dimensions: base.dimensions,
+            durationSeconds: nil,
+            frameRate: nil,
+            hasAudio: false,
+            stillOrientation: orientation,
+            moviePreferredTransform: nil,
+            videoTrackCount: nil,
+            videoScanMode: nil,
+            videoCadence: nil,
+            audioStreams: nil,
+            canonicalPath: base.canonicalPath,
+            sha256: base.sha256
+        )
+    }
     private func registry() throws -> EffectRegistry { try EffectRegistry.load(from: root().appendingPathComponent("registry/effects")) }
     private func workflow() throws -> EditorialTreatmentWorkflow {
         let root = root(); let registry = try registry()
@@ -88,6 +107,35 @@ final class EditorialTreatmentWorkflowTests: XCTestCase {
         let drifted = workflow.snapshot(command: "changed", media: [.primary: still], target: nil, durationFrames: 90)
         XCTAssertNotNil(workflow.invalidateIfDrifted(&state, current: drifted))
         XCTAssertTrue(state.options.isEmpty); XCTAssertNil(state.applied); XCTAssertTrue(state.comparisonIDs.isEmpty); XCTAssertTrue(state.history.isEmpty)
+    }
+
+    func testInputSnapshotDetectsTypedContextDriftBehindTheSameSourceIdentity() throws {
+        var workflow = try workflow()
+        var state = EditorialTreatmentWorkflow.State()
+        let original = asset()
+        let forgedOrientation = asset(original, orientation: .right)
+        XCTAssertEqual(original.sourceIdentity, forgedOrientation.sourceIdentity)
+
+        let admittedSnapshot = workflow.snapshot(
+            command: "quiet",
+            media: [.primary: original],
+            target: nil,
+            durationFrames: 90
+        )
+        let currentSnapshot = workflow.snapshot(
+            command: "quiet",
+            media: [.primary: forgedOrientation],
+            target: nil,
+            durationFrames: 90
+        )
+        state.snapshot = admittedSnapshot
+
+        XCTAssertNotEqual(admittedSnapshot, currentSnapshot)
+        XCTAssertEqual(
+            workflow.invalidateIfDrifted(&state, current: currentSnapshot),
+            "the primary media context changed"
+        )
+        XCTAssertNil(state.snapshot)
     }
 
     func testUseAdoptsExactPlanAndMintsOneFreshOperationID() throws {

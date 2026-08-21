@@ -33,7 +33,13 @@ final class StandaloneExportRouteTests: XCTestCase {
     private func makeAsset() throws -> LocalMediaAsset {
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         let url = scratch.appendingPathComponent("still.png")
-        try Data(repeating: 0x42, count: 512).write(to: url)
+        // This is a complete, decodable 1 x 1 RGBA PNG. The export route now
+        // performs the production depth render, so arbitrary placeholder bytes
+        // would stop before exercising that path.
+        let png = try XCTUnwrap(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        ))
+        try png.write(to: url)
         return LocalMediaAsset(
             itemID: "still",
             url: url,
@@ -100,11 +106,17 @@ final class StandaloneExportRouteTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: package.provenanceURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: package.instructionsURL.path))
         XCTAssertEqual(package.mediaSHA256["still.png"], asset.sha256)
+        let generatedEntries = package.mediaSHA256.filter { $0.key.hasPrefix("Generated/") }
+        XCTAssertEqual(generatedEntries.count, 1, "Living Still must publish exactly one rendered treatment movie")
+        XCTAssertEqual(package.renderedAssetSHA256, generatedEntries.first?.value)
 
         let xml = try String(contentsOf: package.fcpxmlURL, encoding: .utf8)
-        XCTAssertTrue(xml.contains("<adjust-transform"))
-        XCTAssertTrue(xml.contains("<adjust-blend"))
-        XCTAssertTrue(xml.contains("Color Adjustments"))
+        let generatedName = try XCTUnwrap(generatedEntries.first?.key.split(separator: "/").last.map(String.init))
+        XCTAssertTrue(xml.contains(#"<video ref="r3" lane="1" offset="0s" name="\#(generatedName)" start="0s" duration="4s"/>"#))
+        XCTAssertTrue(xml.contains("Media/Generated/\(generatedName)"))
+        XCTAssertFalse(xml.contains("<adjust-transform"), "v2 motion is rendered into the connected movie")
+        XCTAssertFalse(xml.contains("<adjust-blend"), "the admitted v2 layer is opaque, not faded")
+        XCTAssertFalse(xml.contains("Color Adjustments"), "v2 must not fall back to the retired native approximation")
     }
 
     /// The route must not be reachable when the gate would refuse. An empty

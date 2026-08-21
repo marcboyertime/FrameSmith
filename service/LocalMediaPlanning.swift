@@ -13,15 +13,21 @@ public struct LocalMediaPlanInputs: Equatable, Sendable {
     public let request: String
     public let target: Target?
     public let sources: [LocalMediaRole: SourceIdentity]
+    public let sourceContexts: [LocalMediaRole: LocalMediaContextFacts]
 
     public init(request: String, target: Target?, primary: LocalMediaAsset?, outgoing: LocalMediaAsset?, incoming: LocalMediaAsset?) {
         self.request = request
         self.target = target
         var sources: [LocalMediaRole: SourceIdentity] = [:]
+        var sourceContexts: [LocalMediaRole: LocalMediaContextFacts] = [:]
         sources[.primary] = primary?.sourceIdentity
         sources[.outgoing] = outgoing?.sourceIdentity
         sources[.incoming] = incoming?.sourceIdentity
+        sourceContexts[.primary] = primary?.contextFacts
+        sourceContexts[.outgoing] = outgoing?.contextFacts
+        sourceContexts[.incoming] = incoming?.contextFacts
         self.sources = sources
+        self.sourceContexts = sourceContexts
     }
 
     /// The first difference against a later set of inputs, in a fixed order so
@@ -34,7 +40,10 @@ public struct LocalMediaPlanInputs: Equatable, Sendable {
             case (nil, nil): continue
             case (nil, .some): return .sourceAdded(role)
             case (.some, nil): return .sourceRemoved(role)
-            case (.some(let planned), .some(let now)): if planned != now { return .sourceChanged(role) }
+            case (.some(let planned), .some(let now)):
+                if planned != now || sourceContexts[role] != current.sourceContexts[role] {
+                    return .sourceChanged(role)
+                }
             }
         }
         return nil
@@ -144,7 +153,8 @@ public struct LocalMediaPlannerSession {
         let catalog = StandaloneEmitterCatalog()
         if let reason = catalog.absenceReason(for: effectPlan.effectID) {
             standaloneDecision = CapabilityDecision(capability: .standaloneFCPXMLExport, allowed: false, reason: reason)
-        } else if let mediaEvidence = AdmittedLocalMediaEvidence(admittedAssets: admittedAssets) {
+        } else if admittedAssets.allSatisfy(\.hasTrustedAdmissionSeal),
+                  let mediaEvidence = AdmittedLocalMediaEvidence(admittedAssets: admittedAssets) {
             standaloneDecision = capabilityGate.decision(
                 for: admission,
                 capability: .standaloneFCPXMLExport,
@@ -154,7 +164,7 @@ public struct LocalMediaPlannerSession {
             standaloneDecision = CapabilityDecision(
                 capability: .standaloneFCPXMLExport,
                 allowed: false,
-                reason: "No admitted local media to generate a project from"
+                reason: "Standalone export readiness requires genuine local media admission evidence"
             )
         }
 
@@ -193,15 +203,18 @@ public struct LocalMediaPlannerSession {
         let standalone: CapabilityDecision
         let catalog = StandaloneEmitterCatalog()
         if let reason = catalog.absenceReason(for: exactPlan.effectID) { standalone = .init(capability: .standaloneFCPXMLExport, allowed: false, reason: reason) }
-        else if let evidence = AdmittedLocalMediaEvidence(admittedAssets: assets) { standalone = capabilityGate.decision(for: admission, capability: .standaloneFCPXMLExport, mediaEvidence: evidence) }
-        else { standalone = .init(capability: .standaloneFCPXMLExport, allowed: false, reason: "No admitted local media to generate a project from") }
+        else if assets.allSatisfy(\.hasTrustedAdmissionSeal),
+                let evidence = AdmittedLocalMediaEvidence(admittedAssets: assets) {
+            standalone = capabilityGate.decision(for: admission, capability: .standaloneFCPXMLExport, mediaEvidence: evidence)
+        }
+        else { standalone = .init(capability: .standaloneFCPXMLExport, allowed: false, reason: "Standalone export readiness requires genuine local media admission evidence") }
         return LocalMediaPlanningResult(plan: exactPlan, admission: admission, selection: selection, inputs: LocalMediaPlanInputs(request: request, target: target, primary: primary, outgoing: outgoing, incoming: incoming), localPreviewDecision: capabilityGate.decision(for: admission, capability: .localOnlyPreview), inertPackageDecision: capabilityGate.decision(for: admission, capability: .inertPayloadNeutralPackage), fcpxmlExportDecision: capabilityGate.decision(for: admission, capability: .fcpxmlExport), standaloneExportDecision: standalone, baselineParameters: exactPlan.parameters)
     }
 
     /// Proposal generation canonicalizes the session nonce in a local-media
-    /// token so the whole treatment artifact is reproducible.  That nonce is
+    /// token so the whole treatment artifact is reproducible. That nonce is
     /// not media identity or Final Cut evidence; for local media, compare the
-    /// complete remaining token payload.  Timeline-origin tokens retain their
+    /// complete remaining token payload. Timeline-origin tokens retain their
     /// exact tokenID binding and are never relaxed here.
     private func selectionMatchesExactPlan(_ current: SelectionToken, _ proposed: SelectionToken) -> Bool {
         guard current.origin == .localMedia, proposed.origin == .localMedia else {

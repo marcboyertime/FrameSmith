@@ -75,9 +75,9 @@ final class CommandSessionTests: XCTestCase {
     func testFourWorkflowPresentationsExposeTypedPanelState() async throws {
         let cases: [(String, SelectionToken, Target?, EffectID, Bool)] = [
             ("Give this image a slow clockwise rotation while zooming toward the point I select.", try selection(), Target.confirmed(x: 0.6, y: 0.4), .targetedRotateZoom, false),
-            ("Make this look like old black-and-white television footage with static, grain, scanlines, and subtle image instability.", try selection(), nil, .oldTelevision, false),
+            ("Make this look like old black-and-white television footage with static, grain, scanlines, and subtle image instability.", try selection(), nil, .oldTelevision, true),
             ("Make this clip dissolve naturally into the next clip.", try selection(.twoAdjacentClips, clips: ["clip-a", "clip-b"]), nil, .naturalDissolve, false),
-            ("Make this still image feel gently alive for four seconds, then fade quickly to black.", try selection(), nil, .livingStill, false)
+            ("Make this a living still for four seconds.", try selection(), nil, .livingStill, true)
         ]
 
         for (index, item) in cases.enumerated() {
@@ -94,7 +94,7 @@ final class CommandSessionTests: XCTestCase {
             XCTAssertTrue(state.cancelEnabled)
             XCTAssertFalse(state.undoEnabled)
             XCTAssertEqual(state.plan?.previewStrategy, state.previewStrategy)
-            if item.3 == .naturalDissolve || item.3 == .oldTelevision {
+            if item.3 == .naturalDissolve {
                 XCTAssertTrue(state.editability.labels.isEmpty)
             } else {
                 XCTAssertFalse(state.editability.labels.isEmpty)
@@ -118,7 +118,12 @@ final class CommandSessionTests: XCTestCase {
                 try selection(),
                 nil,
                 .oldTelevision,
-                []
+                [
+                    "durationSeconds", "profile", "intensity", "scanlineStrength",
+                    "noiseStrength", "syncInstability", "chromaSeparation",
+                    "bloomStrength", "vignetteStrength", "ghostingStrength",
+                    "flickerStrength", "seed"
+                ]
             ),
             (
                 "Make this clip dissolve naturally into the next clip.",
@@ -128,11 +133,11 @@ final class CommandSessionTests: XCTestCase {
                 []
             ),
             (
-                "Make this still image feel gently alive for four seconds, then fade quickly to black.",
+                "Make this a living still for four seconds.",
                 try selection(),
                 nil,
                 .livingStill,
-                ["durationSeconds", "pushInScaleStart", "pushInScaleEnd", "panX", "panY", "opacityStart", "opacityEnd", "fadeDurationSeconds"]
+                ["durationSeconds", "motionStrength", "pushIn", "panX", "panY", "depthSmoothing"]
             )
         ]
 

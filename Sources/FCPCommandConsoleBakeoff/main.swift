@@ -16,21 +16,46 @@ struct BakeoffCLI {
         guard !args.isEmpty, !args.contains("--help") else {
             print("""
             usage: fcpcommandconsole-bakeoff <image> [<image> …] [--out DIR]
+                   [--analyze] [--render-depth] [--render-crt]
+                   [--depth-motion-strength 0...1] [--depth-push-in 0...0.15]
 
-            Runs Apple Vision subject analysis on each still and writes a mask
-            visualization plus a JSON record per image. Artifacts go outside the
-            repository, under the approved runtime root.
+            Analysis writes Apple Vision diagnostics. Render modes exercise the
+            exact production Living Still v2 and Old Television adapters and
+            write checksum-addressed ProRes movies outside the repository.
             """)
             return
         }
 
         var images: [String] = []
         var out = NSHomeDirectory() + "/Movies/FCPCommandConsole/exports/bakeoff"
+        var analyze = false
+        var renderDepth = false
+        var renderCRT = false
+        var depthMotionStrength = 0.90
+        var depthPushIn = 0.03
         var index = 0
         while index < args.count {
             if args[index] == "--out", index + 1 < args.count { out = args[index + 1]; index += 2 }
+            else if args[index] == "--analyze" { analyze = true; index += 1 }
+            else if args[index] == "--render-depth" { renderDepth = true; index += 1 }
+            else if args[index] == "--render-crt" { renderCRT = true; index += 1 }
+            else if args[index] == "--depth-motion-strength", index + 1 < args.count,
+                    let value = Double(args[index + 1]), (0...1).contains(value) {
+                depthMotionStrength = value
+                index += 2
+            }
+            else if args[index] == "--depth-push-in", index + 1 < args.count,
+                    let value = Double(args[index + 1]), (0...0.15).contains(value) {
+                depthPushIn = value
+                index += 2
+            }
+            else if args[index].hasPrefix("--") {
+                print("invalid or incomplete bakeoff option: \(args[index])")
+                return
+            }
             else { images.append(args[index]); index += 1 }
         }
+        if !analyze && !renderDepth && !renderCRT { analyze = true }
 
         let outURL = URL(fileURLWithPath: out, isDirectory: true)
         try? FileManager.default.createDirectory(at: outURL, withIntermediateDirectories: true)
@@ -43,17 +68,74 @@ struct BakeoffCLI {
             let name = url.deletingPathExtension().lastPathComponent
             do {
                 let digest = try ContentHasher.sha256File(url)
-                let (analysis, image, mask) = try analyzer.analyze(url: url, sourceSHA256: digest)
+                if renderDepth || renderCRT {
+                    let admitted = try await LocalMediaAdmission().admit(url)
+                    guard admitted.kind == .still else {
+                        throw StandaloneExportError.wrongMediaKind("bakeoff render inputs must be still images")
+                    }
+                    let geometry = try RenderedOutputGeometry(source: admitted.dimensions, maximumLongEdge: 1920)
+                    if renderDepth {
+                        let request = LivingStillDepthRenderRequest(
+                            sourceURL: admitted.url,
+                            sourceSHA256: admitted.sha256,
+                            targetWidth: geometry.width,
+                            targetHeight: geometry.height,
+                            durationSeconds: 4,
+                            fps: 30,
+                            motionStrength: depthMotionStrength,
+                            pushIn: depthPushIn,
+                            panX: 0.012,
+                            panY: -0.006,
+                            depthSmoothing: 0.35,
+                            seed: UInt64(admitted.sha256.prefix(16), radix: 16) ?? 0
+                        )
+                        let artifact = try LivingStillDepthRenderer().render(
+                            request,
+                            in: outURL.appendingPathComponent("living-still-v2", isDirectory: true)
+                        )
+                        print("\(name): LIVING STILL v2 \(artifact.movieURL.path) sha256=\(artifact.movieSHA256)")
+                    }
+                    if renderCRT {
+                        let request = OldTelevisionRenderRequest(
+                            sourceURL: admitted.url,
+                            sourceSHA256: admitted.sha256,
+                            sourceKind: .still,
+                            targetWidth: geometry.width,
+                            targetHeight: geometry.height,
+                            duration: OldTelevisionRational(4),
+                            frameRate: OldTelevisionRational(30),
+                            profile: .broadcastMono,
+                            intensity: 0.68,
+                            scanlines: 0.42,
+                            noise: 0.28,
+                            syncInstability: 0.22,
+                            chromaticSeparation: 0.18,
+                            bloom: 0.20,
+                            vignette: 0.34,
+                            ghosting: 0.10,
+                            flicker: 0.12,
+                            seed: 7341
+                        )
+                        let artifact = try OldTelevisionRenderAdapter().render(
+                            request,
+                            in: outURL.appendingPathComponent("old-television-v2", isDirectory: true)
+                        )
+                        print("\(name): OLD TELEVISION v2 \(artifact.url.path) sha256=\(artifact.sha256)")
+                    }
+                }
+
+                guard analyze else { continue }
+                let (analysisResult, image, mask) = try analyzer.analyze(url: url, sourceSHA256: digest)
 
                 let subjectText: String
-                switch analysis.subject {
+                switch analysisResult.subject {
                 case .none: subjectText = "none"
                 case .single(_, let c): subjectText = String(format: "single (%.1f%% of frame)", c * 100)
                 case .multiple(let i, _): subjectText = "multiple (\(i.count))"
                 }
-                let complexity = analysis.boundaryComplexity.map { String(format: "%.3f", $0) } ?? "—"
-                rows.append("| \(name) | \(analysis.geometry.width)×\(analysis.geometry.height)\(analysis.geometry.isPortrait ? " portrait" : "") | \(subjectText) | \(complexity) |")
-                print("\(name): \(analysis.geometry.width)×\(analysis.geometry.height) subject=\(subjectText) complexity=\(complexity)")
+                let complexity = analysisResult.boundaryComplexity.map { String(format: "%.3f", $0) } ?? "—"
+                rows.append("| \(name) | \(analysisResult.geometry.width)×\(analysisResult.geometry.height)\(analysisResult.geometry.isPortrait ? " portrait" : "") | \(subjectText) | \(complexity) |")
+                print("\(name): \(analysisResult.geometry.width)×\(analysisResult.geometry.height) subject=\(subjectText) complexity=\(complexity)")
 
                 // Mask visualization: subject in colour, background dimmed, so
                 // halos and matte errors are visible at a glance.

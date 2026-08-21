@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fcpcommandconsole.local/schemas/effect-plan.schema.json",
-  "title": "FCPCommandConsole EffectPlan",
+  "title": "FrameSmith EffectPlan",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "operationID", "originalRequest", "confidence", "ambiguities", "effectID", "selectionToken", "parameters", "representation", "editableProperties", "generatedAssets", "previewStrategy", "verification", "fallback", "cost", "preconditionRevision"],

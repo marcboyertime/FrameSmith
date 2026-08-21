@@ -1,4 +1,4 @@
-# FCPCommandConsole minimal runtime
+# FrameSmith minimal runtime
 
 This is a product-owned, deliberately small AppKit framework for the isolated
 Final Cut copy. Its executable surface is limited to the typed interfaces and

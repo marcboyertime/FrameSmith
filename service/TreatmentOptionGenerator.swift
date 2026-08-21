@@ -313,7 +313,7 @@ public struct TreatmentOptionGenerator: Sendable {
         // export provenance instead of leaking the seed effect phrase.
         plan.originalRequest = intent.originalWording
         // A SelectionToken's default tokenID is an observation/session nonce,
-        // not a creative proposal input.  Replace it with a stable digest of
+        // not a creative proposal input. Replace it with a stable digest of
         // every other encoded selection field so independently constructed but
         // equivalent plans serialize to the same proposal artifact.
         plan.selectionToken.tokenID = proposalTokenID(for: plan.selectionToken)
@@ -369,25 +369,20 @@ public struct TreatmentOptionGenerator: Sendable {
         let multiplier: Double = anchor == .quiet ? 0.75 : (anchor == .expressive ? 1.0 : 1.25)
         switch card.id {
         case "motion.opacity.fade.v1":
-            // This card is a fade, not an accidental push.  Neutralize every
-            // transform control and vary the actual opacity construction.
-            plan.parameters["pushInScaleStart"] = .number(1)
-            plan.parameters["pushInScaleEnd"] = .number(1)
-            plan.parameters["panX"] = .number(0)
-            plan.parameters["panY"] = .number(0)
-            plan.parameters["opacityStart"] = .number(1)
-            plan.parameters["opacityEnd"] = .number(anchor == .quiet ? 0.35 : (anchor == .expressive ? 0.18 : 0))
-            plan.parameters["fadeDurationSeconds"] = .number(anchor == .quiet ? 0.5 : (anchor == .expressive ? 0.8 : 1.1))
+            // This knowledge card no longer maps to Living Still v2. It is
+            // reference-only, but keep this branch inert and total if a stale
+            // catalog is supplied instead of manufacturing unsupported keys.
+            break
         case "motion.still.quiet_push.v1":
-            // This card is motion-only: preserve opacity and make the actual
-            // scale/pan channels carry the distinction.
-            plan.parameters["opacityStart"] = .number(1)
-            plan.parameters["opacityEnd"] = .number(1)
-            plan.parameters["fadeDurationSeconds"] = .number(0.1)
-            for key in ["pushInScaleEnd", "panX", "panY"] where plan.parameters[key]?.numberValue != nil {
+            // Living Still v2 carries motion in the rendered depth field. The
+            // source remains fully opaque; no fade controls exist.
+            for key in ["motionStrength", "pushIn", "panX", "panY"] where plan.parameters[key]?.numberValue != nil {
                 let value = plan.parameters[key]!.numberValue!
-                if key == "pushInScaleEnd" { plan.parameters[key] = .number(min(4, max(1, 1 + (value - 1) * multiplier))) }
-                else { plan.parameters[key] = .number(min(0.5, max(-0.5, value * multiplier))) }
+                switch key {
+                case "motionStrength": plan.parameters[key] = .number(min(1, max(0, value * multiplier)))
+                case "pushIn": plan.parameters[key] = .number(min(0.12, max(0, value * multiplier)))
+                default: plan.parameters[key] = .number(min(0.04, max(-0.04, value * multiplier)))
+                }
             }
         case "motion.focal.target_push.v1":
             // Do not inherit living-still controls just because a caller used
@@ -406,11 +401,11 @@ public struct TreatmentOptionGenerator: Sendable {
         default:
             switch plan.effectID {
         case .livingStill:
-            for key in ["pushInScaleEnd", "panX", "panY", "opacityEnd"] where plan.parameters[key]?.numberValue != nil {
+            for key in ["motionStrength", "pushIn", "panX", "panY"] where plan.parameters[key]?.numberValue != nil {
                 let value = plan.parameters[key]!.numberValue!
-                if key == "pushInScaleEnd" { plan.parameters[key] = .number(min(4, max(1, 1 + (value - 1) * multiplier))) }
-                else if key == "opacityEnd" { plan.parameters[key] = .number(min(1, max(0, value * multiplier))) }
-                else { plan.parameters[key] = .number(min(0.5, max(-0.5, value * multiplier))) }
+                if key == "motionStrength" { plan.parameters[key] = .number(min(1, max(0, value * multiplier))) }
+                else if key == "pushIn" { plan.parameters[key] = .number(min(0.12, max(0, value * multiplier))) }
+                else { plan.parameters[key] = .number(min(0.04, max(-0.04, value * multiplier))) }
             }
         case .targetedRotateZoom:
             for key in ["scaleEnd", "rotationEndDegrees"] where plan.parameters[key]?.numberValue != nil {
@@ -420,7 +415,9 @@ public struct TreatmentOptionGenerator: Sendable {
         case .naturalDissolve:
             if let value = plan.parameters["durationSeconds"]?.numberValue { plan.parameters["durationSeconds"] = .number(min(4, max(0.1, value * multiplier))) }
         case .oldTelevision:
-            for key in ["staticStrength", "grainStrength", "scanlineStrength", "instabilityStrength"] where plan.parameters[key]?.numberValue != nil { plan.parameters[key] = .number(min(key == "instabilityStrength" ? 0.5 : 1, max(0, plan.parameters[key]!.numberValue! * multiplier))) }
+            for key in ["intensity", "scanlineStrength", "noiseStrength", "syncInstability", "chromaSeparation", "bloomStrength", "vignetteStrength", "ghostingStrength", "flickerStrength"] where plan.parameters[key]?.numberValue != nil {
+                plan.parameters[key] = .number(min(1, max(0, plan.parameters[key]!.numberValue! * multiplier)))
+            }
                 }
             }
         }
@@ -433,17 +430,16 @@ public struct TreatmentOptionGenerator: Sendable {
         switch card.id {
         case "motion.opacity.fade.v1":
             return [
-                "Neutralizes pushInScaleStart/pushInScaleEnd to 1.0 and panX/panY to 0, so no transform motion is introduced",
-                "Animates the native opacity channel from \(plan.parameters["opacityStart"]!.numberValue!) to \(plan.parameters["opacityEnd"]!.numberValue!)",
-                "Uses fadeDurationSeconds \(plan.parameters["fadeDurationSeconds"]!.numberValue!)s for a \(strength) fade timing",
-                "Preview samples the same admitted opacity keyframes the emitter writes"
+                "Reference-only fade guidance; no Living Still v2 opacity construction is implied",
+                "Preserves the director's source and timing",
+                "Requires a separately admitted native fade effect before it can execute"
             ]
         case "motion.still.quiet_push.v1":
             return [
-                "Keeps opacityStart and opacityEnd at 1.0, so this treatment does not fade the source",
-                "Animates pushInScaleEnd to \(plan.parameters["pushInScaleEnd"]!.numberValue!) through the native transform channel",
-                "Moves the frame with admitted panX \(plan.parameters["panX"]!.numberValue!) and panY \(plan.parameters["panY"]!.numberValue!) controls",
-                "Preview samples the same shared transform and opacity construction that export emits"
+                "Infers one continuous depth field locally, then reuses it for every frame",
+                "Uses depth motion \(plan.parameters["motionStrength"]?.numberValue ?? 0), push \(plan.parameters["pushIn"]?.numberValue ?? 0), panX \(plan.parameters["panX"]?.numberValue ?? 0), and panY \(plan.parameters["panY"]?.numberValue ?? 0)",
+                "Keeps the original still unchanged underneath a video-only 10-bit ProRes treatment",
+                "Preview and export consume the same SHA-256-identified rendered movie"
             ]
         case "motion.focal.target_push.v1":
             return [
@@ -454,10 +450,10 @@ public struct TreatmentOptionGenerator: Sendable {
             ]
         case "look.crt.old_television.v1":
             return [
-                "Uses the admitted base clip only; no connected overlay is requested or emitted",
-                "Writes one bounded opacity dip from 1.0 to 0.82 and back to 1.0 in the native opacity channel",
-                "Applies the admitted Color Adjustments saturation channel without claiming a calibrated colour mapping",
-                "Preview samples the same base opacity and colour channels that export emits"
+                "Renders a complete CRT signal treatment with scanlines, grain, micro-jitter, curvature, bloom, vignette, and bounded ghosting",
+                "Caps continuous luma micro-flicker at two percent and never fades or flashes the full frame",
+                "Keeps the original source and audio unchanged underneath a video-only 10-bit ProRes layer",
+                "Preview and export consume the same SHA-256-identified rendered movie"
             ]
         default:
             return [

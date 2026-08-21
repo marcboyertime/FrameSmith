@@ -155,6 +155,8 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         }
     }
 
+    // MARK: - Executability
+
     func testRepositoryEvidenceRejectsTraversalAndDirectories() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString, isDirectory: true)
         let cards = root.appendingPathComponent("registry/editorial-techniques", isDirectory: true)
@@ -188,8 +190,6 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
             guard case EditorialKnowledgeCatalogError.unknownSource = error else { return XCTFail("wrong error \(error)") }
         }
     }
-
-    // MARK: - Executability
 
     func testReferenceOnlyAndUnsupportedCardsCanNeverBecomeExecutable() throws {
         // Even with every capability in the world admitted.
@@ -267,9 +267,10 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         }
     }
 
-    /// Both travelled the full path on 2026-08-07: `unsupported` → emitter
-    /// built → `experimental` → generated package imported and returned intact
-    /// → `validated`.
+    /// Both travelled the full evidence path: emitter built → experimental →
+    /// representative visual review plus generated package imported and
+    /// returned intact → validated. Old Television's current evidence is the
+    /// rendered v2 construction, not the retired native base recipe.
     ///
     /// The intermediate stop mattered. An emitter existing is not evidence that
     /// Final Cut accepts what it emits — every silently-wrong construction this
@@ -290,14 +291,18 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
         }
     }
 
-    /// The executable CRT card has been narrowed to the proven base construction;
-    /// an overlay may not be smuggled back in through card wording.
-    func testOldTelevisionCardDoesNotClaimAnOverlay() throws {
+    /// The executable CRT card must claim exactly the proven rendered-movie
+    /// overlay and must not fall back to the retired native dip/fade recipe.
+    func testOldTelevisionCardClaimsOnlyTheRenderedMovieOverlay() throws {
         let card = try XCTUnwrap(catalog().card(id: "look.crt.old_television.v1"))
-        let notes = card.validation.notes ?? ""
+        let notes = (card.validation.notes ?? "").lowercased()
+        XCTAssertEqual(card.construction.preferredBackends, [.bakedRender])
+        XCTAssertEqual(Set(card.construction.requiredCapabilities), ["asset_admission", "connected_rendered_movie_layer"])
         XCTAssertFalse(card.parameters.contains { $0.key.lowercased().contains("overlay") })
         XCTAssertFalse(card.mediaPrerequisites.joined(separator: " ").lowercased().contains("overlay"))
-        XCTAssertTrue(notes.contains("No overlay is part of this card"), notes)
+        XCTAssertTrue(notes.contains("not the retired native base recipe"), notes)
+        XCTAssertTrue(notes.contains("not an opacity fade"), notes)
+        XCTAssertEqual(card.validation.finalCutEvidence?.count, 2)
     }
 
     /// Colour is admitted as a construction but has no measured mapping, so the
@@ -341,6 +346,7 @@ final class EditorialKnowledgeCatalogTests: XCTestCase {
             }
         }
         let crt = try XCTUnwrap(try catalog().card(id: "look.crt.old_television.v1"))
-        XCTAssertTrue(crt.parameters.isEmpty, "the 0.82 CRT dip is fixed emitter behavior, not a live card control")
+        XCTAssertEqual(crt.parameters.count, 12)
+        XCTAssertTrue(crt.parameters.allSatisfy { $0.liveness == .live })
     }
 }
