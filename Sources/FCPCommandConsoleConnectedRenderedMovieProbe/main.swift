@@ -6,8 +6,10 @@ import Darwin
 /// returned Final Cut export without writing to the evidence package.
 @main
 struct FCPCommandConsoleConnectedRenderedMovieProbeCLI {
-    private static let defaultFixtureRoot = "/Users/marcboyer/Movies/FCPCommandConsole/fixtures"
-    private static let defaultExportRoot = "/Users/marcboyer/Movies/FCPCommandConsole/exports/connected-rendered-movie-probes"
+    private static let runtimeRoot = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Movies/FCPCommandConsole", isDirectory: true)
+    private static let defaultFixtureRoot = runtimeRoot.appendingPathComponent("fixtures").path
+    private static let defaultExportRoot = runtimeRoot.appendingPathComponent("exports/connected-rendered-movie-probes").path
 
     static func main() {
         do {

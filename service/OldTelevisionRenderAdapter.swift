@@ -225,14 +225,18 @@ public struct OldTelevisionRenderAdapter: Sendable {
         _ request: OldTelevisionRenderRequest,
         in outputRoot: URL
     ) throws -> OldTelevisionRenderArtifact {
+        try Task.checkCancellation()
         let validated = try validate(request)
+        try Task.checkCancellation()
         let fileManager = FileManager.default
         let source = try canonicalSource(request.sourceURL)
+        try Task.checkCancellation()
         return try withSealedInputs(source: source) { sealed in
             // Hash the exact private source snapshot that every later probe and
             // render consumes. Mutating or replacing the admitted pathname can
             // no longer change pixels after this identity check.
             let actualSourceHash = try ContentHasher.sha256File(sealed.source).lowercased()
+            try Task.checkCancellation()
             guard actualSourceHash == validated.sourceSHA256 else {
                 throw OldTelevisionRenderError.sourceHashMismatch(
                     expected: validated.sourceSHA256,
@@ -246,16 +250,19 @@ public struct OldTelevisionRenderAdapter: Sendable {
                 ffmpegExecutable: sealed.ffmpeg,
                 ffprobeExecutable: sealed.ffprobe
             )
+            try Task.checkCancellation()
             let sourceProbe = try probe(
                 sealed.source,
                 countFrames: validated.sourceKind == .still,
                 timeout: validated.sourceKind == .still ? 30 : 20,
                 executable: sealed.ffprobe
             )
+            try Task.checkCancellation()
             try validateSource(sourceProbe, for: validated)
 
             let recipe = Recipe(validated: validated, tools: toolIdentity)
             let recipeDigest = try StablePlanHasher.hashJSON(recipe)
+            try Task.checkCancellation()
             let root = try prepareOutputRoot(outputRoot)
             let filename = "old-television-\(validated.profile.rawValue)-\(recipeDigest.prefix(32)).mov"
             let output = root.appendingPathComponent(filename, isDirectory: false)
@@ -263,6 +270,7 @@ public struct OldTelevisionRenderAdapter: Sendable {
             _ = try policy.validateOutput(output, overwrite: true)
 
             if fileManager.fileExists(atPath: output.path) {
+                try Task.checkCancellation()
                 do {
                     return try verify(
                         output,
@@ -297,11 +305,13 @@ public struct OldTelevisionRenderAdapter: Sendable {
                 recipeDigest: recipeDigest,
                 filterGraph: graph
             )
+            try Task.checkCancellation()
             try runRender(
                 executable: sealed.ffmpeg,
                 arguments: arguments,
                 timeout: renderTimeout(for: validated)
             )
+            try Task.checkCancellation()
             guard fileManager.fileExists(atPath: temporary.path) else {
                 throw OldTelevisionRenderError.verificationFailed("FFmpeg produced no output file")
             }
@@ -313,6 +323,10 @@ public struct OldTelevisionRenderAdapter: Sendable {
                 recipeDigest: recipeDigest,
                 ffprobeExecutable: sealed.ffprobe
             )
+            // Last cancellable point. A successful move publishes a durable
+            // content-addressed movie that must be returned for current/stale
+            // ownership classification even if cancellation arrives later.
+            try Task.checkCancellation()
             do {
                 try fileManager.moveItem(at: temporary, to: output)
             } catch {
@@ -324,7 +338,8 @@ public struct OldTelevisionRenderAdapter: Sendable {
                             output,
                             validated: validated,
                             recipeDigest: recipeDigest,
-                            ffprobeExecutable: sealed.ffprobe
+                            ffprobeExecutable: sealed.ffprobe,
+                            observeCancellation: false
                         )
                     } catch {
                         throw OldTelevisionRenderError.existingArtifactRejected(
@@ -339,7 +354,8 @@ public struct OldTelevisionRenderAdapter: Sendable {
                 output,
                 validated: validated,
                 recipeDigest: recipeDigest,
-                ffprobeExecutable: sealed.ffprobe
+                ffprobeExecutable: sealed.ffprobe,
+                observeCancellation: false
             )
         }
     }
@@ -623,6 +639,7 @@ public struct OldTelevisionRenderAdapter: Sendable {
         }
 
         while let chunk = try sourceHandle.read(upToCount: 1_048_576), !chunk.isEmpty {
+            try Task.checkCancellation()
             try destinationHandle.write(contentsOf: chunk)
         }
         try destinationHandle.synchronize()
@@ -1021,7 +1038,8 @@ public struct OldTelevisionRenderAdapter: Sendable {
         _ url: URL,
         countFrames: Bool,
         timeout: Int,
-        executable: URL
+        executable: URL,
+        observeCancellation: Bool = true
     ) throws -> ProbeEnvelope {
         var arguments = ["-v", "error"]
         if countFrames { arguments.append("-count_frames") }
@@ -1030,7 +1048,8 @@ public struct OldTelevisionRenderAdapter: Sendable {
             executable: executable,
             reportedAs: ffprobe,
             arguments: arguments,
-            timeout: timeout
+            timeout: timeout,
+            observeCancellation: observeCancellation
         )
         do {
             return try JSONDecoder().decode(ProbeEnvelope.self, from: data)
@@ -1077,13 +1096,15 @@ public struct OldTelevisionRenderAdapter: Sendable {
         _ output: URL,
         validated: ValidatedRequest,
         recipeDigest: String,
-        ffprobeExecutable: URL
+        ffprobeExecutable: URL,
+        observeCancellation: Bool = true
     ) throws -> OldTelevisionRenderArtifact {
         let probe = try probe(
             output,
             countFrames: true,
             timeout: max(120, renderTimeout(for: validated)),
-            executable: ffprobeExecutable
+            executable: ffprobeExecutable,
+            observeCancellation: observeCancellation
         )
         let videos = probe.streams.filter { $0.codecType == "video" }
         let audio = probe.streams.filter { $0.codecType == "audio" }
@@ -1192,7 +1213,8 @@ public struct OldTelevisionRenderAdapter: Sendable {
         executable: URL,
         reportedAs reportedExecutable: URL,
         arguments: [String],
-        timeout: Int
+        timeout: Int,
+        observeCancellation: Bool = true
     ) throws -> Data {
         let fileManager = FileManager.default
         let token = UUID().uuidString
@@ -1245,7 +1267,12 @@ public struct OldTelevisionRenderAdapter: Sendable {
                 message: error.localizedDescription
             )
         }
-        try wait(process, executable: reportedExecutable, timeout: timeout)
+        try wait(
+            process,
+            executable: reportedExecutable,
+            timeout: timeout,
+            observeCancellation: observeCancellation
+        )
         try? stdoutHandle.synchronize()
         try? stderrHandle.synchronize()
         try? stdoutHandle.close()
@@ -1304,7 +1331,7 @@ public struct OldTelevisionRenderAdapter: Sendable {
                 message: error.localizedDescription
             )
         }
-        try wait(process, executable: ffmpeg, timeout: timeout)
+        try wait(process, executable: ffmpeg, timeout: timeout, observeCancellation: true)
         try? stderrHandle.synchronize()
         try? stderrHandle.close()
         let errorData = (try? Data(contentsOf: stderrURL)) ?? Data()
@@ -1317,24 +1344,37 @@ public struct OldTelevisionRenderAdapter: Sendable {
         }
     }
 
-    private func wait(_ process: Process, executable: URL, timeout: Int) throws {
+    private func wait(
+        _ process: Process,
+        executable: URL,
+        timeout: Int,
+        observeCancellation: Bool
+    ) throws {
         let deadline = Date().addingTimeInterval(TimeInterval(timeout))
         while process.isRunning {
-            if Task.isCancelled {
-                process.terminate()
-                let grace = Date().addingTimeInterval(2)
-                while process.isRunning, Date() < grace { usleep(10_000) }
-                if process.isRunning { process.interrupt() }
+            if observeCancellation, Task.isCancelled {
+                terminate(process)
                 throw CancellationError()
             }
             if Date() >= deadline {
-                process.terminate()
-                let grace = Date().addingTimeInterval(2)
-                while process.isRunning, Date() < grace { usleep(10_000) }
-                if process.isRunning { process.interrupt() }
+                terminate(process)
                 throw OldTelevisionRenderError.toolTimedOut(executable, seconds: timeout)
             }
             usleep(10_000)
+        }
+    }
+
+    private func terminate(_ process: Process) {
+        process.terminate()
+        var deadline = Date().addingTimeInterval(2)
+        while process.isRunning, Date() < deadline { usleep(10_000) }
+        if process.isRunning { process.interrupt() }
+        deadline = Date().addingTimeInterval(1)
+        while process.isRunning, Date() < deadline { usleep(10_000) }
+        if process.isRunning {
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            deadline = Date().addingTimeInterval(1)
+            while process.isRunning, Date() < deadline { usleep(10_000) }
         }
     }
 

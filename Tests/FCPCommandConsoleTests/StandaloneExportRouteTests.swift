@@ -2,6 +2,52 @@ import Foundation
 import XCTest
 @testable import FCPCommandConsoleCore
 
+private final class SpyRenderedEmitter: StandaloneRenderedEffectEmitter, @unchecked Sendable {
+    let effectID: EffectID = .livingStill
+    private let lock = NSLock()
+    private var prepareCount = 0
+    var observedPrepareCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return prepareCount
+    }
+
+    func channels(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset]
+    ) throws -> NativeFCPXMLEffectChannels {
+        try LivingStillStandaloneEmitter().channels(plan: plan, media: media)
+    }
+
+    func prepareRenderedAsset(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset],
+        outputRoot: URL
+    ) throws -> RenderedEffectAsset {
+        lock.lock(); prepareCount += 1; lock.unlock()
+        throw StandaloneExportError.admittedArtifactMismatch("spy preparation must not run")
+    }
+
+    func emitPreparedDocument(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset],
+        publishedMediaURLs: [LocalMediaRole: URL],
+        preparedAsset: RenderedEffectAsset,
+        publishedPreparedURL: URL,
+        version: String
+    ) throws -> String {
+        throw StandaloneExportError.admittedArtifactMismatch("spy emission must not run")
+    }
+
+    func emitDocument(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset],
+        publishedMediaURLs: [LocalMediaRole: URL],
+        version: String
+    ) throws -> String {
+        throw StandaloneExportError.admittedArtifactMismatch("direct rendered emission is forbidden")
+    }
+}
+
 /// Covers the route that turns a `standaloneFCPXMLExport` authorization into an
 /// actual package.
 ///
@@ -33,9 +79,9 @@ final class StandaloneExportRouteTests: XCTestCase {
     private func makeAsset() throws -> LocalMediaAsset {
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         let url = scratch.appendingPathComponent("still.png")
-        // This is a complete, decodable 1 x 1 RGBA PNG. The export route now
-        // performs the production depth render, so arbitrary placeholder bytes
-        // would stop before exercising that path.
+        // Keep the source fixture complete and decodable. Renderer integration
+        // is covered separately; this route suite injects a sealed prepared
+        // asset so it stays hermetic and never downloads a model in CI.
         let png = try XCTUnwrap(Data(base64Encoded:
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         ))
@@ -89,6 +135,35 @@ final class StandaloneExportRouteTests: XCTestCase {
         )
     }
 
+    private func renderedConstruction(
+        plan: EffectPlan,
+        media: [LocalMediaRole: LocalMediaAsset]
+    ) throws -> StandaloneExportConstruction {
+        let primary = try XCTUnwrap(media[.primary])
+        let renderRoot = scratch.appendingPathComponent("renders", isDirectory: true)
+        try FileManager.default.createDirectory(at: renderRoot, withIntermediateDirectories: true)
+        let movie = renderRoot.appendingPathComponent("prepared-test.mov")
+        try Data("sealed prepared movie bytes for export-route tests".utf8).write(to: movie)
+        let duration = try XCTUnwrap(plan.parameters["durationSeconds"]?.numberValue)
+        let fps = Int(try XCTUnwrap(plan.parameters["fps"]?.numberValue))
+        let asset = RenderedEffectAsset(
+            url: movie,
+            sha256: try ContentHasher.sha256File(movie),
+            constructionDigest: try RenderedConstructionIdentity.digest(plan: plan, media: media),
+            rendererRecipeDigest: String(repeating: "e", count: 64),
+            sourceSHA256: primary.sha256,
+            width: 1920,
+            height: 1080,
+            fps: fps,
+            frameCount: Int((duration * Double(fps)).rounded()),
+            durationSeconds: duration,
+            videoFormat: .proRes422HQ10Bit,
+            videoOnly: true,
+            provenance: ["renderer": "hermetic-export-route-fixture"]
+        )
+        return .rendered(asset)
+    }
+
     // MARK: - The route honours the gate
 
     func testExportSucceedsForAnAdmittedEffectWithAdmittedMedia() throws {
@@ -100,6 +175,7 @@ final class StandaloneExportRouteTests: XCTestCase {
             plan: plan,
             media: [.primary: asset],
             mediaEvidence: evidence,
+            construction: try renderedConstruction(plan: plan, media: [.primary: asset]),
             installedFinalCut: testedBuild
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: package.fcpxmlURL.path))
@@ -119,6 +195,35 @@ final class StandaloneExportRouteTests: XCTestCase {
         XCTAssertFalse(xml.contains("Color Adjustments"), "v2 must not fall back to the retired native approximation")
     }
 
+    func testRenderedExportWithoutPreparedArtifactNeverInvokesRendererOrCreatesOutput() throws {
+        let asset = try makeAsset()
+        let plan = try makePlan(.livingStill, asset: asset)
+        let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [asset]))
+        let spy = SpyRenderedEmitter()
+        let outputRoot = scratch.appendingPathComponent("missing-prepared-output", isDirectory: true)
+        let subject = StandaloneFCPXMLExportBuilder(
+            gate: admittedGate(),
+            outputRoot: outputRoot,
+            emitters: [spy],
+            registry: try registry()
+        )
+
+        XCTAssertThrowsError(try subject.export(
+            plan: plan,
+            media: [.primary: asset],
+            mediaEvidence: evidence,
+            construction: .native,
+            installedFinalCut: testedBuild
+        )) { error in
+            guard case .admittedArtifactMismatch(let detail) = error as? StandaloneExportError else {
+                return XCTFail("expected missing prepared artifact refusal, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("export never renders"), detail)
+        }
+        XCTAssertEqual(spy.observedPrepareCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputRoot.path))
+    }
+
     /// The route must not be reachable when the gate would refuse. An empty
     /// semantics profile is the case that matters: it is the default.
     func testExportIsRefusedWhenNoProfileApplies() throws {
@@ -127,7 +232,7 @@ final class StandaloneExportRouteTests: XCTestCase {
         let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [asset]))
 
         XCTAssertThrowsError(try builder(gate: CapabilityGate()).export(
-            plan: plan, media: [.primary: asset], mediaEvidence: evidence, installedFinalCut: testedBuild
+            plan: plan, media: [.primary: asset], mediaEvidence: evidence, construction: .native, installedFinalCut: testedBuild
         )) { error in
             guard case .capabilityRefused = error as? StandaloneExportError else {
                 return XCTFail("expected a capability refusal, got \(error)")
@@ -142,7 +247,7 @@ final class StandaloneExportRouteTests: XCTestCase {
         let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [asset]))
 
         XCTAssertThrowsError(try builder().export(
-            plan: plan, media: [.primary: asset], mediaEvidence: evidence, installedFinalCut: testedBuild
+            plan: plan, media: [.primary: asset], mediaEvidence: evidence, construction: .native, installedFinalCut: testedBuild
         ))
     }
 
@@ -158,7 +263,7 @@ final class StandaloneExportRouteTests: XCTestCase {
         let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [other]))
 
         XCTAssertThrowsError(try builder().export(
-            plan: plan, media: [.primary: asset], mediaEvidence: evidence, installedFinalCut: testedBuild
+            plan: plan, media: [.primary: asset], mediaEvidence: evidence, construction: .native, installedFinalCut: testedBuild
         ))
     }
 
@@ -179,7 +284,7 @@ final class StandaloneExportRouteTests: XCTestCase {
         // A dissolve with only a primary clip: no incoming media to dissolve to.
         let dissolvePlan = try makePlan(.naturalDissolve, asset: asset)
         XCTAssertThrowsError(try builder().export(
-            plan: dissolvePlan, media: [.primary: asset], mediaEvidence: evidence, installedFinalCut: testedBuild
+            plan: dissolvePlan, media: [.primary: asset], mediaEvidence: evidence, construction: .native, installedFinalCut: testedBuild
         )) { error in
             let described = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             XCTAssertFalse(described.isEmpty, "a one-clip dissolve must explain itself")
@@ -215,7 +320,7 @@ final class StandaloneExportRouteTests: XCTestCase {
         let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [asset]))
 
         XCTAssertThrowsError(try builder().export(
-            plan: plan, media: [.primary: asset], mediaEvidence: evidence, installedFinalCut: testedBuild
+            plan: plan, media: [.primary: asset], mediaEvidence: evidence, construction: .native, installedFinalCut: testedBuild
         )) { error in
             XCTAssertEqual(error as? StandaloneExportError, .unconfirmedTarget)
         }
@@ -227,7 +332,7 @@ final class StandaloneExportRouteTests: XCTestCase {
         let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [asset]))
 
         let package = try builder().export(
-            plan: plan, media: [.primary: asset], mediaEvidence: evidence, installedFinalCut: testedBuild
+            plan: plan, media: [.primary: asset], mediaEvidence: evidence, construction: .native, installedFinalCut: testedBuild
         )
         let xml = try String(contentsOf: package.fcpxmlURL, encoding: .utf8)
         XCTAssertTrue(xml.contains(#"<param name="rotation">"#))
@@ -243,7 +348,9 @@ final class StandaloneExportRouteTests: XCTestCase {
         let plan = try makePlan(.livingStill, asset: asset)
         let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [asset]))
         let package = try builder().export(
-            plan: plan, media: [.primary: asset], mediaEvidence: evidence, installedFinalCut: testedBuild
+            plan: plan, media: [.primary: asset], mediaEvidence: evidence,
+            construction: try renderedConstruction(plan: plan, media: [.primary: asset]),
+            installedFinalCut: testedBuild
         )
 
         let readme = try String(contentsOf: package.instructionsURL, encoding: .utf8)
@@ -285,9 +392,10 @@ final class StandaloneExportRouteTests: XCTestCase {
         let plan = try makePlan(.livingStill, asset: asset)
         let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [asset]))
         let subject = builder()
-        _ = try subject.export(plan: plan, media: [.primary: asset], mediaEvidence: evidence, installedFinalCut: testedBuild)
+        let construction = try renderedConstruction(plan: plan, media: [.primary: asset])
+        _ = try subject.export(plan: plan, media: [.primary: asset], mediaEvidence: evidence, construction: construction, installedFinalCut: testedBuild)
         XCTAssertThrowsError(try subject.export(
-            plan: plan, media: [.primary: asset], mediaEvidence: evidence, installedFinalCut: testedBuild
+            plan: plan, media: [.primary: asset], mediaEvidence: evidence, construction: construction, installedFinalCut: testedBuild
         )) { error in
             guard case .existingPackage = error as? StandaloneExportError else {
                 return XCTFail("expected an overwrite refusal, got \(error)")

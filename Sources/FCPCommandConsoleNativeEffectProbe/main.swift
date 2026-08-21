@@ -9,8 +9,10 @@ import Darwin
 /// evidence, and nothing here may be able to alter what they emit.
 @main
 struct FCPCommandConsoleNativeEffectProbeCLI {
-    private static let defaultFixtureRoot = "/Users/marcboyer/Movies/FCPCommandConsole/fixtures"
-    private static let defaultExportRoot = "/Users/marcboyer/Movies/FCPCommandConsole/exports/native-effect-probes"
+    private static let runtimeRoot = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Movies/FCPCommandConsole", isDirectory: true)
+    private static let defaultFixtureRoot = runtimeRoot.appendingPathComponent("fixtures").path
+    private static let defaultExportRoot = runtimeRoot.appendingPathComponent("exports/native-effect-probes").path
 
     static func main() {
         do {

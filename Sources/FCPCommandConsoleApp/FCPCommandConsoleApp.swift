@@ -41,9 +41,19 @@ private final class AppModel: ObservableObject {
     /// invalidated. They remain real files on disk, but are never presented as
     /// the project for the current plan.
     @Published private(set) var staleExportedProjects: [StandaloneFCPXMLExportBuilder.Package] = []
-    /// Exact prepared movie used by both the player and project export for a
-    /// rendered treatment. A parameter or source change cancels and clears it.
-    @Published var renderedPreview: RenderedEffectAsset?
+    /// Exact prepared movie for a direct (non-editorial) plan. Editorial
+    /// options are owned by the per-option coordinator below instead of this
+    /// single current-plan slot.
+    @Published var directRenderedPreview: RenderedEffectAsset?
+    /// The sealed artifact for the current admitted editorial treatment.
+    @Published private(set) var currentAdmittedPreview: AdmittedTreatmentPreview?
+    /// Per-option comparison lifecycle. A rendered tile is only allowed to
+    /// display a `.ready` artifact from this map.
+    @Published private(set) var comparisonPreviewStates: [String: TreatmentPreviewPreparationState] = [:]
+    /// Descriptors are validated once when a preview becomes ready. Re-hashing
+    /// a ProRes file on every 30 fps SwiftUI body pass would itself make the
+    /// shared transport untruthful.
+    @Published private(set) var comparisonDescriptors: [String: TreatmentComparisonTileDescriptor] = [:]
     /// Exact Final Cut admission result for the prepared bytes. Preview may be
     /// useful outside the empirically proven export envelope, but Create
     /// Project stays visibly closed there.
@@ -96,7 +106,10 @@ private final class AppModel: ObservableObject {
     private var admissionTasks: [LocalMediaRole: Task<AdmissionOutcome, Never>] = [:]
     private var admissionGeneration = LocalMediaOperationGeneration()
     private var packageTask: Task<PackageOutcome, Never>?
-    private var renderedPreviewTask: Task<RenderedPreviewOutcome, Never>?
+    private var directRenderedPreviewTask: Task<RenderedPreviewOutcome, Never>?
+    private var admittedPreviewTasks: [String: Task<Void, Never>] = [:]
+    private var admittedPreviewGenerations: [String: UUID] = [:]
+    private let treatmentPreviewCoordinator = TreatmentPreviewPreparationCoordinator()
     private var projectExportTask: Task<ProjectExportOutcome, Never>?
     private var projectExportGenerationState = ProjectExportGenerationState()
 
@@ -142,6 +155,14 @@ private final class AppModel: ObservableObject {
     /// comparison failure must not leave an old option card or applied badge
     /// pointing at an execution the workflow has already cleared.
     private func synchronizeEditorialMirrors() {
+        let retainedComparisonIDs = Set(editorialState.comparisonIDs)
+        for optionID in Array(comparisonPreviewStates.keys) where !retainedComparisonIDs.contains(optionID) {
+            admittedPreviewTasks[optionID]?.cancel()
+            admittedPreviewTasks.removeValue(forKey: optionID)
+            comparisonPreviewStates.removeValue(forKey: optionID)
+            comparisonDescriptors.removeValue(forKey: optionID)
+            Task { await treatmentPreviewCoordinator.deselect(optionID) }
+        }
         admittedTreatmentOptions = editorialState.options
         comparisonOptionIDs = editorialState.comparisonIDs
         treatmentHistory = editorialState.history
@@ -333,7 +354,7 @@ private final class AppModel: ObservableObject {
             admittedTreatmentOptions = editorialState.options; treatmentHistory = editorialState.history
             package = nil
             exportedProject = nil
-            prepareRenderedPreview(for: selected.0.treatment.effectPlan)
+            prepareAdmittedPreview(selected.0, makeCurrent: true)
             noticeMessage = "Applied \(option.name) exactly as admitted. Your clips and timing are unchanged."
             isRefiningTreatment = false
         } catch {
@@ -420,7 +441,7 @@ private final class AppModel: ObservableObject {
             guard editorialState.snapshot == current, let artifact = admittedTreatmentOptions[option.optionID] else { throw EditorialTreatmentWorkflowError.unknownOption(option.optionID) }
             let readmitted = try workflow.readmit(artifact, current: current, media: currentMediaRoles())
             previewChannels = readmitted.channels.materializedChannels()
-            prepareRenderedPreview(for: readmitted.treatment.effectPlan)
+            prepareAdmittedPreview(readmitted, makeCurrent: true)
             noticeMessage = "Previewing \(option.name) exactly as admitted; it has not been applied."
         } catch { errorMessage = error.localizedDescription }
     }
@@ -442,11 +463,38 @@ private final class AppModel: ObservableObject {
                 media: media
             )
             synchronizeEditorialMirrors()
+            if comparisonOptionIDs.contains(option.optionID),
+               let execution = admittedTreatmentOptions[option.optionID] {
+                prepareAdmittedPreview(
+                    execution,
+                    makeCurrent: editorialState.applied?.treatment.optionID == option.optionID,
+                    comparisonSelected: true
+                )
+            } else {
+                admittedPreviewTasks[option.optionID]?.cancel()
+                admittedPreviewTasks.removeValue(forKey: option.optionID)
+                comparisonPreviewStates.removeValue(forKey: option.optionID)
+                comparisonDescriptors.removeValue(forKey: option.optionID)
+                Task { await treatmentPreviewCoordinator.deselect(option.optionID) }
+            }
         }
         catch {
             synchronizeEditorialMirrors()
             errorMessage = error.localizedDescription
         }
+    }
+
+    func retryComparison(_ optionID: String) {
+        guard comparisonOptionIDs.contains(optionID),
+              let execution = admittedTreatmentOptions[optionID] else {
+            errorMessage = "That comparison option is no longer admitted."
+            return
+        }
+        prepareAdmittedPreview(
+            execution,
+            makeCurrent: editorialState.applied?.treatment.optionID == optionID,
+            comparisonSelected: true
+        )
     }
 
     func restoreTreatment(_ index: Int) {
@@ -455,7 +503,7 @@ private final class AppModel: ObservableObject {
             let restored = try workflow.restore(index, state: &editorialState, current: current, media: currentMediaRoles())
             let planned = try LocalMediaPlannerSession(registry: workflow.registry, schemaValidator: workflow.schemaValidator, capabilityGate: workflow.capabilityGate).adopt(exactPlan: restored.treatment.effectPlan, request: command, primary: primary, outgoing: outgoing, incoming: incoming, target: target)
             result = planned; previewChannels = restored.channels.materializedChannels(); appliedTreatment = restored.treatment; treatmentHistory = editorialState.history
-            prepareRenderedPreview(for: restored.treatment.effectPlan)
+            prepareAdmittedPreview(restored, makeCurrent: true)
             package = nil; exportedProject = nil; noticeMessage = "Restored \(restored.treatment.name) after fresh admission."
         } catch { errorMessage = error.localizedDescription }
     }
@@ -493,18 +541,26 @@ private final class AppModel: ObservableObject {
     /// A rendered option can be previewed before it is applied. Its bytes must
     /// never enable export for a different current plan even if both effects
     /// use the same rendered-movie architecture.
+    var currentPreparedRenderedAsset: RenderedEffectAsset? {
+        if let currentAdmittedPreview,
+           case .rendered(let asset) = currentAdmittedPreview.representation {
+            return asset
+        }
+        return directRenderedPreview
+    }
+
     private var renderedPreviewMatchesCurrentPlan: Bool {
-        guard let plan = result?.plan, let renderedPreview,
+        guard let plan = result?.plan, let asset = currentPreparedRenderedAsset,
               let expected = try? RenderedConstructionIdentity.digest(
                   plan: plan,
                   media: currentMediaRoles()
               ) else { return false }
-        return renderedPreview.constructionDigest == expected
+        return asset.constructionDigest == expected
     }
 
     var renderedProjectExportRefusal: String? {
         guard currentPlanRequiresRenderedPreview else { return nil }
-        guard renderedPreview != nil else {
+        guard currentPreparedRenderedAsset != nil else {
             return isRenderingPreview
                 ? "Wait for the exact checksum-bound treatment render."
                 : "Prepare the exact treatment preview before creating the project."
@@ -549,39 +605,154 @@ private final class AppModel: ObservableObject {
                 return Task.isCancelled ? .cancelled : .failed(error.localizedDescription)
             }
         }
-        renderedPreviewTask = task
+        directRenderedPreviewTask = task
         Task { [weak self] in
             let outcome = await task.value
             guard let self,
                   self.projectExportGenerationState.completeRenderedPreview(generation: generation) else { return }
-            self.renderedPreviewTask = nil
+            self.directRenderedPreviewTask = nil
             self.isRenderingPreview = false
             switch outcome {
             case .rendered(let asset, let exportDecision):
-                self.renderedPreview = asset
+                self.directRenderedPreview = asset
                 self.renderedPreviewExportDecision = exportDecision
                 self.noticeMessage = exportDecision.allowed
                     ? "Exact treatment ready · SHA-256 \(asset.sha256.prefix(12)). Preview and project export now share these bytes."
                     : "Exact preview ready · SHA-256 \(asset.sha256.prefix(12)). Project export stays closed: \(exportDecision.reason)"
             case .failed(let message):
-                self.renderedPreview = nil
+                self.directRenderedPreview = nil
                 self.renderedPreviewExportDecision = nil
                 self.errorMessage = message
             case .cancelled:
-                self.renderedPreview = nil
+                self.directRenderedPreview = nil
                 self.renderedPreviewExportDecision = nil
             }
         }
     }
 
+    /// Prepares one admitted option through the per-option coordinator. A
+    /// current authoritative treatment invalidates all older ownership first;
+    /// comparison-only work remains independent so one failed option cannot
+    /// erase another ready tile.
+    private func prepareAdmittedPreview(
+        _ execution: AdmittedTreatmentExecution,
+        makeCurrent: Bool,
+        comparisonSelected: Bool = false
+    ) {
+        let optionID = execution.treatment.optionID
+        admittedPreviewTasks[optionID]?.cancel()
+        let generation = UUID()
+        admittedPreviewGenerations[optionID] = generation
+
+        if makeCurrent {
+            projectExportGenerationState.cancelForInputDrift()
+            invalidateProjectExport()
+            directRenderedPreviewTask?.cancel()
+            directRenderedPreviewTask = nil
+            directRenderedPreview = nil
+            currentAdmittedPreview = nil
+            renderedPreviewExportDecision = nil
+            for (id, task) in admittedPreviewTasks where id != optionID { task.cancel() }
+            admittedPreviewTasks = admittedPreviewTasks.filter { $0.key == optionID }
+            comparisonPreviewStates.removeAll()
+            comparisonDescriptors.removeAll()
+            if comparisonSelected { comparisonPreviewStates[optionID] = .queued }
+        } else {
+            comparisonPreviewStates[optionID] = .queued
+            comparisonDescriptors.removeValue(forKey: optionID)
+        }
+
+        let rendered = StandaloneEmitterCatalog().emitter(
+            for: execution.treatment.effectPlan.effectID
+        ) is any StandaloneRenderedEffectEmitter
+        if makeCurrent { isRenderingPreview = rendered }
+        let installed = installedFinalCut
+        let coordinator = treatmentPreviewCoordinator
+        let task = Task { [weak self] in
+            if makeCurrent { await coordinator.invalidateAll() }
+            let terminal: TreatmentPreviewPreparationState
+            do {
+                terminal = try await coordinator.prepare(
+                    execution,
+                    comparisonSelected: comparisonSelected
+                )
+            } catch is CancellationError {
+                terminal = .cancelled
+            } catch {
+                terminal = .failed(error.localizedDescription)
+            }
+            guard !Task.isCancelled, let self,
+                  self.admittedPreviewGenerations[optionID] == generation else { return }
+            self.admittedPreviewTasks.removeValue(forKey: optionID)
+
+            if makeCurrent {
+                self.isRenderingPreview = false
+                if comparisonSelected {
+                    self.comparisonPreviewStates[optionID] = terminal
+                    if case .ready(let preview) = terminal {
+                        self.comparisonDescriptors[optionID] = try? TreatmentComparisonTileDescriptor.make(
+                            preview: preview,
+                            execution: execution
+                        )
+                    } else {
+                        self.comparisonDescriptors.removeValue(forKey: optionID)
+                    }
+                }
+                switch terminal {
+                case .ready(let preview):
+                    self.currentAdmittedPreview = preview
+                    if case .rendered(let asset) = preview.representation {
+                        let decision = ConnectedRenderedMovieExportAdmission.decision(
+                            plan: execution.treatment.effectPlan,
+                            media: execution.media,
+                            preparedAsset: asset,
+                            installedFinalCut: installed
+                        )
+                        self.renderedPreviewExportDecision = decision
+                        self.noticeMessage = decision.allowed
+                            ? "Exact treatment ready · SHA-256 \(asset.sha256.prefix(12)). Comparison and project export share these bytes."
+                            : "Exact preview ready · SHA-256 \(asset.sha256.prefix(12)). Project export stays closed: \(decision.reason)"
+                    } else {
+                        self.renderedPreviewExportDecision = nil
+                    }
+                case .failed(let message):
+                    self.currentAdmittedPreview = nil
+                    self.renderedPreviewExportDecision = nil
+                    self.errorMessage = message
+                case .cancelled, .idle, .queued, .preparing:
+                    self.currentAdmittedPreview = nil
+                    self.renderedPreviewExportDecision = nil
+                }
+            } else {
+                self.comparisonPreviewStates[optionID] = terminal
+                if case .ready(let preview) = terminal {
+                    self.comparisonDescriptors[optionID] = try? TreatmentComparisonTileDescriptor.make(
+                        preview: preview,
+                        execution: execution
+                    )
+                } else {
+                    self.comparisonDescriptors.removeValue(forKey: optionID)
+                }
+            }
+        }
+        admittedPreviewTasks[optionID] = task
+    }
+
     private func cancelRenderedPreview() {
         projectExportGenerationState.cancelForInputDrift()
         invalidateProjectExport()
-        renderedPreviewTask?.cancel()
-        renderedPreviewTask = nil
-        renderedPreview = nil
+        directRenderedPreviewTask?.cancel()
+        directRenderedPreviewTask = nil
+        for task in admittedPreviewTasks.values { task.cancel() }
+        admittedPreviewTasks.removeAll()
+        admittedPreviewGenerations.removeAll()
+        directRenderedPreview = nil
+        currentAdmittedPreview = nil
+        comparisonPreviewStates.removeAll()
+        comparisonDescriptors.removeAll()
         renderedPreviewExportDecision = nil
         isRenderingPreview = false
+        Task { await treatmentPreviewCoordinator.invalidateAll() }
     }
 
     /// Input or plan drift invalidates the meaning of an in-flight export even
@@ -599,8 +770,9 @@ private final class AppModel: ObservableObject {
 
     /// Parameter controls call the same atomic revision path as other core
     /// callers. A rejected edit leaves the visible plan and preview untouched.
-    func revise(parameters patch: [String: ParameterValue]) {
-        guard let result else { return }
+    @discardableResult
+    func revise(parameters patch: [String: ParameterValue]) -> Bool {
+        guard let result else { return false }
         do {
             if editorialState.applied != nil {
                 var workflow = try editorialWorkflow()
@@ -611,8 +783,8 @@ private final class AppModel: ObservableObject {
                 appliedTreatment = revised.0.treatment
                 treatmentHistory = editorialState.history
                 package = nil; exportedProject = nil; errorMessage = nil
-                prepareRenderedPreview(for: revised.0.treatment.effectPlan)
-                return
+                prepareAdmittedPreview(revised.0, makeCurrent: true)
+                return true
             }
             let registryURL = try appResource(named: "registry/effects")
             let schemaURL = try appResource(named: "schemas/effect-plan.schema.json")
@@ -627,7 +799,11 @@ private final class AppModel: ObservableObject {
             exportedProject = nil
             errorMessage = nil
             prepareRenderedPreview(for: revised.plan)
-        } catch { errorMessage = error.localizedDescription }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
     }
 
     func reportValidation(_ message: String) { errorMessage = message }
@@ -714,7 +890,14 @@ private final class AppModel: ObservableObject {
             } else { editorialExecution = nil }
         } catch { errorMessage = error.localizedDescription; return }
         let exportPlan = editorialExecution?.treatment.effectPlan ?? result.plan
-        let preparedRenderedAsset = renderedPreview
+        let admittedPreview = currentAdmittedPreview
+        let preparedRenderedAsset = currentPreparedRenderedAsset
+        if editorialExecution != nil, admittedPreview == nil {
+            errorMessage = isRenderingPreview
+                ? "The exact admitted treatment preview is still being prepared."
+                : "Prepare the exact admitted treatment preview before creating the project."
+            return
+        }
         if let emitter = StandaloneEmitterCatalog().emitter(for: exportPlan.effectID),
            emitter is any StandaloneRenderedEffectEmitter {
             guard preparedRenderedAsset != nil else {
@@ -757,18 +940,25 @@ private final class AppModel: ObservableObject {
                 let builder = StandaloneFCPXMLExportBuilder(gate: gate, registry: exportRegistry)
                 let package: StandaloneFCPXMLExportBuilder.Package
                 if let editorialExecution {
+                    guard let admittedPreview else {
+                        throw StandaloneExportError.admittedArtifactMismatch(
+                            "the admitted treatment preview is missing"
+                        )
+                    }
                     package = try builder.export(
                         admitted: editorialExecution,
                         mediaEvidence: admitted.evidence,
-                        preparedRenderedAsset: preparedRenderedAsset,
+                        preview: admittedPreview,
                         installedFinalCut: installed
                     )
                 } else {
+                    let construction: StandaloneExportConstruction = preparedRenderedAsset
+                        .map(StandaloneExportConstruction.rendered) ?? .native
                     package = try builder.export(
                         plan: plan,
                         media: media,
                         mediaEvidence: admitted.evidence,
-                        preparedRenderedAsset: preparedRenderedAsset,
+                        construction: construction,
                         installedFinalCut: installed
                     )
                 }
@@ -1045,7 +1235,13 @@ private struct ContentView: View {
             if let set = model.treatmentOptions { TreatmentOptionsView(set: set, model: model) }
 
             if !model.comparisonOptionIDs.isEmpty {
-                EditorialComparisonView(source: model.primary, executions: model.comparisonOptionIDs.compactMap { model.admittedTreatmentOptions[$0] })
+                EditorialComparisonView(
+                    source: model.primary,
+                    executions: model.comparisonOptionIDs.compactMap { model.admittedTreatmentOptions[$0] },
+                    previewStates: model.comparisonPreviewStates,
+                    descriptors: model.comparisonDescriptors,
+                    retry: model.retryComparison
+                )
             }
             if !model.treatmentHistory.isEmpty {
                 DisclosureGroup("Treatment history (\(model.treatmentHistory.count))") {
@@ -1077,7 +1273,7 @@ private struct ContentView: View {
                     .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let rendered = model.renderedPreview {
+            if let rendered = model.currentPreparedRenderedAsset {
                 RenderedTreatmentPreview(asset: rendered)
                     .id(rendered.sha256)
                 if let refusal = model.renderedProjectExportRefusal {
@@ -1158,7 +1354,7 @@ private struct ContentView: View {
 private struct ParameterInspector: View {
     let result: LocalMediaPlanningResult
     let definitions: [ParameterDefinition]
-    let revise: ([String: ParameterValue]) -> Void
+    let revise: ([String: ParameterValue]) -> Bool
     let reportValidation: (String) -> Void
 
     var body: some View {
@@ -1169,7 +1365,7 @@ private struct ParameterInspector: View {
                     let patch = Dictionary(uniqueKeysWithValues: definitions.compactMap { definition -> (String, ParameterValue)? in
                         (definition.presentation ?? .failClosed).exposure.isEditable ? result.baselineParameters[definition.name].map { (definition.name, $0) } : nil
                     })
-                    revise(patch)
+                    _ = revise(patch)
                 }
             }
             ForEach(ParameterGroup.allCases, id: \.self) { group in
@@ -1190,9 +1386,12 @@ private struct ParameterControl: View {
     let definition: ParameterDefinition
     let value: ParameterValue
     let baseline: ParameterValue?
-    let revise: ([String: ParameterValue]) -> Void
+    let revise: ([String: ParameterValue]) -> Bool
     let reportValidation: (String) -> Void
     @State private var text = ""
+    @State private var draftState = ParameterDraftCommitState()
+    @State private var sliderEditing = false
+    @State private var debounceTask: Task<Void, Never>?
 
     private var presentation: ParameterPresentation { definition.presentation ?? .failClosed }
     private var editable: Bool { presentation.exposure.isEditable }
@@ -1203,39 +1402,98 @@ private struct ParameterControl: View {
                 Text(presentation.label)
                 if presentation.exposure == .approximateEditable { Text("Approximate").font(.caption2).foregroundStyle(.orange) }
                 if !editable { Text("Read-only").font(.caption2).foregroundStyle(.secondary) }
+                if draftState.hasUncommittedDraft(for: definition.name) {
+                    Text("Draft · preview out of date").font(.caption2).foregroundStyle(.orange)
+                }
                 Spacer()
-                if editable, let baseline { Button("Reset") { revise([definition.name: baseline]) }.font(.caption) }
+                if editable, let baseline { Button("Reset") { _ = revise([definition.name: baseline]) }.font(.caption) }
             }
             if editable { control; Text(presentation.explanation).font(.caption).foregroundStyle(.secondary) } else { Text("\(display(value)) — \(presentation.explanation)").font(.caption).foregroundStyle(.secondary) }
             if let units = presentation.units, editable { Text(units).font(.caption2).foregroundStyle(.secondary) }
         }
-        .onAppear { text = display(value) }
-        .onChange(of: value) { _, newValue in text = display(newValue) }
+        .onAppear { synchronizeDraft(to: value) }
+        .onChange(of: value) { _, newValue in synchronizeDraft(to: newValue) }
+        .onDisappear {
+            debounceTask?.cancel()
+            debounceTask = nil
+            draftState.discardAllDrafts()
+        }
     }
 
     @ViewBuilder private var control: some View {
         switch definition.type {
         case "boolean":
-            Toggle("", isOn: Binding(get: { if case .boolean(let flag) = value { return flag }; return false }, set: { revise([definition.name: .boolean($0)]) }))
+            Toggle("", isOn: Binding(get: { if case .boolean(let flag) = value { return flag }; return false }, set: { _ = revise([definition.name: .boolean($0)]) }))
                 .labelsHidden()
         case "string" where definition.allowedValues != nil:
-            Picker("", selection: Binding(get: { value.stringValue ?? "" }, set: { revise([definition.name: .string($0)]) })) {
+            Picker("", selection: Binding(get: { value.stringValue ?? "" }, set: { _ = revise([definition.name: .string($0)]) })) {
                 ForEach(definition.allowedValues?.compactMap(\.stringValue) ?? [], id: \.self) { Text($0).tag($0) }
             }.labelsHidden()
         case "integer":
-            Stepper(value: Binding(get: { value.numberValue.map(Int.init) ?? 0 }, set: { revise([definition.name: .integer($0)]) }), in: Int(definition.minimum ?? -1000)...Int(definition.maximum ?? 1000)) { Text(display(value)) }
+            Stepper(value: Binding(get: { value.numberValue.map(Int.init) ?? 0 }, set: { _ = revise([definition.name: .integer($0)]) }), in: Int(definition.minimum ?? -1000)...Int(definition.maximum ?? 1000)) { Text(display(value)) }
         default:
             HStack {
                 if let minimum = definition.minimum, let maximum = definition.maximum {
-                    Slider(value: Binding(get: { value.numberValue ?? 0 }, set: { revise([definition.name: .number($0)]) }), in: minimum...maximum)
+                    Slider(
+                        value: Binding(
+                            get: {
+                                draftState.value(for: definition.name)?.numberValue
+                                    ?? value.numberValue
+                                    ?? 0
+                            },
+                            set: { updateNumericDraft($0) }
+                        ),
+                        in: minimum...maximum,
+                        onEditingChanged: { editing in
+                            sliderEditing = editing
+                            if editing {
+                                debounceTask?.cancel()
+                                debounceTask = nil
+                            } else {
+                                commitNumericDraft()
+                            }
+                        }
+                    )
                 }
                 TextField("Value", text: $text).frame(width: 72).onSubmit {
                     switch ParameterNumericInput.parse(text) {
-                    case .success(let number): revise([definition.name: .number(number)])
+                    case .success(let number):
+                        draftState.updateDraft(name: definition.name, value: .number(number))
+                        commitNumericDraft()
                     case .failure(let error): reportValidation("\(presentation.label): \(error.message)")
                     }
                 }
             }
+        }
+    }
+
+    private func synchronizeDraft(to authoritative: ParameterValue) {
+        debounceTask?.cancel()
+        debounceTask = nil
+        draftState.synchronize(name: definition.name, authoritative: authoritative)
+        text = display(authoritative)
+    }
+
+    private func updateNumericDraft(_ number: Double) {
+        let draft = ParameterValue.number(number)
+        draftState.updateDraft(name: definition.name, value: draft)
+        text = display(draft)
+        guard !sliderEditing else { return }
+        debounceTask?.cancel()
+        debounceTask = Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            commitNumericDraft()
+        }
+    }
+
+    private func commitNumericDraft() {
+        debounceTask?.cancel()
+        debounceTask = nil
+        guard let patch = draftState.commit(name: definition.name) else { return }
+        if !revise(patch) {
+            draftState.synchronize(name: definition.name, authoritative: value)
+            text = display(value)
         }
     }
 
@@ -1882,9 +2140,23 @@ private struct OptionCard: View {
 private struct EditorialComparisonView: View {
     let source: LocalMediaAsset?
     let executions: [AdmittedTreatmentExecution]
-    @State private var time: Double = 0
+    let previewStates: [String: TreatmentPreviewPreparationState]
+    let descriptors: [String: TreatmentComparisonTileDescriptor]
+    let retry: (String) -> Void
+    @State private var frameIndex = 0
     @State private var playing = false
     private let clock = Timer.publish(every: 1.0 / 30.0, on: .main, in: .common).autoconnect()
+
+    private var readyDescriptors: [TreatmentComparisonTileDescriptor] {
+        executions.compactMap { descriptors[$0.treatment.optionID] }
+    }
+
+    private var frameRate: Int { readyDescriptors.first?.frameRate ?? 30 }
+    private var frameCount: Int {
+        readyDescriptors.first?.frameCount
+            ?? max(1, executions.map { NativeFCPXMLFrameRate.thirty.frames(seconds: $0.channels.durationSeconds) }.max() ?? 1)
+    }
+    private var seconds: Double { Double(frameIndex) / Double(frameRate) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1892,37 +2164,135 @@ private struct EditorialComparisonView: View {
                 Label("Compare", systemImage: "rectangle.split.3x1").font(.headline)
                 Spacer()
                 Button(playing ? "Pause" : "Play") { playing.toggle() }
-                Text(String(format: "%.2fs", time)).font(.caption.monospacedDigit())
+                Button("Reset") { playing = false; frameIndex = 0 }
+                Text("f\(frameIndex) · \(String(format: "%.2fs", seconds))")
+                    .font(.caption.monospacedDigit())
             }
-            Text("Source plus \(executions.count) admitted option\(executions.count == 1 ? "" : "s") share this poster time. Still-only source has no audio; no level-matching claim applies.")
+            Text("Source plus \(executions.count) admitted option\(executions.count == 1 ? "" : "s") resolve one shared integer frame. Still-only source has no audio; no level-matching claim applies.")
                 .font(.caption2).foregroundStyle(.secondary)
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading) {
                     Text("Source").font(.caption.weight(.semibold))
                     if let source { SourcePreview(media: source).frame(width: 150, height: 110) }
+                    Text("Locked source · frame \(frameIndex)")
+                        .font(.caption2.monospaced()).foregroundStyle(.secondary)
                 }
                 ForEach(executions, id: \.treatment.optionID) { execution in
-                    VStack(alignment: .leading) {
-                        Text(execution.treatment.name).font(.caption.weight(.semibold))
-                        if let source {
-                            EffectPoster(media: source, channels: execution.channels.materializedChannels(), time: time, showColor: true, showingOriginal: false, height: 110)
-                                .frame(height: 110).clipShape(RoundedRectangle(cornerRadius: 5))
-                        }
-                        Text("Channel digest \(execution.channels.digest.prefix(12))").font(.caption2.monospaced()).foregroundStyle(.secondary)
-                        Text("Shared admitted construction").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(6)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
+                    comparisonTile(execution)
                 }
             }
-            Slider(value: $time, in: 0...max(0.01, executions.map { $0.channels.durationSeconds }.max() ?? 1))
+            Slider(
+                value: Binding(
+                    get: { Double(frameIndex) },
+                    set: { frameIndex = min(frameCount - 1, max(0, Int($0.rounded(.down)))) }
+                ),
+                in: 0...Double(max(1, frameCount - 1)),
+                step: 1
+            )
         }
         .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.35)))
         .onReceive(clock) { _ in
             guard playing else { return }
-            let duration = max(0.01, executions.map { $0.channels.durationSeconds }.max() ?? 1)
-            time += 1.0 / 30.0
-            if time > duration { time = 0 }
+            frameIndex = (frameIndex + 1) % frameCount
+        }
+        .onChange(of: frameCount) { _, count in frameIndex = min(max(0, count - 1), frameIndex) }
+    }
+
+    @ViewBuilder
+    private func comparisonTile(_ execution: AdmittedTreatmentExecution) -> some View {
+        let optionID = execution.treatment.optionID
+        VStack(alignment: .leading, spacing: 4) {
+            Text(execution.treatment.name).font(.caption.weight(.semibold))
+            switch previewStates[optionID] ?? .idle {
+            case .ready:
+                if let descriptor = descriptors[optionID] {
+                    switch descriptor.representation {
+                    case .native(let channels):
+                        if let source {
+                            EffectPoster(
+                                media: source,
+                                channels: channels.materializedChannels(),
+                                time: Double(frameIndex) / Double(descriptor.frameRate),
+                                showColor: true,
+                                showingOriginal: false,
+                                height: 110
+                            )
+                            .frame(height: 110).clipShape(RoundedRectangle(cornerRadius: 5))
+                        }
+                        Text("Native channel digest \(channels.digest.prefix(12))")
+                            .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    case .rendered(let asset):
+                        ExactRenderedComparisonFrame(asset: asset, frameIndex: frameIndex)
+                            .frame(height: 110).clipShape(RoundedRectangle(cornerRadius: 5))
+                        Text("Rendered SHA-256 \(asset.sha256.prefix(12))")
+                            .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                        Text("Exact prepared treatment")
+                            .font(.caption2).foregroundStyle(.green)
+                    }
+                } else {
+                    refusedTile("The admitted preview no longer matches this option.", optionID: optionID)
+                }
+            case .queued, .preparing:
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Preparing exact rendered option…")
+                }
+                .frame(height: 110).font(.caption2).foregroundStyle(.secondary)
+            case .failed(let reason):
+                refusedTile(reason, optionID: optionID)
+            case .idle, .cancelled:
+                refusedTile("Exact preview is missing or stale; untreated source fallback is refused.", optionID: optionID)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(6)
+        .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
+    }
+
+    private func refusedTile(_ reason: String, optionID: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(reason, systemImage: "eye.slash")
+                .font(.caption2).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Retry", action: { retry(optionID) }).controlSize(.small)
+        }
+        .frame(height: 110, alignment: .center)
+    }
+}
+
+/// Loads only the exact requested movie frame. Until that frame is available,
+/// the tile shows preparation rather than retaining a stale frame or falling
+/// back to the untreated still.
+private struct ExactRenderedComparisonFrame: View {
+    let asset: RenderedEffectAsset
+    let frameIndex: Int
+    @State private var image: NSImage?
+    @State private var loadedFrameIndex: Int?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if loadedFrameIndex == frameIndex, let image {
+                Image(nsImage: image).resizable().scaledToFit()
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .task(id: "\(asset.sha256)-\(frameIndex)") {
+            image = nil
+            loadedFrameIndex = nil
+            let requested = frameIndex
+            let generated = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                let generator = AVAssetImageGenerator(asset: AVURLAsset(url: asset.url))
+                generator.appliesPreferredTrackTransform = true
+                generator.requestedTimeToleranceBefore = .zero
+                generator.requestedTimeToleranceAfter = .zero
+                generator.maximumSize = CGSize(width: 640, height: 360)
+                let time = CMTime(value: CMTimeValue(requested), timescale: CMTimeScale(asset.fps))
+                return try? generator.copyCGImage(at: time, actualTime: nil)
+            }.value
+            guard !Task.isCancelled, requested == frameIndex, let generated else { return }
+            image = NSImage(cgImage: generated, size: .zero)
+            loadedFrameIndex = requested
         }
     }
 }

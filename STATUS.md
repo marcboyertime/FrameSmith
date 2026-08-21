@@ -2,8 +2,9 @@
 
 ## Current checkpoint — 2026-08-21
 
-FrameSmith is the product name. Internal repository, package, bundle, and
-legacy command identifiers remain stable for compatibility.
+FrameSmith is the product name. The repository is public and the product is
+local-first; package, bundle, and legacy command identifiers remain stable for
+compatibility.
 
 The director-control contract remains a tested runtime invariant. FrameSmith
 may change treatment pixels and parameters, but it may not replace, omit,
@@ -16,6 +17,27 @@ validated and 11 reference-only**. `motion.opacity.fade.v1` is deliberately
 reference-only after retirement of the v1 Living Still opacity route. A card is
 validated only when its implementation, representative visual review, and
 construction evidence are all present.
+
+## Truthful rendered comparison checkpoint
+
+The A/B/C path now has a sealed preview-artifact lifecycle. Each admitted
+treatment owns either exact native channels or its own checksum-bound prepared
+movie. Rendered options are prepared per option/construction by a bounded actor
+coordinator with content deduplication, serial heavy work, cooperative
+cancellation, latest-generation ownership, and a three-option comparison cap.
+All tiles resolve one shared integer frame index; a rendered tile cannot fall
+back to neutral native channels, an untreated poster, or stale pixels.
+
+Standalone export now accepts an explicit native or prepared-rendered
+construction and has no renderer invocation path. Missing rendered bytes refuse
+before output-root creation. The app previews an admitted rendered artifact and
+passes that same asset to export, where its identity and file hash are checked
+again. Slider ticks remain local drafts and emit at most one authoritative
+revision and render request when the gesture commits.
+
+Architecture and next-milestone design are in
+`docs/ADMITTED_PREVIEW_ARTIFACT_LIFECYCLE.md` and
+`docs/SCHEMA_V3_COMPOSITION_DESIGN.md`.
 
 ## Production effects
 
@@ -148,11 +170,15 @@ layering, or another Final Cut version.
 ## Installed app verification — 2026-08-21
 
 The release build is installed at
-`/Users/marcboyer/Applications/FrameSmith.app`. Its ad-hoc signature, bundle ID
-`com.marcboyer.FCPCommandConsole`, icon, 15 technique cards, registry, model
-manifest, and schemas were verified against this checkout. The complete Swift
-suite passed **379 tests with zero failures**, and the strict catalog audit
-passed with 4 validated and 11 reference-only cards.
+`/Users/marcboyer/Applications/FrameSmith.app` from code commit `a7595a8`. Its
+ad-hoc signature verifies, its bundle ID is
+`com.marcboyer.FCPCommandConsole`, and its executable SHA-256 is
+`84520a762a08de2100dd3547a96f2f7dfb3793edd9eae9a098072452f0ea7926`.
+The final installer found the bundle byte-identical because the last code
+commit changes only the standalone CLI target. `make launch-app` launched the
+installed executable. The truthful-comparison source suite passes **387 tests
+with zero failures**, and the strict catalog audit passes with 4 validated and
+11 reference-only cards.
 
 The installed app completed both rendered workflows against the admitted
 1920×1080 still fixture. Living Still produced and exported SHA-256
@@ -173,6 +199,27 @@ for inspection and pause/detach during teardown. Screenshots are retained at
 and
 `/Users/marcboyer/Movies/FCPCommandConsole/provenance/installed-framesmith-old-television-v2-20260821.jpg`.
 
+Those screenshots predate the truthful A/B/C comparison checkpoint and are not
+evidence that its installed comparison view was exercised. During the final
+checkpoint pass, the approved app-scoped Computer Use plugin was discoverable
+but its runtime module was absent: `import('@oai/cua')` failed with `Module not
+found: @oai/cua`. Project policy forbids substituting AppleScript, System
+Events, or global input injection. Installed A/B/C screenshots, manual shared-
+transport observation, and manual slider-drag counting therefore remain
+explicitly blocked rather than inferred from tests.
+
+Fresh current-build headless artifacts were generated through the same
+explicit prepare-then-export core route. Living Still operation
+`9E83B21E-B197-452D-8A19-3E062E8D96D2` produced SHA-256
+`78f5e85e7a8f1860bdb5b58d0218088936e863dc4dc56d72e8007cbb9f6a04e8`;
+Old Television operation `0493F319-7D76-4B32-91AD-1B26ADD2CC67`
+produced SHA-256
+`a0213f69b39b719cd250480f9499ed98ccd15065a3af9d34afcd7483ce37572d`.
+For both, the prepared-cache and exported package movie hashes are identical.
+Exact provenance, stream facts, compact source-vs-render frame 0/60/119 contact
+sheets, and the blocked UI evidence boundary are recorded in
+`docs/TRUTHFUL_RENDERED_COMPARISON_EVIDENCE_2026-08-21.md`.
+
 ## Output and runtime boundary
 
 FrameSmith generates a **new** Final Cut project package. It does not inspect or
@@ -187,8 +234,17 @@ how the returned evidence above was gathered.
 
 ## Remaining limitations and next work
 
-- Fresh Final Cut evidence remains open for the canonical 12-frame Natural
-  Dissolve route.
+- Fresh operation `2A6AF0E0-BF1F-413C-B111-8A3351E359C8` packages the
+  canonical 12-frame Natural Dissolve at
+  `/Users/marcboyer/Movies/FCPCommandConsole/exports/standalone/2A6AF0E0-BF1F-413C-B111-8A3351E359C8`;
+  its FCPXML SHA-256 is
+  `7fa8777d490cdbec7ea4993032a3fd7b64fe14b649072ee866aa7224c53b9822`.
+  The isolated Final Cut preflight passed, but import/export is blocked by the
+  unavailable approved Computer Use runtime. No returned hash exists and no
+  admission was broadened.
+- Installed A/B/C visual smoke remains open for the same Computer Use runtime
+  blocker; core descriptor, shared-frame, stale/cancellation, export-parity,
+  and slider draft/commit behavior are covered by the green test suite.
 - Living Still's head-only 0.033–0.100 second startup hold is bounded and
   accepted for this pass, but should remain a temporal regression metric.
 - The rendered effects are regenerable from retained recipes; their pixels are

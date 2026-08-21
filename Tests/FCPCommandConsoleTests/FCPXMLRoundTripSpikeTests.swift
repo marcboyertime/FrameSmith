@@ -37,6 +37,17 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
         return FCPXMLRoundTripSpikeBuilder(fixtureRoot: fixtureRoot, exportRoot: exportRoot, dtdURL: selectedDTD)
     }
 
+    /// A readable placeholder for tests proving a filesystem guard runs before
+    /// DTD validation. These tests must remain hermetic on CI, where Final Cut
+    /// and its installed DTD are intentionally absent.
+    private func unusedReadableDTD() throws -> URL {
+        let url = root.appendingPathComponent("unused-guard-only.dtd")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try Data("not reached by this guard test".utf8).write(to: url)
+        }
+        return url
+    }
+
     func testBuildCreatesReducedDTDValidDissolveAdmissionPackage() throws {
         let operationID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
         let package = try builder().build(operationID: operationID, generatedAt: Date(timeIntervalSince1970: 0))
@@ -197,7 +208,7 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
         try FileManager.default.createSymbolicLink(at: source, withDestinationURL: target)
         let operationID = UUID()
 
-        XCTAssertThrowsError(try builder().build(operationID: operationID)) { error in
+        XCTAssertThrowsError(try builder(dtd: unusedReadableDTD()).build(operationID: operationID)) { error in
             XCTAssertEqual(error as? FCPXMLRoundTripSpikeError, .symlinkFixture(source))
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: exportRoot.appendingPathComponent(operationID.uuidString).path))
@@ -211,7 +222,7 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
         XCTAssertEqual(mkfifo(source.path, S_IRUSR | S_IWUSR), 0)
         let operationID = UUID()
 
-        XCTAssertThrowsError(try builder().build(operationID: operationID)) { error in
+        XCTAssertThrowsError(try builder(dtd: unusedReadableDTD()).build(operationID: operationID)) { error in
             XCTAssertEqual(error as? FCPXMLRoundTripSpikeError, .missingFixture(source))
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: exportRoot.appendingPathComponent(operationID.uuidString).path))
@@ -224,7 +235,8 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
         let symlinkRoot = root.appendingPathComponent("symlink-output", isDirectory: true)
         try FileManager.default.createDirectory(at: symlinkTarget, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: symlinkRoot, withDestinationURL: symlinkTarget)
-        XCTAssertThrowsError(try FCPXMLRoundTripSpikeBuilder(fixtureRoot: fixtureRoot, exportRoot: symlinkRoot, dtdURL: try dtdURL()).build()) { error in
+        let guardOnlyDTD = try unusedReadableDTD()
+        XCTAssertThrowsError(try FCPXMLRoundTripSpikeBuilder(fixtureRoot: fixtureRoot, exportRoot: symlinkRoot, dtdURL: guardOnlyDTD).build()) { error in
             XCTAssertEqual(error as? FCPXMLRoundTripSpikeError, .symlinkExportRoot(symlinkRoot))
         }
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(at: symlinkTarget, includingPropertiesForKeys: nil), [])
@@ -240,7 +252,7 @@ final class FCPXMLRoundTripSpikeTests: XCTestCase {
             root.appendingPathComponent("Final Cut Pro.app/exports", isDirectory: true)
         ]
         for forbiddenRoot in forbiddenRoots {
-            XCTAssertThrowsError(try FCPXMLRoundTripSpikeBuilder(fixtureRoot: fixtureRoot, exportRoot: forbiddenRoot, dtdURL: try dtdURL()).build()) { error in
+            XCTAssertThrowsError(try FCPXMLRoundTripSpikeBuilder(fixtureRoot: fixtureRoot, exportRoot: forbiddenRoot, dtdURL: guardOnlyDTD).build()) { error in
                 guard case FCPXMLRoundTripSpikeError.forbiddenExportRoot = error else {
                     return XCTFail("Expected forbidden export root, got \(error)")
                 }

@@ -5,16 +5,16 @@ build:
 
 test:
 	swift test
-	python3 scripts/audit-core.py
+	python3 Scripts/audit-core.py
 
 doctor:
 	swift run fcpcommandconsole doctor-core
 
 overlay-smoke:
-	scripts/overlay-smoke.sh
+	Scripts/overlay-smoke.sh
 
 fixtures:
-	scripts/generate-fixtures
+	Scripts/generate-fixtures
 
 acquire-depth-model:
 	Scripts/acquire-depth-model

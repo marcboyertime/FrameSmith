@@ -1,7 +1,8 @@
 # FrameSmith project policy
 
-Private local project. **FrameSmith** is the product name; `FCPCommandConsole`
-remains the repository, bundle, and command identifier.
+Local-first product in a public repository. Assume every committed file is
+public. **FrameSmith** is the product name; `FCPCommandConsole` remains the
+repository, bundle, and command identifier.
 
 ## The product relationship
 
@@ -49,6 +50,9 @@ parameters, provenance, and regeneration path. The failure mode is
 - No paid call or private-media upload without naming the provider, the estimated
   cost, and the privacy boundary, and receiving approval.
 - Keep credentials out of source, logs, shell history, and argv.
+- Never commit private media, personal tokens, local runtime payloads, or
+  machine-specific secrets. Public evidence must use nonprivate fixtures and
+  label nonportable local paths as observations rather than product defaults.
 
 ## Automation and remote git — updated
 

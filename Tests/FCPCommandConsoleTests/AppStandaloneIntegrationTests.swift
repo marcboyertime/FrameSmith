@@ -198,6 +198,7 @@ final class AppStandaloneIntegrationTests: XCTestCase {
             plan: plan,
             media: [.primary: asset],
             mediaEvidence: evidence,
+            construction: .native,
             installedFinalCut: testedBuild
         )) { error in
             let described = (error as? StandaloneExportError)?.errorDescription

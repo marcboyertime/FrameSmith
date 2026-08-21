@@ -4,8 +4,10 @@ import Darwin
 
 @main
 struct FCPCommandConsoleRoundTripSpikeCLI {
-    private static let defaultFixtureRoot = "/Users/marcboyer/Movies/FCPCommandConsole/fixtures"
-    private static let defaultExportRoot = "/Users/marcboyer/Movies/FCPCommandConsole/exports/roundtrip-spikes"
+    private static let runtimeRoot = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Movies/FCPCommandConsole", isDirectory: true)
+    private static let defaultFixtureRoot = runtimeRoot.appendingPathComponent("fixtures").path
+    private static let defaultExportRoot = runtimeRoot.appendingPathComponent("exports/roundtrip-spikes").path
 
     static func main() {
         do {

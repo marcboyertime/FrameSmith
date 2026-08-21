@@ -22,6 +22,13 @@ final class LivingStillProbeBuilderTests: XCTestCase {
         LivingStillProbeBuilder(fixtureRoot: fixtureRoot, exportRoot: exportRoot)
     }
 
+    private func requireInstalledDTD() throws {
+        try XCTSkipUnless(
+            NativeFCPXMLDTD.isInstalled(version: "1.14"),
+            "FCPXML 1.14 DTD is intentionally unavailable on hermetic CI"
+        )
+    }
+
     // MARK: - Emission
 
     func testGeneratedDocumentUsesTheCapturedConstruction() throws {
@@ -82,6 +89,7 @@ final class LivingStillProbeBuilderTests: XCTestCase {
     // MARK: - Package
 
     func testBuildProducesAValidatedPackageWithHashVerifiedMedia() throws {
+        try requireInstalledDTD()
         let fixtures = try makeFixtureRoot()
         let exports = try temporaryRoot()
         let package = try builder(fixtureRoot: fixtures, exportRoot: exports).build()
@@ -99,6 +107,7 @@ final class LivingStillProbeBuilderTests: XCTestCase {
     }
 
     func testEvidenceAdmitsNothing() throws {
+        try requireInstalledDTD()
         let fixtures = try makeFixtureRoot()
         let exports = try temporaryRoot()
         let package = try builder(fixtureRoot: fixtures, exportRoot: exports).build()
@@ -124,6 +133,7 @@ final class LivingStillProbeBuilderTests: XCTestCase {
     }
 
     func testRefusesToOverwriteAnExistingPackage() throws {
+        try requireInstalledDTD()
         let fixtures = try makeFixtureRoot()
         let exports = try temporaryRoot()
         let operation = UUID()
@@ -199,7 +209,7 @@ final class LivingStillProbeBuilderTests: XCTestCase {
     /// Skips rather than fails where Final Cut is not installed, so the suite
     /// stays runnable off this machine. DTD validity is not acceptance.
     func testGeneratedDocumentValidatesAgainstTheInstalled114DTD() throws {
-        try XCTSkipUnless(NativeFCPXMLDTD.isInstalled(version: "1.14"), "FCPXML 1.14 DTD not installed")
+        try requireInstalledDTD()
         let fixtures = try makeFixtureRoot()
         let exports = try temporaryRoot()
         let package = try builder(fixtureRoot: fixtures, exportRoot: exports).build()

@@ -312,7 +312,7 @@ public struct FCPXMLRoundTripSpikeBuilder: Sendable {
     private func rejectForbiddenExportRoot(_ root: URL) throws {
         let path = root.standardizedFileURL.path
         let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
-        let explicitlyForbidden = ["/", "/Users/marcboyer", "/Users/marcboyer/Movies", home, "\(home)/Movies"]
+        let explicitlyForbidden = ["/", home, "\(home)/Movies"]
         guard !explicitlyForbidden.contains(path) else { throw FCPXMLRoundTripSpikeError.forbiddenExportRoot(root) }
         let components = root.pathComponents
         guard !components.contains(where: { $0.lowercased().hasSuffix(".fcpbundle") }) else {

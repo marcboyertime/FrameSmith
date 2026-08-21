@@ -1101,12 +1101,17 @@ public struct LivingStillDepthRenderer: Sendable {
         _ request: LivingStillDepthRenderRequest,
         in outputDirectory: URL = LivingStillDepthRenderer.defaultOutputDirectory
     ) throws -> LivingStillDepthRenderArtifact {
+        try Task.checkCancellation()
         let frameCount = try Self.validate(request)
+        try Task.checkCancellation()
         let source = try Self.readNormalizedSource(request)
+        try Task.checkCancellation()
         let modelAdmission = try modelLocator.locate()
         defer { modelAdmission.close() }
+        try Task.checkCancellation()
         let modelIdentity = modelAdmission.identity
         let model = try Self.loadModel(admission: modelAdmission)
+        try Task.checkCancellation()
         let context = Self.makeContext()
         let mapping = try LivingStillDepthAspectMapping.make(
             sourceWidth: source.width,
@@ -1114,15 +1119,18 @@ public struct LivingStillDepthRenderer: Sendable {
             policy: request.aspectPolicy
         )
         let inputBuffer = try Self.makeModelInput(source.image, mapping: mapping, context: context)
+        try Task.checkCancellation()
 
         // This is intentionally the renderer's sole `prediction` call. The
         // returned 16-bit half field stays alive while normalization, digesting
         // and frame construction are completed; it is never quantized to 8-bit.
         let rawDepth = try Self.predictDepth(model: model, input: inputBuffer)
+        try Task.checkCancellation()
         // Core ML may defer reading compiled payloads until prediction. A
         // second full descriptor-anchored verification therefore runs only
         // after the sole inference call has consumed the sealed snapshot.
         try modelAdmission.verifySnapshot()
+        try Task.checkCancellation()
         defer { withExtendedLifetime(rawDepth) {} }
         let processedDepth = try LivingStillDepthFieldProcessor.process(
             bits: rawDepth.bits,
@@ -1136,6 +1144,7 @@ public struct LivingStillDepthRenderer: Sendable {
             height: rawDepth.height
         )
         let renderDepthMean = LivingStillDepthFieldProcessor.mean(processedDepth, in: mapping.contentRect)
+        try Task.checkCancellation()
 
         let recipeDigest = try Self.recipeDigest(
             request: request,
@@ -1143,6 +1152,7 @@ public struct LivingStillDepthRenderer: Sendable {
             depthFieldDigest: processedDepth.digest,
             rawDepthFieldDigest: rawDepthDigest
         )
+        try Task.checkCancellation()
         let output = try Self.prepareOutputDirectory(outputDirectory)
         defer { output.handle.closeHandle() }
         let finalName = "living-still-depth-\(recipeDigest.prefix(32)).mov"
@@ -1152,6 +1162,7 @@ public struct LivingStillDepthRenderer: Sendable {
         let overscanScale = Self.overscanScale(request: request, maximumDepthDisplacement: maximumDepthDisplacement)
 
         if output.handle.entryExists(finalName) {
+            try Task.checkCancellation()
             return try Self.reuseExisting(
                 url: finalURL,
                 childName: finalName,
@@ -1191,6 +1202,7 @@ public struct LivingStillDepthRenderer: Sendable {
         let temporaryName = ".living-still-depth-\(recipeDigest.prefix(16))-\(UUID().uuidString).mov"
         let temporaryURL = output.url.appendingPathComponent(temporaryName)
         defer { output.handle.removeChildRecursively(temporaryName) }
+        try Task.checkCancellation()
         try Self.writeMovie(
             to: temporaryURL,
             request: request,
@@ -1203,13 +1215,25 @@ public struct LivingStillDepthRenderer: Sendable {
             kernel: warpKernel,
             context: context
         )
-        _ = try Self.verifyMovie(at: temporaryURL, request: request, frameCount: frameCount, recipeDigest: recipeDigest)
+        try Task.checkCancellation()
+        _ = try Self.verifyMovie(
+            at: temporaryURL,
+            request: request,
+            frameCount: frameCount,
+            recipeDigest: recipeDigest,
+            observeCancellation: true
+        )
+        try Task.checkCancellation()
 
         let staged = try SourceFileHandle.open(vettedRegularFile: temporaryURL)
         defer { staged.closeHandle() }
         guard fsync(staged.descriptor) == 0 else {
             throw LivingStillDepthRenderError.writerFailed("could not sync the staged movie: \(String(cString: strerror(errno)))")
         }
+        // Last cancellable point. Once the exclusive rename succeeds, the
+        // content-addressed movie is durable and must be returned so its owner
+        // can classify it as current or stale honestly.
+        try Task.checkCancellation()
         do {
             try output.handle.renameChildExclusively(temporaryName, toChild: finalName, of: output.handle)
             _ = fsync(output.handle.descriptor)
@@ -1231,7 +1255,13 @@ public struct LivingStillDepthRenderer: Sendable {
             )
         }
 
-        _ = try Self.verifyMovie(at: finalURL, request: request, frameCount: frameCount, recipeDigest: recipeDigest)
+        _ = try Self.verifyMovie(
+            at: finalURL,
+            request: request,
+            frameCount: frameCount,
+            recipeDigest: recipeDigest,
+            observeCancellation: false
+        )
         let movieHash = try output.handle.hashRegularFile(finalName, cancellationCheck: {})
         return Self.artifact(
             url: finalURL,
@@ -1402,12 +1432,14 @@ public struct LivingStillDepthRenderer: Sendable {
     }
 
     private static func predictDepth(model: MLModel, input: CVPixelBuffer) throws -> RawDepthField {
+        try Task.checkCancellation()
         let provider: MLDictionaryFeatureProvider
         do { provider = try MLDictionaryFeatureProvider(dictionary: ["image": MLFeatureValue(pixelBuffer: input)]) }
         catch { throw LivingStillDepthRenderError.modelPredictionFailed(error.localizedDescription) }
         let output: MLFeatureProvider
         do { output = try model.prediction(from: provider) }
         catch { throw LivingStillDepthRenderError.modelPredictionFailed(error.localizedDescription) }
+        try Task.checkCancellation()
         guard let buffer = output.featureValue(for: "depth")?.imageBufferValue else {
             throw LivingStillDepthRenderError.depthOutputInvalid("missing `depth` pixel buffer")
         }
@@ -1425,6 +1457,7 @@ public struct LivingStillDepthRenderer: Sendable {
         let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
         var bits = [UInt16](repeating: 0, count: width * height)
         for y in 0..<height {
+            try Task.checkCancellation()
             let row = base.advanced(by: y * rowBytes).assumingMemoryBound(to: UInt16.self)
             for x in 0..<width { bits[y * width + x] = row[x] }
         }
@@ -1532,6 +1565,9 @@ public struct LivingStillDepthRenderer: Sendable {
         writer.metadata = [metadata]
 
         guard writer.startWriting() else { throw LivingStillDepthRenderError.writerFailed(writer.error?.localizedDescription ?? "startWriting failed") }
+        defer {
+            if writer.status == .writing { writer.cancelWriting() }
+        }
         writer.startSession(atSourceTime: .zero)
         guard let pool = adaptor.pixelBufferPool else {
             writer.cancelWriting()
@@ -1575,6 +1611,7 @@ public struct LivingStillDepthRenderer: Sendable {
 
             let deadline = Date().addingTimeInterval(30)
             while !input.isReadyForMoreMediaData {
+                try Task.checkCancellation()
                 if writer.status == .failed {
                     throw LivingStillDepthRenderError.writerFailed(writer.error?.localizedDescription ?? "writer failed while waiting for input")
                 }
@@ -1592,6 +1629,7 @@ public struct LivingStillDepthRenderer: Sendable {
                 throw LivingStillDepthRenderError.writerFailed("could not allocate output frame (CoreVideo \(status))")
             }
             context.render(opaque, to: pixelBuffer, bounds: targetRect, colorSpace: colorSpace)
+            try Task.checkCancellation()
             let presentationTime = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(request.fps))
             guard adaptor.append(pixelBuffer, withPresentationTime: presentationTime) else {
                 writer.cancelWriting()
@@ -1604,9 +1642,17 @@ public struct LivingStillDepthRenderer: Sendable {
         writer.endSession(atSourceTime: endTime)
         let finished = DispatchSemaphore(value: 0)
         writer.finishWriting { finished.signal() }
-        guard finished.wait(timeout: .now() + 60) == .success else {
-            writer.cancelWriting()
-            throw LivingStillDepthRenderError.writerFailed("timed out finalizing the ProRes movie")
+        let deadline = Date().addingTimeInterval(60)
+        while finished.wait(timeout: .now() + 0.1) != .success {
+            do { try Task.checkCancellation() }
+            catch {
+                writer.cancelWriting()
+                throw error
+            }
+            guard Date() < deadline else {
+                writer.cancelWriting()
+                throw LivingStillDepthRenderError.writerFailed("timed out finalizing the ProRes movie")
+            }
         }
         guard writer.status == .completed else {
             throw LivingStillDepthRenderError.writerFailed(writer.error?.localizedDescription ?? "finishWriting did not complete")
@@ -1617,8 +1663,10 @@ public struct LivingStillDepthRenderer: Sendable {
         at url: URL,
         request: LivingStillDepthRenderRequest,
         frameCount: Int,
-        recipeDigest: String
+        recipeDigest: String,
+        observeCancellation: Bool
     ) throws -> MovieProbe {
+        if observeCancellation { try Task.checkCancellation() }
         let asset = AVURLAsset(url: url)
         let videoTracks = asset.tracks(withMediaType: .video)
         let audioTracks = asset.tracks(withMediaType: .audio)
@@ -1657,7 +1705,10 @@ public struct LivingStillDepthRenderer: Sendable {
             throw LivingStillDepthRenderError.movieVerificationFailed(reader.error?.localizedDescription ?? "reader did not start")
         }
         var countedFrames = 0
-        while let sample = output.copyNextSampleBuffer() { countedFrames += CMSampleBufferGetNumSamples(sample) }
+        while let sample = output.copyNextSampleBuffer() {
+            if observeCancellation { try Task.checkCancellation() }
+            countedFrames += CMSampleBufferGetNumSamples(sample)
+        }
         guard reader.status == .completed else {
             throw LivingStillDepthRenderError.movieVerificationFailed(reader.error?.localizedDescription ?? "reader did not finish")
         }
@@ -1700,7 +1751,13 @@ public struct LivingStillDepthRenderer: Sendable {
     ) throws -> LivingStillDepthRenderArtifact {
         do {
             _ = try root.regularFileByteCount(childName)
-            _ = try verifyMovie(at: url, request: request, frameCount: frameCount, recipeDigest: recipeDigest)
+            _ = try verifyMovie(
+                at: url,
+                request: request,
+                frameCount: frameCount,
+                recipeDigest: recipeDigest,
+                observeCancellation: false
+            )
             let hash = try root.hashRegularFile(childName, cancellationCheck: {})
             return artifact(
                 url: url,
