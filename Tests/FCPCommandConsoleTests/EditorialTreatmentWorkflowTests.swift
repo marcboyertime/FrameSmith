@@ -189,7 +189,21 @@ final class EditorialTreatmentWorkflowTests: XCTestCase {
         let mismatched = AdmittedTreatmentExecution(treatment: applied.treatment, structure: applied.structure, media: applied.media, admittedCapabilities: applied.admittedCapabilities, constructionSignature: applied.constructionSignature, channels: AdmittedChannelSnapshot(channels: altered), cards: applied.cards, contract: applied.contract, registryEffectID: applied.registryEffectID, registryDigest: applied.registryDigest, emitterAvailable: true)
         let evidence = try XCTUnwrap(AdmittedLocalMediaEvidence(admittedAssets: [still]))
         let builder = StandaloneFCPXMLExportBuilder(gate: CapabilityGate(manualSemanticsEvidence: .init(admittedContracts: FinalCutSemanticProfileStore.finalCut12_3_450152.admittedContracts)), outputRoot: URL(fileURLWithPath: "/tmp/editorial-mismatch-\(UUID().uuidString)"), registry: try registry())
-        XCTAssertThrowsError(try builder.export(admitted: mismatched, mediaEvidence: evidence, installedFinalCut: FinalCutVersionIdentity(shortVersion: "12.3", build: "450152"))) { error in
+        // The channel mismatch is checked before the supplied preview can be
+        // revalidated. A deliberately unusable preview keeps this regression
+        // focused on that earlier fail-closed boundary.
+        let unusablePreview = AdmittedTreatmentPreview(
+            optionID: applied.treatment.optionID,
+            structureFingerprint: applied.structure.fingerprint,
+            constructionSignature: applied.treatment.constructionSignature,
+            admittedExecutionDigest: applied.constructionSignature,
+            registryDigest: applied.registryDigest,
+            inputSnapshotDigest: "unusable",
+            profile: .exactPreparedTreatment,
+            representation: .native(applied.channels),
+            artifactDigest: "unusable"
+        )
+        XCTAssertThrowsError(try builder.export(admitted: mismatched, mediaEvidence: evidence, preview: unusablePreview, installedFinalCut: FinalCutVersionIdentity(shortVersion: "12.3", build: "450152"))) { error in
             guard case .admittedArtifactMismatch = error as? StandaloneExportError else { return XCTFail("expected channel mismatch refusal, got \(error)") }
         }
     }

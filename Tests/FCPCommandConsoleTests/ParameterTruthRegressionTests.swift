@@ -150,7 +150,7 @@ final class ParameterTruthRegressionTests: XCTestCase {
         let gate = CapabilityGate(manualSemanticsEvidence: FinalCutSemanticProfileStore.finalCut12_3_450152.evidence(forInstalled: installed))
         let outputRoot = scratch.appendingPathComponent("out", isDirectory: true)
         let builder = StandaloneFCPXMLExportBuilder(gate: gate, outputRoot: outputRoot, registry: driftedRegistry)
-        XCTAssertThrowsError(try builder.export(plan: plan, media: [.primary: media], mediaEvidence: evidence, installedFinalCut: installed))
+        XCTAssertThrowsError(try builder.export(plan: plan, media: [.primary: media], mediaEvidence: evidence, construction: .native, installedFinalCut: installed))
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputRoot.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputRoot.appendingPathComponent(plan.operationID.uuidString).path))
     }

@@ -174,7 +174,6 @@ final class StandaloneExportAndProfileTests: XCTestCase {
         StandaloneFCPXMLExportBuilder(
             gate: admittedGate(),
             outputRoot: fixture.root.appendingPathComponent("exports", isDirectory: true),
-            renderCacheRoot: fixture.root.appendingPathComponent("renders", isDirectory: true),
             fcpxmlVersion: fcpxmlVersion,
             registry: try? registry()
         )
@@ -417,7 +416,7 @@ final class StandaloneExportAndProfileTests: XCTestCase {
             plan: fixture.plan,
             media: fixture.media,
             mediaEvidence: fixture.evidence,
-            preparedRenderedAsset: prepared,
+            construction: .rendered(prepared),
             installedFinalCut: testedBuild
         )) { error in
             guard case .capabilityRefused(let reason) = error as? StandaloneExportError else {
@@ -430,7 +429,7 @@ final class StandaloneExportAndProfileTests: XCTestCase {
             plan: fixture.plan,
             media: fixture.media,
             mediaEvidence: fixture.evidence,
-            preparedRenderedAsset: prepared,
+            construction: .rendered(prepared),
             installedFinalCut: FinalCutVersionIdentity(shortVersion: "12.3", build: "450153")
         )) { error in
             guard case .capabilityRefused(let reason) = error as? StandaloneExportError else {
@@ -458,6 +457,7 @@ final class StandaloneExportAndProfileTests: XCTestCase {
             plan: nativePlan,
             media: fixture.media,
             mediaEvidence: fixture.evidence,
+            construction: .native,
             installedFinalCut: FinalCutVersionIdentity(shortVersion: "99.0", build: "unprofiled")
         )
         XCTAssertNil(package.renderedAssetSHA256)
@@ -483,7 +483,7 @@ final class StandaloneExportAndProfileTests: XCTestCase {
                 plan: fixture.plan,
                 media: fixture.media,
                 mediaEvidence: fixture.evidence,
-                preparedRenderedAsset: prepared,
+                construction: .rendered(prepared),
                 installedFinalCut: testedBuild
             ), dimension) { error in
                 guard case .admittedArtifactMismatch = error as? StandaloneExportError else {
@@ -669,7 +669,7 @@ final class StandaloneExportAndProfileTests: XCTestCase {
             plan: fixture.plan,
             media: [.primary: forgedExactContext],
             mediaEvidence: evidence,
-            preparedRenderedAsset: prepared,
+            construction: .rendered(prepared),
             installedFinalCut: testedBuild
         )) { error in
             guard case .capabilityRefused(let reason) = error as? StandaloneExportError else {
