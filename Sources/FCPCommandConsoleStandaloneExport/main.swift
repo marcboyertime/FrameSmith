@@ -269,7 +269,7 @@ struct FCPCommandConsoleStandaloneExportCLI {
         switch effectID {
         case .livingStill: return "Make this a living still."
         case .targetedRotateZoom: return "Give this image a slow clockwise rotation while zooming toward the point I select."
-        case .naturalDissolve: return "Put a natural dissolve between these two clips."
+        case .naturalDissolve: return "Use a natural dissolve."
         case .oldTelevision: return "Give this an old television look."
         }
     }
@@ -277,8 +277,9 @@ struct FCPCommandConsoleStandaloneExportCLI {
     private static var usage: String {
         """
         usage: fcpcommandconsole-standalone-export --media PATH [--second-media PATH]
-                                                  [--effect motion.living_still|native.targeted_rotate_zoom]
+                                                  [--effect motion.living_still|native.targeted_rotate_zoom|transition.natural_dissolve|look.old_television]
                                                   [--request TEXT] [--target-x N] [--target-y N]
+                                                  [--dissolve-frames N]
                                                   [--registry PATH]
 
         Generates a NEW Final Cut project from admitted local media and writes a
