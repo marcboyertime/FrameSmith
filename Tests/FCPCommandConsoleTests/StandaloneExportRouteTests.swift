@@ -79,9 +79,9 @@ final class StandaloneExportRouteTests: XCTestCase {
     private func makeAsset() throws -> LocalMediaAsset {
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         let url = scratch.appendingPathComponent("still.png")
-        // This is a complete, decodable 1 x 1 RGBA PNG. The export route now
-        // performs the production depth render, so arbitrary placeholder bytes
-        // would stop before exercising that path.
+        // Keep the source fixture complete and decodable. Renderer integration
+        // is covered separately; this route suite injects a sealed prepared
+        // asset so it stays hermetic and never downloads a model in CI.
         let png = try XCTUnwrap(Data(base64Encoded:
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         ))
@@ -139,13 +139,27 @@ final class StandaloneExportRouteTests: XCTestCase {
         plan: EffectPlan,
         media: [LocalMediaRole: LocalMediaAsset]
     ) throws -> StandaloneExportConstruction {
-        let emitter = try XCTUnwrap(
-            StandaloneEmitterCatalog().emitter(for: plan.effectID) as? any StandaloneRenderedEffectEmitter
-        )
-        let asset = try emitter.prepareRenderedAsset(
-            plan: plan,
-            media: media,
-            outputRoot: scratch.appendingPathComponent("renders", isDirectory: true)
+        let primary = try XCTUnwrap(media[.primary])
+        let renderRoot = scratch.appendingPathComponent("renders", isDirectory: true)
+        try FileManager.default.createDirectory(at: renderRoot, withIntermediateDirectories: true)
+        let movie = renderRoot.appendingPathComponent("prepared-test.mov")
+        try Data("sealed prepared movie bytes for export-route tests".utf8).write(to: movie)
+        let duration = try XCTUnwrap(plan.parameters["durationSeconds"]?.numberValue)
+        let fps = Int(try XCTUnwrap(plan.parameters["fps"]?.numberValue))
+        let asset = RenderedEffectAsset(
+            url: movie,
+            sha256: try ContentHasher.sha256File(movie),
+            constructionDigest: try RenderedConstructionIdentity.digest(plan: plan, media: media),
+            rendererRecipeDigest: String(repeating: "e", count: 64),
+            sourceSHA256: primary.sha256,
+            width: 1920,
+            height: 1080,
+            fps: fps,
+            frameCount: Int((duration * Double(fps)).rounded()),
+            durationSeconds: duration,
+            videoFormat: .proRes422HQ10Bit,
+            videoOnly: true,
+            provenance: ["renderer": "hermetic-export-route-fixture"]
         )
         return .rendered(asset)
     }

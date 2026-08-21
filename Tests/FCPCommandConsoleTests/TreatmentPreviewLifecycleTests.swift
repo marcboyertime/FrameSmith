@@ -6,6 +6,36 @@ private actor PreviewWorkerCounter {
     func record() { calls += 1 }
 }
 
+private actor PreviewWorkerGate {
+    private var started = false
+    private var released = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func waitForRelease() async {
+        if !started {
+            started = true
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+        }
+        if released { return }
+        await withCheckedContinuation { releaseWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+}
+
 final class TreatmentPreviewLifecycleTests: XCTestCase {
     private var scratch: URL!
 
@@ -242,15 +272,17 @@ final class TreatmentPreviewLifecycleTests: XCTestCase {
     func testDurableResultAfterDeselectIsClassifiedStaleNotReady() async throws {
         let execution = try admittedRenderedExecution()
         let asset = try preparedAsset(for: execution)
+        let gate = PreviewWorkerGate()
         let worker = TreatmentPreviewPreparationWorker { _ in
             // Simulate crossing the renderer's durable publication point.
-            try? await Task.sleep(for: .milliseconds(80))
+            await gate.waitForRelease()
             return asset
         }
         let coordinator = TreatmentPreviewPreparationCoordinator(worker: worker)
         let task = Task { try await coordinator.prepare(execution) }
-        try await Task.sleep(for: .milliseconds(15))
+        await gate.waitUntilStarted()
         await coordinator.deselect(execution.treatment.optionID)
+        await gate.release()
         let terminal = try await task.value
         let state = await coordinator.state(for: execution.treatment.optionID)
         let staleCount = await coordinator.durableStaleArtifactCount
@@ -263,17 +295,20 @@ final class TreatmentPreviewLifecycleTests: XCTestCase {
         let execution = try admittedRenderedExecution()
         let asset = try preparedAsset(for: execution)
         let counter = PreviewWorkerCounter()
+        let gate = PreviewWorkerGate()
         let worker = TreatmentPreviewPreparationWorker { _ in
             await counter.record()
             // Crossing the durable boundary makes cancellation non-destructive;
             // generation ownership still decides which waiter may publish UI state.
-            try? await Task.sleep(for: .milliseconds(80))
+            await gate.waitForRelease()
             return asset
         }
         let coordinator = TreatmentPreviewPreparationCoordinator(worker: worker)
         let older = Task { try await coordinator.prepare(execution) }
-        try await Task.sleep(for: .milliseconds(15))
+        await gate.waitUntilStarted()
+        await coordinator.deselect(execution.treatment.optionID)
         let newer = Task { try await coordinator.prepare(execution) }
+        await gate.release()
 
         let oldResult = try await older.value
         let newResult = try await newer.value
