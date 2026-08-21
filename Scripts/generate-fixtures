@@ -3,11 +3,11 @@ set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 
 if [[ "$#" -ne 0 ]]; then
-  print -u2 -r -- "usage: scripts/generate-fixtures (no arguments)"
+  print -u2 -r -- "usage: Scripts/generate-fixtures (no arguments)"
   exit 2
 fi
 
-readonly RUNTIME_ROOT="/Users/marcboyer/Movies/FCPCommandConsole"
+readonly RUNTIME_ROOT="${HOME}/Movies/FCPCommandConsole"
 readonly FIXTURE_ROOT="$RUNTIME_ROOT/fixtures"
 readonly SCRIPT_DIR="${0:A:h}"
 readonly AUDIT_SCRIPT="$SCRIPT_DIR/audit-fixtures.py"

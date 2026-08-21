@@ -1,4 +1,25 @@
-# FrameSmith Handoff (for Claude)
+# FrameSmith handoff
+
+## Current checkpoint — truthful rendered comparison
+
+Start with `STATUS.md`, `docs/ADMITTED_PREVIEW_ARTIFACT_LIFECYCLE.md`, and
+`docs/SCHEMA_V3_COMPOSITION_DESIGN.md`. Current work lives on the
+`codex/truthful-rendered-comparison` feature branch until it is reviewed into
+`standalone-app`.
+
+The key production invariant is now explicit: treatment admission is cheap,
+rendered preview preparation is a separate per-option phase, and export can
+only consume an already admitted preview construction. Rendered A/B/C tiles
+show exact prepared movie frames on one shared integer clock; native tiles use
+exact admitted channels. There is no rendered-to-native poster fallback and no
+hidden export render. Slider gestures draft locally and commit once.
+
+The current follow-on is schema-v3 composition core design and implementation,
+but this checkpoint intentionally does not implement schema v3. Do not revive
+the historical Living Still model-acquisition or Old Television native-overlay
+queues below.
+
+## Archived 2026-08-04 handoff
 
 > **Historical checkpoint:** This 2026-08-04 handoff predates the production
 > rendered-effect path. Do not use its native Living Still/Old Television route

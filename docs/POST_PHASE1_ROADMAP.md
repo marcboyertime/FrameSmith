@@ -11,6 +11,15 @@ canonical 12-frame Natural Dissolve route remains construction-tested and still
 needs a fresh real-Final-Cut import. Future work remains quality-first and must
 retain the same evidence split between pixels, construction, and deployment.
 
+**Truthful rendered comparison checkpoint complete in source:** rendered
+options now own admitted per-option preview artifacts, A/B/C uses one shared
+frame transport, rendered export cannot render, continuous controls use
+draft/commit semantics, and preparation is bounded, deduplicated, cancellable,
+and latest-generation safe. The next implementation package is the schema-v3
+composition core described in `docs/SCHEMA_V3_COMPOSITION_DESIGN.md`; it begins
+only after this branch's installed-app evidence, dissolve pass/blocker, CI, and
+review are sealed.
+
 The repository is still named `FCPCommandConsole`. **FrameSmith** is the product
 name used throughout this document; renaming is a Phase A chore, not a
 prerequisite.
@@ -221,7 +230,7 @@ numeric drafts and patches atomically, and supports reset/reset-all to the
 original baseline. Bounds and exposure come from registry metadata, not a UI
 guess based on parameter presence.
 
-### A6. Effect stacking in one plan
+### A6. Effect stacking in one plan — next package
 
 The schema currently carries one `effectID` per plan. Stacking requires an
 ordered list with defined composition semantics — and an answer to what happens
@@ -229,6 +238,9 @@ when two primitives touch the same channel.
 
 **This is a schema change.** Treat it as schema v3 with the same migration
 discipline v2 got: legacy plans quarantined, not silently reinterpreted.
+The current design boundary is recorded in
+`docs/SCHEMA_V3_COMPOSITION_DESIGN.md`; no graph types or schema-v3 runtime were
+implemented by the truthful-comparison checkpoint.
 
 ### A7. Versioning: duplicate, regenerate, restore, history
 

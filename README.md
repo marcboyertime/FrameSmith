@@ -17,6 +17,19 @@ Television v2 use the shared rendered-effect path: the unchanged source stays
 on the spine, one opaque video-only ProRes 422 HQ treatment movie is connected
 above it, and preview/export consume the exact same SHA-256-bound file.
 
+Rendered comparison is artifact-backed. Each A/B/C option prepares and admits
+its own exact movie, and all selected tiles resolve one shared integer frame
+index. A rendered tile never substitutes neutral native channels, an untreated
+poster, or stale pixels; missing or drifted bytes are shown as a refusal with a
+retry path. Native options continue to use their exact admitted channels.
+
+Export is a strict second phase. It accepts either a native construction or an
+already prepared rendered artifact; the export builder has no render fallback.
+The installed app previews the prepared asset and passes those exact
+checksum-verified bytes to project export. Continuous slider changes remain
+local drafts and create one authoritative revision and render request when the
+gesture commits.
+
 Living Still v2 runs one local inference with Apple's Core ML Depth Anything V2
 Small FP16 model pinned to revision
 `cfef6f6f2a70783dedc0bfae40cecbc2052285d3` (Apache-2.0), then reuses the
@@ -95,4 +108,5 @@ transformed/interlaced/VFR movies, and audio-layout drift are refused.
 
 See [STATUS.md](STATUS.md), [docs/PARAMETER_LIVENESS.md](docs/PARAMETER_LIVENESS.md),
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and
-[docs/POST_PHASE1_ROADMAP.md](docs/POST_PHASE1_ROADMAP.md).
+[docs/ADMITTED_PREVIEW_ARTIFACT_LIFECYCLE.md](docs/ADMITTED_PREVIEW_ARTIFACT_LIFECYCLE.md),
+and [docs/POST_PHASE1_ROADMAP.md](docs/POST_PHASE1_ROADMAP.md).

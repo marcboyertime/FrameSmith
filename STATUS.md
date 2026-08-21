@@ -2,8 +2,9 @@
 
 ## Current checkpoint — 2026-08-21
 
-FrameSmith is the product name. Internal repository, package, bundle, and
-legacy command identifiers remain stable for compatibility.
+FrameSmith is the product name. The repository is public and the product is
+local-first; package, bundle, and legacy command identifiers remain stable for
+compatibility.
 
 The director-control contract remains a tested runtime invariant. FrameSmith
 may change treatment pixels and parameters, but it may not replace, omit,
@@ -16,6 +17,27 @@ validated and 11 reference-only**. `motion.opacity.fade.v1` is deliberately
 reference-only after retirement of the v1 Living Still opacity route. A card is
 validated only when its implementation, representative visual review, and
 construction evidence are all present.
+
+## Truthful rendered comparison checkpoint
+
+The A/B/C path now has a sealed preview-artifact lifecycle. Each admitted
+treatment owns either exact native channels or its own checksum-bound prepared
+movie. Rendered options are prepared per option/construction by a bounded actor
+coordinator with content deduplication, serial heavy work, cooperative
+cancellation, latest-generation ownership, and a three-option comparison cap.
+All tiles resolve one shared integer frame index; a rendered tile cannot fall
+back to neutral native channels, an untreated poster, or stale pixels.
+
+Standalone export now accepts an explicit native or prepared-rendered
+construction and has no renderer invocation path. Missing rendered bytes refuse
+before output-root creation. The app previews an admitted rendered artifact and
+passes that same asset to export, where its identity and file hash are checked
+again. Slider ticks remain local drafts and emit at most one authoritative
+revision and render request when the gesture commits.
+
+Architecture and next-milestone design are in
+`docs/ADMITTED_PREVIEW_ARTIFACT_LIFECYCLE.md` and
+`docs/SCHEMA_V3_COMPOSITION_DESIGN.md`.
 
 ## Production effects
 
@@ -150,9 +172,11 @@ layering, or another Final Cut version.
 The release build is installed at
 `/Users/marcboyer/Applications/FrameSmith.app`. Its ad-hoc signature, bundle ID
 `com.marcboyer.FCPCommandConsole`, icon, 15 technique cards, registry, model
-manifest, and schemas were verified against this checkout. The complete Swift
-suite passed **379 tests with zero failures**, and the strict catalog audit
-passed with 4 validated and 11 reference-only cards.
+manifest, and schemas were verified against the earlier v2 checkout. The
+current truthful-comparison source suite passes **387 tests with zero
+failures**; the installed observations below will be refreshed against the
+current commit before this checkpoint is sealed. The strict catalog audit
+passes with 4 validated and 11 reference-only cards.
 
 The installed app completed both rendered workflows against the admitted
 1920×1080 still fixture. Living Still produced and exported SHA-256

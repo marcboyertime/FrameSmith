@@ -8,8 +8,10 @@ import Darwin
 /// produces the four spent dissolve probes, and those packages are evidence.
 @main
 struct FCPCommandConsoleLivingStillProbeCLI {
-    private static let defaultFixtureRoot = "/Users/marcboyer/Movies/FCPCommandConsole/fixtures"
-    private static let defaultExportRoot = "/Users/marcboyer/Movies/FCPCommandConsole/exports/living-still-probes"
+    private static let runtimeRoot = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Movies/FCPCommandConsole", isDirectory: true)
+    private static let defaultFixtureRoot = runtimeRoot.appendingPathComponent("fixtures").path
+    private static let defaultExportRoot = runtimeRoot.appendingPathComponent("exports/living-still-probes").path
 
     static func main() {
         do {

@@ -1,0 +1,36 @@
+name: FrameSmith CI
+
+on:
+  push:
+    branches: [standalone-app]
+  pull_request:
+    branches: [standalone-app]
+
+permissions:
+  contents: read
+
+jobs:
+  source-audit:
+    name: Source contract audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit registry, schemas, and public source contracts
+        run: python3 Scripts/audit-core.py
+
+  swift-build-test:
+    name: Swift build and test
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: State the evidence boundary
+        if: always()
+        run: |
+          echo "CI proves source audit, compilation, and hermetic tests only."
+          echo "It does not launch Final Cut, establish Final Cut semantic acceptance, or establish visual quality."

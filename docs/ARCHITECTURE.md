@@ -1,4 +1,38 @@
-# Standalone architecture
+# FrameSmith architecture
+
+## Current production path — 2026-08-21
+
+The current product is a local-first SwiftUI application with a public source
+repository. Local media is admitted read-only, planned as schema-v2 effects,
+validated against the registry and director-control lock, and prepared for
+truthful preview before a new-project export can begin.
+
+```text
+local media admission
+  -> schema-v2 effect/treatment admission
+  -> per-option preview preparation coordinator
+  -> sealed native channels or exact rendered movie artifact
+  -> shared integer-frame comparison transport
+  -> explicit native/prepared-rendered export construction
+  -> new-project FCPXML package
+```
+
+Rendered preview ownership is per admitted option and construction identity,
+not one global movie slot. Preparation is bounded, serial for heavy local
+renderers, content-deduplicated, cooperative-cancellation aware, and guarded by
+latest-generation ownership. Native and rendered representations are distinct
+core enum cases. The comparison UI cannot route a rendered treatment through
+the native `EffectPoster` path.
+
+Export never renders. It requires an explicit `StandaloneExportConstruction`;
+rendered construction carries the previously previewed `RenderedEffectAsset`
+whose file hash, source/context, plan, recipe, geometry, timing, codec, and
+video-only facts are revalidated before any output root or staging directory is
+created. See `docs/ADMITTED_PREVIEW_ARTIFACT_LIFECYCLE.md` for the complete
+contract and `docs/SCHEMA_V3_COMPOSITION_DESIGN.md` for the next design-only
+milestone.
+
+## Archived original standalone-planner architecture
 
 > **Current-path notice (2026-08-08):** This page records the original inert-
 > planner architecture and is retained for historical context. The production
